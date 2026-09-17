@@ -23,8 +23,12 @@ board.html     the board, vanilla JS
 test_core.py   assert-based self-check
 ```
 
-Run: `uv run uvicorn app:app --host 127.0.0.1`
-Agent hookup: `claude mcp add --transport http tickets http://127.0.0.1:8000/mcp`
+Run: `uv run uvicorn app:app --host 127.0.0.1 --port 8123`
+Agent hookup: `claude mcp add --transport http tickets http://127.0.0.1:8123/mcp`
+
+Port 8000 is already in use on this machine by something else, so the default would
+fail to bind. 8123 is what the end-to-end run used; any free port works, as long as the
+`claude mcp add` URL matches.
 
 ### Why no FastAPI
 
@@ -123,9 +127,25 @@ persisted in `localStorage` supplies `actor` on every write, and a project `<sel
 | 1 | `core.py` + `test_core.py` | done — 17 checks |
 | 2 | `app.py` — MCP tools + HTTP routes | done |
 | 3 | `board.html` — drag & drop board | done |
-| 4 | end-to-end verification | next |
+| 4 | end-to-end verification | done |
 
 Gate for every task: `uv run python test_core.py`
+
+## End-to-end result (task 4)
+
+A human dragged a card with the mouse, then an agent moved it further over MCP,
+assigned it and commented — one card, one attributed history:
+
+```
+ce           created   {'title': 'Verify the real mouse drag', 'lane': 'develop'}
+ce           moved     develop -> test          <- real mouse drag
+claude-agent moved     test -> verify           <- over MCP
+claude-agent assigned  None -> ce
+claude-agent comment   'Dragged by hand, verified by agent. Shared state works.'
+```
+
+Both actors self-registered. That shared, attributed state is the whole point of the
+system, and it works across both surfaces.
 
 ## Deliberately skipped
 
@@ -160,9 +180,7 @@ Field → kind: `lane` → `moved`, `assignee` → `assigned`, everything else �
 - No `DELETE /api/cards/{id}` and no delete in `core` — cards are forever. Decide in use
   whether a board with no way to remove a mistake is actually tolerable.
 - `GET /api/cards` returns every match, unpaginated, by design.
-- **The native drag gesture is not machine-verified.** CDP cannot start Chrome's real
-  drag session, so the board's drop path was exercised by dispatching real `DragEvent`s
-  with a `DataTransfer` — the page's own handlers, a real PATCH, a real re-render. Cards
-  do carry `draggable=true`, so this is very likely fine, but a human dragging with a
-  mouse is the only true check. Confirm it once by hand.
+- ~~Native drag unverified~~ — **resolved in task 4.** A real `left_click_drag` in
+  Chrome moved a card between lanes and the server recorded the `moved` event. The
+  native gesture works.
 - Panel is a fixed 460px single column: fine on a laptop, cramped on a phone.
