@@ -122,8 +122,8 @@ persisted in `localStorage` supplies `actor` on every write, and a project `<sel
 | 0 | scaffold: git, gitignore, pyproject, PLAN.md | done |
 | 1 | `core.py` + `test_core.py` | done — 17 checks |
 | 2 | `app.py` — MCP tools + HTTP routes | done |
-| 3 | `board.html` — drag & drop board | next |
-| 4 | end-to-end verification | queued |
+| 3 | `board.html` — drag & drop board | done |
+| 4 | end-to-end verification | next |
 
 Gate for every task: `uv run python test_core.py`
 
@@ -160,3 +160,9 @@ Field → kind: `lane` → `moved`, `assignee` → `assigned`, everything else �
 - No `DELETE /api/cards/{id}` and no delete in `core` — cards are forever. Decide in use
   whether a board with no way to remove a mistake is actually tolerable.
 - `GET /api/cards` returns every match, unpaginated, by design.
+- **The native drag gesture is not machine-verified.** CDP cannot start Chrome's real
+  drag session, so the board's drop path was exercised by dispatching real `DragEvent`s
+  with a `DataTransfer` — the page's own handlers, a real PATCH, a real re-render. Cards
+  do carry `draggable=true`, so this is very likely fine, but a human dragging with a
+  mouse is the only true check. Confirm it once by hand.
+- Panel is a fixed 460px single column: fine on a laptop, cramped on a phone.
