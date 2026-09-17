@@ -90,10 +90,22 @@ caller has to remember.
 
 ## MCP tools (`app.py`)
 
-`list_cards` · `get_card` · `create_card` · `update_card` · `comment` · `link_cards`
+`list_cards` · `get_card` · `create_card` · `update_card` · `comment` · `link_cards` ·
+`unlink_cards`
 
 Docstrings state the lane order and that `actor` identifies the caller — they are the
-agent's only instruction manual.
+agent's only instruction manual, so they carry more weight than the code around them.
+**An f-string is not a docstring**: written that way, `__doc__` is `None` and the tools
+ship to agents with no description while everything still appears to work. The lane
+order is therefore spelled out literally, and a module-level `assert` at the bottom of
+`app.py` fails the import if it drifts from `core.LANES` — that rename has already
+happened once here.
+
+Two decorators carry the error contract, so no handler or tool has its own try/except:
+`route()` maps `NotFound` → 404 and `ValueError`/`TypeError` → 400; `tool()` converts the
+same core exceptions to `ToolError`, which is what puts the reason in front of the agent.
+Without it the SDK masks a `ValueError` as a bare "Error executing tool X" — useless to
+an agent expected to correct itself.
 
 ## Board (`board.html`)
 
@@ -109,8 +121,8 @@ persisted in `localStorage` supplies `actor` on every write, and a project `<sel
 |---|------|-------|
 | 0 | scaffold: git, gitignore, pyproject, PLAN.md | done |
 | 1 | `core.py` + `test_core.py` | done — 17 checks |
-| 2 | `app.py` — MCP tools + HTTP routes | next |
-| 3 | `board.html` — drag & drop board | queued |
+| 2 | `app.py` — MCP tools + HTTP routes | done |
+| 3 | `board.html` — drag & drop board | next |
 | 4 | end-to-end verification | queued |
 
 Gate for every task: `uv run python test_core.py`
@@ -142,3 +154,9 @@ Field → kind: `lane` → `moved`, `assignee` → `assigned`, everything else �
   existing table. A `tickets.db` predating a schema change must be deleted, not migrated.
 - `NOCASE` folds ASCII only, so `Ärende` and `ärende` list as two projects. Upgrade is a
   normalised `project_key` column, if it ever matters.
+- The MCP `update_card` tool cannot unassign a card: it filters `None` to mean "not
+  passed", so there is no way to say "set to nobody". `PATCH {"assignee": null}` over
+  HTTP can. Needs a sentinel if an agent should be able to unassign.
+- No `DELETE /api/cards/{id}` and no delete in `core` — cards are forever. Decide in use
+  whether a board with no way to remove a mistake is actually tolerable.
+- `GET /api/cards` returns every match, unpaginated, by design.
