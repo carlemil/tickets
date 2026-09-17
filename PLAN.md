@@ -8,7 +8,7 @@ drives over MCP, sharing one SQLite file. Cards record who did what.
 
 ## Lanes
 
-`todo → plan → develop → test → review → done`
+`todo → plan → develop → test → verify → done`
 
 A single `LANES` constant in `core.py`. Renaming or reordering is a one-line change.
 
@@ -41,7 +41,7 @@ example found online needs translating.
 
 ```sql
 users(id, name UNIQUE)
-cards(id, title, description, lane, assignee, created_by,
+cards(id, project, title, description, lane, assignee, created_by,
       created_at, updated_at, priority, labels, checklist)
 events(id, card_id, actor, kind, detail, at)     -- append-only
 links(from_id, to_id, kind)                      -- kind: 'parent' | 'blocks'
@@ -51,28 +51,42 @@ links(from_id, to_id, kind)                      -- kind: 'parent' | 'blocks'
 - **`events` is both the activity log and the comment store.** Every mutation appends a
   row (`created` | `moved` | `assigned` | `edited` | `checked` | `comment` | `linked`)
   carrying the `actor`. That one table answers "who did what".
+- `project` is a free-text string on the card, not a table. `list_projects()` is a
+  `SELECT DISTINCT` — that gives the board a dropdown without a second table to manage.
+  Matching in filters is case-insensitive; the stored casing is preserved for display.
+  Default is `DEFAULT_PROJECT = "inbox"` so a card always belongs somewhere.
 - `updated_at` is denormalised onto cards so the board sorts without a join.
 - WAL mode, one connection per request.
 
 ## Operations (`core.py`)
 
-`list_cards(lane, assignee, label)` · `get_card(id)` · `create_card(...)` ·
+`list_cards(project, lane, assignee, label)` · `get_card(id)` · `create_card(...)` ·
 `update_card(id, actor, **fields)` · `comment(id, actor, text)` ·
-`link_cards(from_id, to_id, kind, actor)` · `list_users()` / `ensure_user(name)`
+`link_cards(from_id, to_id, kind, actor)` / `unlink_cards(...)` ·
+`list_users()` / `ensure_user(name)` · `list_projects()`
 
 `update_card` is one function covering move-lane, assign, retitle, edit body and tick
 checklist. It diffs old against new and writes one event per changed field — that is
 what makes the audit trail free instead of something every caller must remember. Every
 card write goes through it; no route or tool writes SQL.
 
-Rejects: a lane not in `LANES`, a priority not in `low|med|high`, a self-link, an
-unknown card id.
+Rejects: a lane not in `LANES`, a priority not in `low|med|high`, a link kind not in
+`parent|blocks`, a self-link, an unknown field name, an unknown card id.
+
+**Idempotence rule.** "Already in that state" is a silent no-op that writes no event — a
+no-op update, a repeat link, an unlink of an absent link. "Not a valid thing" is a
+`ValueError`. The activity log therefore holds one event per actual state change, which
+is what makes it trustworthy. HTTP maps `NotFound` → 404, `ValueError` → 400.
+
+Actors self-register: `_event()` is the choke point every mutation passes through, so it
+does an `INSERT OR IGNORE` into `users`. The board's dropdown self-populates and no
+caller has to remember.
 
 ## HTTP routes (`app.py`)
 
 `GET /` → board.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
 `POST /api/cards` · `POST /api/cards/{id}/comment` · `POST|DELETE /api/links` ·
-`GET /api/users`. Every write body carries `actor`.
+`GET /api/users` · `GET /api/projects`. Every write body carries `actor`.
 
 ## MCP tools (`app.py`)
 
@@ -86,15 +100,16 @@ agent's only instruction manual.
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
 `drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: description,
 priority, labels, checklist, links, activity log, comment box. A "you are:" `<select>`
-persisted in `localStorage` supplies `actor` on every write.
+persisted in `localStorage` supplies `actor` on every write, and a project `<select>`
+(also persisted) filters the board — an agent and a human both scope to one project.
 
 ## Status
 
 | # | Task | State |
 |---|------|-------|
 | 0 | scaffold: git, gitignore, pyproject, PLAN.md | done |
-| 1 | `core.py` + `test_core.py` | next |
-| 2 | `app.py` — MCP tools + HTTP routes | queued |
+| 1 | `core.py` + `test_core.py` | done — 17 checks |
+| 2 | `app.py` — MCP tools + HTTP routes | next |
 | 3 | `board.html` — drag & drop board | queued |
 | 4 | end-to-end verification | queued |
 
@@ -105,6 +120,25 @@ Gate for every task: `uv run python test_core.py`
 Auth · live refresh over WebSocket (reload the page) · attachments · search.
 Auth comes first, and before anything binds off loopback.
 
+## Event detail shapes
+
+`events.detail` is always a JSON object, parsed to a dict by `get_card`. The renderer
+needs five branches:
+
+| kind | detail |
+|---|---|
+| `created` | `{"title", "lane"}` |
+| `moved` / `assigned` / `edited` | `{"field", "from", "to"}` |
+| `checked` | `{"text", "done"}` |
+| `comment` | `{"text"}` |
+| `linked` / `unlinked` | `{"to", "kind"}` |
+
+Field → kind: `lane` → `moved`, `assignee` → `assigned`, everything else → `edited`.
+`from`/`to` carry real values, so for `labels` they are lists, not strings.
+
 ## Follow-ups
 
-_(none yet)_
+- No migrations by design: `CREATE TABLE IF NOT EXISTS` will not add a column to an
+  existing table. A `tickets.db` predating a schema change must be deleted, not migrated.
+- `NOCASE` folds ASCII only, so `Ärende` and `ärende` list as two projects. Upgrade is a
+  normalised `project_key` column, if it ever matters.
