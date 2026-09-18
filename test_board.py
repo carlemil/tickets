@@ -339,3 +339,36 @@ def test_a_stale_card_does_not_roll_back_the_board(page):
     page.evaluate("""() => { const c = cards[0];
         replace({...c, title: "stale title", updated_at: "2000-01-01T00:00:00+00:00"}); }""")
     assert page.text_content(".card .t") == "fresh title"
+
+
+def test_a_landed_comment_does_not_reopen_a_dismissed_panel(page):
+    """The comment path set `open` and re-rendered unconditionally, so closing the panel
+    while a comment was in flight brought the panel back when the response landed."""
+    cid = add_card(page, "comment then close")
+    page.wait_for_function("() => window.__inflight === 0")
+    page.evaluate("""const original = window.fetch;
+        window.fetch = (...a) => original(...a).then(r => new Promise(ok => setTimeout(() => ok(r), 500)))""")
+    page.fill("#panel textarea >> nth=1", "sent while closing")
+    page.click("#panel button:has-text('comment')")
+    page.click("#panel .close.primary")
+    assert page.locator("#panel.on").count() == 0, "dismissed"
+    page.wait_for_function("() => window.__inflight === 0")    # the comment response has landed
+    assert page.locator("#panel.on").count() == 0, "a landed comment reopened a dismissed panel"
+    assert core.get_card(cid)["events"][-1]["detail"] == {"text": "sent while closing"}, \
+        "the guard must suppress the re-render, not the write"
+
+
+def test_a_landed_comment_does_not_hijack_another_open_card(page):
+    other = core.create_card("other", actor="ce")
+    cid = add_card(page, "commented on")
+    page.wait_for_function("() => window.__inflight === 0")
+    page.evaluate("""const original = window.fetch;
+        window.fetch = (url, o) => original(url, o).then(r => String(url).includes('/comment')
+            ? new Promise(ok => setTimeout(() => ok(r), 500)) : r)""")
+    page.fill("#panel textarea >> nth=1", "for the first card")
+    page.click("#panel button:has-text('comment')")
+    page.evaluate(f"openCard({other['id']})")
+    page.wait_for_function(f"() => open && open.id === {other['id']}")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.evaluate("open.id") == other["id"], "the comment response switched the panel back"
+    assert core.get_card(cid)["events"][-1]["detail"] == {"text": "for the first card"}

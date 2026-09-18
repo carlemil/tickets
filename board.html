@@ -456,7 +456,7 @@ function renderPanel() {
     try {
       const card = await api("POST", `/api/cards/${c.id}/comment`, { text: box.value.trim() });
       replace(card);
-      if (stale(card)) return;
+      if (open?.id !== card.id || stale(card)) return;   // closed or switched meanwhile
       open = card;
       renderPanel();
     } catch (e) { showErr(e.message); }
