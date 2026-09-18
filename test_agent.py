@@ -177,7 +177,9 @@ def test_run_claude_uses_stdin_and_read_only_planning(monkeypatch, tmp_path):
     assert "--dangerously-skip-permissions" not in got["cmd"]
     assert "Ärende" in got["input"] and got["cwd"] == tmp_path
     agent.run_claude({"lane": "develop", "id": 7}, tmp_path)
-    assert "--dangerously-skip-permissions" in got["cmd"]
+    assert got["cmd"][-2:] == ["--permission-mode", "auto"], "a normal agent in auto mode"
+    assert "--dangerously-skip-permissions" not in got["cmd"]
+    assert "plan" not in got["cmd"], "develop never runs in plan mode"
 
 
 def test_run_claude_puts_project_instructions_before_the_card(monkeypatch, tmp_path):
@@ -401,3 +403,55 @@ def test_activity_is_cleared_even_when_handling_crashes(ran, monkeypatch):
     with pytest.raises(Exception, match="server went away|unhandled errors"):  # may arrive grouped
         tick()
     assert core.list_activity() == []
+
+
+# ---------- deleted projects ----------
+
+@pytest.mark.parametrize("auto", [False, True])
+def test_cards_in_no_project_are_never_worked(ran, auto):
+    id = card("plan", auto=auto)
+    core.delete_project("Proj")
+    tick()
+    c = core.get_card(id)
+    assert ran == [] and comments(id) == [], "left alone, silently"
+    assert (c["lane"], c["project"]) == ("plan", core.NO_PROJECT)
+    assert core.list_activity() == []
+
+
+def test_a_card_moved_into_plan_by_a_person_is_picked_up(ran):
+    id = card("todo", assignee=None)
+    core.update_card(id, "ce", lane="plan")        # the drag on the board
+    tick()
+    c = core.get_card(id)
+    assert ran == [(id, "plan", "Proj")]
+    assert (c["lane"], c["auto_advance"]) == ("develop", True), "and it keeps going"
+
+
+# ---------- a person moves the card while the agent works on it ----------
+
+@pytest.mark.parametrize("lane, moved_to, out", [
+    ("test", "develop", "not done\nRESULT: FAIL"),     # what happened to card #3
+    ("test", "develop", "fine\nRESULT: PASS"),
+    ("develop", "plan", "built it"),
+])
+def test_a_card_moved_during_the_run_is_left_where_the_person_put_it(ran, monkeypatch,
+                                                                      lane, moved_to, out):
+    id = card(lane, auto=True)
+
+    def slow(c, cwd, instructions=""):
+        core.update_card(id, "ce", lane=moved_to)   # the person, mid-run
+        return out
+    monkeypatch.setattr(agent, "run_claude", slow)
+    tick()
+    c = core.get_card(id)
+    assert (c["lane"], c["assignee"], c["auto_advance"]) == (moved_to, agent.AGENT, True), \
+        "not moved on, not unassigned, not switched off"
+    [said] = comments(id)
+    assert said.startswith(out) and f"after the card moved to {moved_to}" in said
+
+
+def test_a_card_still_in_its_lane_is_handled_as_before(ran):
+    id = card("develop", auto=True)
+    tick()
+    assert core.get_card(id)["lane"] == "test"
+    assert "moved to" not in comments(id)[0]

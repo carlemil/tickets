@@ -50,12 +50,10 @@ def wait_saved(page, cid, field, value):
     raise AssertionError(f"{field} never saved as {value!r}: {core.get_card(cid)[field]!r}")
 
 
-OUTSIDE = (8, 500)   # the board's left padding: outside the sheet, and on no card
-
-
-def click_outside(page):
-    """How a sheet is closed -- and a new card created. There is no save button."""
-    page.mouse.click(*OUTSIDE)
+def close_sheet(page):
+    """How a sheet is closed -- and a new card created. The sheet covers the whole window,
+    so its close button is the one way out; there is no separate save button."""
+    page.click("#panel .shut")
 
 
 def created(page):
@@ -69,7 +67,7 @@ def add_card(page, title):
     the board, as a person would to keep working on it. Returns once the panel shows it."""
     page.click("#add")
     page.fill("#panel input[type=text] >> nth=0", title)
-    click_outside(page)
+    close_sheet(page)
     cid = created(page)
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
@@ -98,7 +96,7 @@ def test_drag_moves_the_card_and_the_move_reaches_the_database(page):
 
 def test_a_rejected_move_puts_the_card_back(page):
     cid = add_card(page, "will not move")
-    click_outside(page)
+    close_sheet(page)
     # fail the PATCH without a network error, so this tests the rollback and not the fetch
     page.evaluate("""window.fetch = () => Promise.resolve(
         new Response(JSON.stringify({error: "nope"}), {status: 400}))""")
@@ -143,7 +141,7 @@ def test_the_project_filter_scopes_the_board(page):
     page.evaluate("load()")
     page.wait_for_selector(".card")
     add_card(page, "in inbox")
-    click_outside(page)
+    close_sheet(page)
     page.select_option("#proj", "Other")
     page.wait_for_function("() => document.querySelectorAll('.card').length === 1")
     assert page.text_content(".card .t") == "elsewhere"
@@ -159,13 +157,13 @@ def test_adding_a_name_registers_it_and_selects_it(page):
     assert page.evaluate("localStorage.getItem('actor')") == "zoe"
 
 
-def test_clicking_outside_commits_the_field_you_are_still_typing_in(page):
+def test_closing_commits_the_field_you_are_still_typing_in(page):
     """Fields save on `change`, so the one you are still in has not saved yet when you
     click away. Closing blurs it, and that saves it."""
     cid = add_card(page, "unsaved")
     page.wait_for_selector("#panel.on")
     page.fill("#panel input[type=text] >> nth=0", "typed, never blurred")   # no blur here
-    click_outside(page)
+    close_sheet(page)
     wait_saved(page, cid, "title", "typed, never blurred")
     assert page.locator("#panel.on").count() == 0, "and it dismissed"
 
@@ -185,7 +183,7 @@ def test_the_sheet_buttons_are_not_buried_under_the_header(page):
         return {isTheButton: hit === b, gotInstead: hit && hit.id};
     }""")
     assert topmost["isTheButton"], f"the archive button is covered by #{topmost['gotInstead']}"
-    click_outside(page)
+    close_sheet(page)
     page.wait_for_selector("#panel.on", state="detached")
     assert len(core.list_cards()) == 1, "dismissing must not have created a second card"
 
@@ -201,7 +199,7 @@ def test_a_landed_patch_does_not_reopen_a_dismissed_panel(page):
     # `void` matters: page.evaluate awaits a returned promise, which would let the PATCH
     # finish before the dismiss and quietly test nothing
     page.evaluate("void patch({title: 'renamed while closing'})")
-    click_outside(page)
+    close_sheet(page)
     assert page.locator("#panel.on").count() == 0, "dismissed"
     page.wait_for_timeout(900)            # the PATCH lands in here
     assert page.locator("#panel.on").count() == 0, "a landed PATCH reopened a dismissed panel"
@@ -327,7 +325,7 @@ def test_linking_to_a_missing_card_shows_the_error(page):
 def test_a_blank_title_alone_creates_nothing_and_just_closes(page):
     page.click("#add")
     page.fill("#panel input[type=text] >> nth=0", "   ")
-    click_outside(page)
+    close_sheet(page)
     assert page.locator("#panel.on").count() == 0
     page.wait_for_timeout(300)
     assert core.list_cards() == []
@@ -359,7 +357,7 @@ def test_a_slow_patch_response_does_not_roll_back_a_newer_panel(page):
 
 def test_a_stale_card_does_not_roll_back_the_board(page):
     add_card(page, "fresh title")
-    click_outside(page)
+    close_sheet(page)
     page.evaluate("""() => { const c = cards[0];
         replace({...c, title: "stale title", updated_at: "2000-01-01T00:00:00+00:00"}); }""")
     assert page.text_content(".card .t") == "fresh title"
@@ -374,7 +372,7 @@ def test_a_landed_comment_does_not_reopen_a_dismissed_panel(page):
         window.fetch = (...a) => original(...a).then(r => new Promise(ok => setTimeout(() => ok(r), 500)))""")
     page.fill("#panel textarea >> nth=1", "sent while closing")
     page.click("#panel button:has-text('comment')")
-    click_outside(page)
+    close_sheet(page)
     assert page.locator("#panel.on").count() == 0, "dismissed"
     page.wait_for_function("() => window.__inflight === 0")    # the comment response has landed
     assert page.locator("#panel.on").count() == 0, "a landed comment reopened a dismissed panel"
@@ -459,7 +457,7 @@ def test_every_field_in_the_new_card_panel_is_created(page):
     page.press(item, "Enter")
     page.check("#panel .chk input[type=checkbox] >> nth=0")
     assert core.list_cards() == [], "still a draft"
-    click_outside(page)
+    close_sheet(page)
     c = core.get_card(created(page))
     assert (c["title"], c["description"], c["priority"], c["assignee"], c["lane"]) == (
         "full card", "the long version", "high", "bob", "plan"), c
@@ -481,7 +479,7 @@ def test_typing_a_title_then_clicking_create_keeps_the_title(page):
     that hits create. The draft must not re-render there and lose the click."""
     page.click("#add")
     page.type("#panel input[type=text] >> nth=0", "typed then create")   # no blur
-    click_outside(page)
+    close_sheet(page)
     created(page)
     assert core.list_cards()[0]["title"] == "typed then create"
 
@@ -494,10 +492,10 @@ def test_enter_in_the_title_creates(page):
     assert [c["title"] for c in core.list_cards()] == ["by enter"]
 
 
-def test_a_double_click_outside_makes_one_card(page):
+def test_a_double_click_on_close_makes_one_card(page):
     page.click("#add")
     page.fill("#panel input[type=text] >> nth=0", "only once")
-    page.mouse.dblclick(*OUTSIDE)
+    page.dblclick("#panel .shut")
     created(page)
     page.wait_for_function("() => window.__inflight === 0")
     assert len(core.list_cards()) == 1
@@ -508,7 +506,7 @@ def test_a_failed_create_keeps_the_draft(page):
     page.fill("#panel input[type=text] >> nth=0", "keep me")
     page.evaluate("""window.fetch = () => Promise.resolve(
         new Response(JSON.stringify({error: "nope"}), {status: 400}))""")
-    click_outside(page)
+    close_sheet(page)
     page.wait_for_selector("#err.on")
     assert page.input_value("#panel input[type=text] >> nth=0") == "keep me"
     assert page.locator("#panel.on").count() == 1, "the sheet stays open"
@@ -520,7 +518,7 @@ def test_cancelling_while_create_is_in_flight_does_not_reopen(page):
     page.fill("#panel input[type=text] >> nth=0", "created anyway")
     page.evaluate("""const original = window.fetch;
         window.fetch = (...a) => original(...a).then(r => new Promise(ok => setTimeout(() => ok(r), 500)))""")
-    click_outside(page)
+    close_sheet(page)
     page.click("#panel button:text-is('cancel')")
     page.wait_for_function("() => window.__inflight === 0")
     assert page.locator("#panel.on").count() == 0, "the cancelled panel came back"
@@ -661,7 +659,7 @@ def test_a_new_card_lands_in_the_filtered_project_or_the_chosen_one(page):
     assert page.eval_on_selector("#panel select >> nth=0", "s => s.value") == "Tickets"
     page.fill("#panel input[type=text] >> nth=0", "picked elsewhere")
     page.select_option("#panel select >> nth=0", "Other")
-    click_outside(page)
+    close_sheet(page)
     created(page)
     assert core.list_cards()[0]["project"] == "Other"
 
@@ -674,17 +672,18 @@ def test_a_stale_filter_falls_back_to_the_first_project_for_new_cards(page):
     assert page.eval_on_selector("#panel select >> nth=0", "s => s.value") == "Alpha"
 
 
-def test_a_human_click_outside_after_typing_closes_the_panel(page):
+def test_a_human_click_on_close_after_typing_closes_the_panel(page):
     """Leaving the field fires its PATCH on mousedown; a re-render landing before mouseup
-    used to eat the click that should close the sheet. At human speed, it still closes."""
+    would replace the close button and eat the click. At human speed, it still closes."""
     cid = add_card(page, "human save")
     page.fill("#panel input[type=text] >> nth=0", "typed, then saved by a person")
-    page.mouse.move(*OUTSIDE)
+    box = page.locator("#panel .shut").bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     page.mouse.down()
     page.wait_for_timeout(150)
     page.mouse.up()
     page.wait_for_function("() => window.__inflight === 0")
-    assert page.locator("#panel.on").count() == 0, "the click outside was lost"
+    assert page.locator("#panel.on").count() == 0, "the click on close was lost"
     assert core.get_card(cid)["title"] == "typed, then saved by a person"
 
 
@@ -741,7 +740,7 @@ def test_a_new_card_can_start_with_auto_advance(page):
     assert page.locator(AUTO).is_checked() is False, "off by default"
     page.fill("#panel input[type=text] >> nth=0", "auto from the start")
     page.check(AUTO)
-    click_outside(page)
+    close_sheet(page)
     created(page)
     [c] = core.list_cards()
     assert (c["title"], c["auto_advance"]) == ("auto from the start", True)
@@ -807,7 +806,7 @@ def test_a_card_created_in_another_project_switches_the_filter_to_it(page):
     page.click("#add")
     page.fill("#panel input[type=text] >> nth=0", "lands elsewhere")
     page.select_option("#panel select >> nth=0", "Other")
-    click_outside(page)
+    close_sheet(page)
     cid = created(page)
     assert page.evaluate("localStorage.getItem('project')") == "Other"
     assert page.eval_on_selector("#proj", "s => s.value") == "Other"
@@ -820,7 +819,7 @@ def test_all_projects_stays_all_projects_after_a_create(page):
     page.click("#add")
     page.fill("#panel input[type=text] >> nth=0", "anywhere")
     page.select_option("#panel select >> nth=0", "Other")
-    click_outside(page)
+    close_sheet(page)
     created(page)
     assert page.eval_on_selector("#proj", "s => s.value") == ""
 
@@ -842,7 +841,7 @@ def test_links_and_comments_on_a_new_card_are_sent_on_create(page):
     assert page.input_value("#panel .say-box") == ""
     page.fill("#panel .say-box", "typed, never sent")        # left in the box
     assert [c["id"] for c in core.list_cards()] == [other], "still a draft"
-    click_outside(page)
+    close_sheet(page)
     cid = created(page)
     c = core.get_card(cid)
     assert [(l["from_id"], l["to_id"], l["kind"]) for l in c["links"]] == [(cid, other, "blocks")]
@@ -869,7 +868,7 @@ def test_unlink_on_a_new_card_drops_the_queued_link(page):
     page.click("#panel button:text-is('link')")
     page.click("#panel button:text-is('unlink')")
     page.wait_for_function("() => open.links.length === 0")
-    click_outside(page)
+    close_sheet(page)
     assert core.get_card(created(page))["links"] == []
 
 
@@ -892,7 +891,7 @@ def test_a_failed_create_keeps_the_sheet_and_everything_in_it(page):
     page.click("#panel button:text-is('link')")
     page.fill("#panel .say-box", "keep me")
     core.update_project("Home", name="Moved")           # the draft's project is now gone
-    click_outside(page)
+    close_sheet(page)
     page.wait_for_selector("#err.on")
     assert "unknown project" in page.text_content("#err")
     assert page.locator("#panel.on").count() == 1
@@ -901,12 +900,26 @@ def test_a_failed_create_keeps_the_sheet_and_everything_in_it(page):
     assert [c["id"] for c in core.list_cards()] == [other], "nothing was created"
 
 
-# ---------- click outside to close ----------
+# ---------- closing the sheet ----------
+
+def test_the_card_editor_covers_the_whole_window(page):
+    add_card(page, "wide")
+    box = page.locator("#panel").bounding_box()
+    assert (box["x"], box["width"]) == (0, page.viewport_size["width"])
+    assert page.locator("#panel .shut").is_visible()
+
+
+def test_the_projects_sheet_closes_with_done(page):
+    page.click("#projects")
+    page.wait_for_selector("#panel.on .project")
+    close_sheet(page)
+    assert page.locator("#panel.on").count() == 0
+
 
 def test_a_comment_left_in_the_box_is_posted_on_close(page):
     cid = add_card(page, "say it")
     page.fill("#panel .say-box", "unsent, but not lost")
-    click_outside(page)
+    close_sheet(page)
     page.wait_for_function("() => window.__inflight === 0")
     assert [e["detail"]["text"] for e in core.get_card(cid)["events"]
             if e["kind"] == "comment"] == ["unsent, but not lost"]
@@ -915,7 +928,7 @@ def test_a_comment_left_in_the_box_is_posted_on_close(page):
 def test_an_empty_draft_just_closes(page):
     page.click("#add")
     page.select_option("#panel select >> nth=1", "high")   # a default changed: still empty
-    click_outside(page)
+    close_sheet(page)
     assert page.locator("#panel.on").count() == 0
     page.wait_for_timeout(300)
     assert core.list_cards() == []
@@ -929,50 +942,22 @@ def test_an_empty_draft_just_closes(page):
 def test_a_draft_with_content_but_no_title_stays_open(page, fill):
     page.click("#add")
     page.fill(*fill)
-    click_outside(page)
+    close_sheet(page)
     page.wait_for_selector("#err.on")
     assert "needs a title" in page.text_content("#err")
     assert page.locator("#panel.on").count() == 1
     assert page.input_value(fill[0]) == fill[1], "nothing typed was lost"
     assert page.evaluate("document.activeElement.placeholder") == "what needs doing?"
     page.keyboard.type("titled now")
-    click_outside(page)
+    close_sheet(page)
     created(page)
     assert [c["title"] for c in core.list_cards()] == ["titled now"]
 
 
-def test_a_draft_that_must_stay_swallows_the_click_on_a_card(page):
-    other = core.create_card("behind", actor="ce", project="Home")["id"]
-    page.evaluate("load()")
-    page.click("#add")
-    page.fill("#panel textarea >> nth=0", "no title yet")
-    page.click(f'.card[data-id="{other}"]')
-    page.wait_for_selector("#err.on")
-    page.wait_for_timeout(300)
-    assert page.evaluate("open && open.id") is None, "the draft was not replaced"
-    assert page.input_value("#panel textarea >> nth=0") == "no title yet"
 
 
-def test_clicking_another_card_saves_this_one_and_opens_that(page):
-    other = core.create_card("next", actor="ce", project="Home")["id"]
-    cid = add_card(page, "first")
-    page.fill("#panel input[type=text] >> nth=0", "first, edited")
-    page.click(f'.card[data-id="{other}"]')
-    page.wait_for_function(f"() => open && open.id === {other}")
-    wait_saved(page, cid, "title", "first, edited")
-    assert page.input_value("#panel input[type=text] >> nth=0") == "next"
 
 
-def test_clicking_a_card_while_a_draft_is_open_creates_it_and_opens_that(page):
-    other = core.create_card("next", actor="ce", project="Home")["id"]
-    page.evaluate("load()")
-    page.click("#add")
-    page.fill("#panel input[type=text] >> nth=0", "made on the way")
-    page.click(f'.card[data-id="{other}"]')
-    page.wait_for_function(f"() => open && open.id === {other}")
-    page.wait_for_function("() => window.__inflight === 0")
-    assert sorted(c["title"] for c in core.list_cards()) == ["made on the way", "next"]
-    assert page.locator("#panel.on").count() == 1, "the clicked card stays open"
 
 
 def test_clicks_inside_the_sheet_never_close_it(page):
@@ -993,11 +978,6 @@ def test_clicking_the_error_bar_does_not_close_the_sheet(page):
     assert page.locator("#panel.on").count() == 1
 
 
-def test_the_projects_sheet_also_closes_on_an_outside_click(page):
-    page.click("#projects")
-    page.wait_for_selector("#panel.on .project")
-    click_outside(page)
-    assert page.locator("#panel.on").count() == 0
 
 
 # ---------- project colors ----------
@@ -1107,3 +1087,110 @@ def test_an_agent_finishing_reloads_the_board(page):
     page.evaluate("loadStatus()")
     page.wait_for_selector(f'.lane[data-lane="develop"] .card[data-id="{cid}"]')
     assert page.text_content("#status") == "no agent is working on anything"
+
+
+# ---------- deleting a project ----------
+
+def open_delete(page, name):
+    page.click("#projects")
+    page.wait_for_selector("#panel.on .project")
+    page.locator("#panel .project", has=page.locator(f"h3:text-is('{name}')")) \
+        .locator("button.danger").click()
+    page.wait_for_selector("#delProject[open]")
+
+
+def test_the_delete_dialog_explains_and_cancel_keeps_the_project(page):
+    core.create_project("Doomed")
+    for t in ("a", "b"):
+        core.create_card(t, actor="ce", project="Doomed")
+    arch = core.create_card("c", actor="ce", project="Doomed")["id"]
+    core.update_card(arch, "ce", archived=True)
+    page.evaluate("load()")
+    open_delete(page, "Doomed")
+    msg = page.text_content("#delMsg")
+    assert "Its 3 cards (1 archived) will move to “No Project”" in msg, msg
+    assert "agents will not work on them" in msg and "cannot be undone" in msg
+    page.click("#delProject button[value=cancel]")
+    assert page.locator("#delProject[open]").count() == 0
+    page.wait_for_timeout(200)
+    assert "Doomed" in [p["name"] for p in core.list_projects()]
+
+
+def test_escape_also_cancels(page):
+    core.create_project("Doomed")
+    page.evaluate("load()")
+    open_delete(page, "Doomed")
+    assert "It has no cards." in page.text_content("#delMsg")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+    assert "Doomed" in [p["name"] for p in core.list_projects()]
+    assert page.locator("#panel.on").count() == 1, "the projects sheet stays open"
+
+
+def test_confirming_deletes_and_moves_the_cards(page):
+    core.create_project("Doomed")
+    cid = core.create_card("orphan", actor="ce", project="Doomed")["id"]
+    page.evaluate("localStorage.setItem('project', 'Doomed'); load()")
+    open_delete(page, "Doomed")
+    page.click("#delProject button[value=delete]")
+    page.wait_for_selector("#panel .project h3:text-is('No Project')")
+    assert [p["name"] for p in core.list_projects()] == ["Home", "No Project"]
+    assert core.get_card(cid)["project"] == "No Project"
+    assert page.evaluate("localStorage.getItem('project')") == "", "the filter falls back to all"
+    no = page.locator("#panel .project", has=page.locator("h3:text-is('No Project')"))
+    assert no.locator("button.danger").count() == 0, "No Project offers no delete"
+    close_sheet(page)
+    page.wait_for_selector(f'.card[data-id="{cid}"]')
+
+
+# ---------- description grows with its text ----------
+
+def desc_lines(page):
+    """Visible lines of the description box: its content height over its line height."""
+    return page.evaluate("""() => {
+        const t = document.querySelector('#panel textarea.desc'), s = getComputedStyle(t);
+        const h = t.clientHeight - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom);
+        return Math.round(h / parseFloat(s.lineHeight));
+    }""")
+
+
+def test_the_description_grows_from_3_to_at_most_50_lines(page):
+    add_card(page, "tall")
+    box = "#panel textarea.desc"
+    assert desc_lines(page) == 3, "empty: three lines"
+    page.fill(box, "one\ntwo")
+    assert desc_lines(page) == 3, "short text keeps the floor"
+    page.fill(box, "\n".join(f"line {i}" for i in range(12)))
+    assert desc_lines(page) == 12, "grows as you type"
+    page.fill(box, "\n".join(f"line {i}" for i in range(80)))
+    assert desc_lines(page) == 50, "capped at fifty"
+    assert page.evaluate(f"document.querySelector('{box}').scrollHeight > "
+                         f"document.querySelector('{box}').clientHeight"), "the rest scrolls"
+
+
+def test_a_long_description_opens_at_its_full_height(page):
+    cid = core.create_card("long", actor="ce", project="Home",
+                           description="\n".join(f"line {i}" for i in range(20)))["id"]
+    page.evaluate(f"load().then(() => openCard({cid}))")
+    page.wait_for_selector("#panel.on textarea.desc")
+    assert desc_lines(page) == 20
+
+
+def test_the_sheet_buttons_have_a_gap_between_them(page):
+    add_card(page, "spaced")
+    boxes = [page.locator(f"#panel button:text-is('{t}')").bounding_box()
+             for t in ("archive", "close")]
+    left, right = sorted(boxes, key=lambda b: b["x"])
+    gap = right["x"] - (left["x"] + left["width"])
+    assert gap >= 8, f"archive and close are {gap:.1f}px apart"
+
+
+def test_dragging_a_card_into_plan_ticks_auto_advance(page):
+    cid = core.create_card("go", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{cid}"]')
+    drag(page, cid, "plan")
+    page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{cid}"] .pill.auto')
+    assert core.get_card(cid)["auto_advance"] is True
+    page.click(f'.card[data-id="{cid}"]')
+    assert page.locator("#panel .auto-sw input[type=checkbox]").is_checked()

@@ -27,6 +27,8 @@ from pathlib import Path
 
 from mcp import Client
 
+from core import NO_PROJECT   # a constant only: the agent reaches the board over MCP
+
 AGENT = "claude-agent"
 URL = "http://127.0.0.1:8123/mcp"
 POLL = 15
@@ -53,9 +55,10 @@ PROMPTS = {
             f"you found, and end with a last line of exactly {PASS} or RESULT: FAIL.",
 }
 # planning runs in plan mode (what /plan switches on): read-only by design.
-# development and testing run unattended and need Bash for the tests, so they get full
-# rights in the repo; the test prompt asks for no edits, which is a request, not a sandbox.
-FLAGS = {"plan": ["--permission-mode", "plan"], "develop": ["--dangerously-skip-permissions"],
+# development is a normal agent in auto mode: it edits and runs the tests on its own, with
+# Claude Code's auto-mode checks still on. Testing needs Bash for the tests and gets full
+# rights in the repo; its prompt asks for no edits, which is a request, not a sandbox.
+FLAGS = {"plan": ["--permission-mode", "plan"], "develop": ["--permission-mode", "auto"],
          "test": ["--dangerously-skip-permissions"]}
 
 
@@ -95,6 +98,15 @@ async def handle(client, card):
         if not cwd.is_dir():
             raise RuntimeError(f"no repo at {cwd}")
         out = await asyncio.to_thread(run_claude, card, cwd, proj["instructions"])
+        # a run takes minutes; if a person moved the card meanwhile, their move wins: keep
+        # the output as a comment, but do not move, unassign or switch off a card that is
+        # no longer where this run found it
+        now = (await call(client, "get_card", id=id))["lane"]
+        if now != lane:
+            await call(client, "comment", id=id, actor=AGENT, text=f"{out or '(no output)'}"
+                       f"\n\n(this {lane} run finished after the card moved to {now}: "
+                       "left as it is)")
+            return
         if lane == "plan":
             if not out:
                 raise RuntimeError("planning produced no plan")   # never blank a description
@@ -127,6 +139,8 @@ async def handle(client, card):
 async def tick(client):
     # ponytail: sequential, one card at a time; add a worker pool if the queue backs up.
     for c in await call(client, "list_cards"):
+        if c["project"].lower() == NO_PROJECT.lower():
+            continue   # its project was deleted: off limits, silently
         if c["lane"] in NEXT and (c["assignee"] == AGENT or c["auto_advance"]):
             print(f"#{c['id']} {c['lane']}: {c['title']}", flush=True)
             await call(client, "set_activity", actor=AGENT, card_id=c["id"], doing=DOING[c["lane"]])

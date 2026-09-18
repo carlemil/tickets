@@ -419,3 +419,14 @@ def test_set_activity_tool_errors_reach_the_agent():
     c = core.create_card("a", "ann", project="Home")["id"]
     with pytest.raises(ToolError, match="doing is required"):
         app.set_activity("bot", c)
+
+
+def test_delete_project_route(client):
+    client.post("/api/projects", json={"name": "Old/one"})
+    client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Old/one"})
+    r = client.delete("/api/projects/old/one")
+    assert r.status_code == 200 and r.json() == {"deleted": "Old/one", "moved": 1}, r.text
+    assert client.get("/api/cards").json()[0]["project"] == core.NO_PROJECT
+    assert client.delete("/api/projects/Old/one").status_code == 404
+    r = client.delete("/api/projects/" + core.NO_PROJECT)
+    assert r.status_code == 400 and "cannot be deleted" in r.json()["error"], r.text

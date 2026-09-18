@@ -18,6 +18,9 @@ CARD_FIELDS = ("project", "title", "description", "lane", "assignee", "priority"
 BOOL_FIELDS = ("archived", "auto_advance")   # stored as 0/1, surfaced as true/false
 JSON_FIELDS = ("labels", "checklist")
 PROJECT_FIELDS = ("name", "path", "instructions", "color")
+# Where a deleted project's cards go. Agents never work a card in it; matched ignoring case.
+NO_PROJECT = "No Project"
+NO_PROJECT_COLOR = "#6b778c"
 # a new project takes the least-used of these; any #rrggbb can be set instead
 PALETTE = ["#0052cc", "#00875a", "#ff991f", "#6554c0", "#de350b", "#00a3bf", "#c9372c",
            "#5e4db2", "#b65c02", "#216e4e"]
@@ -308,6 +311,26 @@ def update_project(name, /, **fields):   # positional-only, so name= in fields i
     return get_project(fields.get("name", old["name"]))
 
 
+def delete_project(name):
+    """Delete a project. Its cards, archived ones too, move to NO_PROJECT (created on first
+    use), where agents leave them alone. Like a rename, the move writes no card events.
+    NO_PROJECT itself cannot be deleted: its cards would have nowhere to go."""
+    with closing(connect()) as db, db:
+        old = _load_project(db, name)["name"]
+        if old.lower() == NO_PROJECT.lower():
+            raise ValueError(f"{NO_PROJECT!r} holds the cards of deleted projects and cannot be deleted")
+        n = db.execute("SELECT COUNT(*) FROM cards WHERE project=? COLLATE NOCASE",
+                       (old,)).fetchone()[0]
+        if n:
+            db.execute("INSERT OR IGNORE INTO projects (name, color) VALUES (?,?)",
+                       (NO_PROJECT, NO_PROJECT_COLOR))
+            home = db.execute("SELECT name FROM projects WHERE name=?", (NO_PROJECT,)).fetchone()
+            db.execute("UPDATE cards SET project=? WHERE project=? COLLATE NOCASE",
+                       (home["name"], old))
+        db.execute("DELETE FROM projects WHERE name=?", (old,))
+    return {"deleted": old, "moved": n}
+
+
 def create_card(
     title,
     actor,
@@ -381,6 +404,11 @@ def update_card(id, actor, **fields):
         old = _load(db, id)
         if "project" in fields:
             fields["project"] = _project(db, fields["project"])
+        # moving a card into plan is the go signal: it switches auto advance on, unless the
+        # same write says otherwise. A move, not a card already there, so a card the agent
+        # stopped in plan (open questions) stays stopped until someone hands it back.
+        if fields.get("lane") == "plan" and old["lane"] != "plan":
+            fields.setdefault("auto_advance", True)
         sets, args, evs = [], [], []
         for f, new in fields.items():
             if new == old[f]:

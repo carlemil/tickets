@@ -458,7 +458,7 @@ def test_archived_cannot_be_set_at_creation():
 # ---------- more updating corner cases ----------
 
 def test_one_update_with_several_fields_writes_one_event_each():
-    c = core.update_card(card()["id"], "bob", lane="plan", assignee="cat", title="New")
+    c = core.update_card(card()["id"], "bob", lane="develop", assignee="cat", title="New")
     kinds = sorted(e["kind"] for e in c["events"][1:])
     assert kinds == ["assigned", "edited", "moved"], c["events"]
 
@@ -754,3 +754,95 @@ def test_activity_shows_the_card_as_it_is_now():
     core.set_activity("bot", c, "planning")
     core.update_card(c, "ann", title="renamed", lane="develop")
     assert (core.list_activity()[0]["title"], core.list_activity()[0]["lane"]) == ("renamed", "develop")
+
+
+# ---------- deleting a project ----------
+
+def test_deleting_a_project_moves_every_card_to_no_project():
+    projects("Doomed")
+    a = card("a", project="Doomed")["id"]
+    b = card("b", project="Doomed")["id"]
+    core.update_card(b, "ann", archived=True)
+    keep = card("c")["id"]
+    assert core.delete_project("doomed") == {"deleted": "Doomed", "moved": 2}
+    assert [p["name"] for p in core.list_projects()] == ["Home", core.NO_PROJECT]
+    assert core.get_project(core.NO_PROJECT)["color"] == core.NO_PROJECT_COLOR
+    assert {core.get_card(i)["project"] for i in (a, b)} == {core.NO_PROJECT}
+    assert core.get_card(b)["archived"] is True, "archived cards move and stay archived"
+    assert core.get_card(keep)["project"] == "Home"
+    assert [e["kind"] for e in core.get_card(a)["events"]] == ["created"], "no card events"
+
+
+def test_deleting_an_empty_project_creates_no_no_project():
+    projects("Empty")
+    assert core.delete_project("Empty") == {"deleted": "Empty", "moved": 0}
+    assert [p["name"] for p in core.list_projects()] == ["Home"]
+
+
+def test_a_second_delete_reuses_no_project_and_keeps_its_settings():
+    projects("A", "B")
+    card(project="A")
+    card(project="B")
+    core.delete_project("A")
+    core.update_project(core.NO_PROJECT, instructions="leave these alone")
+    core.delete_project("B")
+    assert len(core.list_cards(project=core.NO_PROJECT)) == 2
+    assert core.get_project(core.NO_PROJECT)["instructions"] == "leave these alone"
+
+
+def test_no_project_cannot_be_deleted_in_any_case():
+    projects("A")
+    card(project="A")
+    core.delete_project("A")
+    for spelling in (core.NO_PROJECT, "no project", "NO PROJECT"):
+        with pytest.raises(ValueError, match="cannot be deleted"):
+            core.delete_project(spelling)
+    assert len(core.list_cards(project=core.NO_PROJECT)) == 1
+
+
+def test_deleting_an_unknown_project_is_not_found():
+    with pytest.raises(core.NotFound):
+        core.delete_project("nope")
+
+
+def test_a_deleted_projects_name_can_be_used_again():
+    projects("Again")
+    old = card(project="Again")["id"]
+    core.delete_project("Again")
+    projects("Again")
+    assert core.list_cards(project="Again") == []
+    assert core.get_card(old)["project"] == core.NO_PROJECT
+
+
+# ---------- moving into plan starts auto advance ----------
+
+@pytest.mark.parametrize("frm", ["todo", "develop", "test", "verify", "done"])
+def test_moving_into_plan_turns_auto_advance_on(frm):
+    c = card(lane=frm)["id"]
+    after = core.update_card(c, "ann", lane="plan")
+    assert after["auto_advance"] is True
+    ev = [e for e in after["events"] if e["detail"].get("field") == "auto_advance"]
+    assert [(e["actor"], e["detail"]["from"], e["detail"]["to"]) for e in ev] == [("ann", False, True)]
+
+
+def test_a_move_into_plan_can_say_no_auto_advance():
+    c = card()["id"]
+    assert core.update_card(c, "ann", lane="plan", auto_advance=False)["auto_advance"] is False
+
+
+@pytest.mark.parametrize("lane", ["todo", "develop", "test", "verify", "done"])
+def test_moving_anywhere_else_leaves_auto_advance_alone(lane):
+    c = card(lane="plan" if lane == "todo" else "todo")["id"]
+    assert core.update_card(c, "ann", lane=lane)["auto_advance"] is False
+
+
+def test_a_card_already_in_plan_is_not_switched_back_on():
+    """The agent stops a card with open questions in plan and switches auto advance off;
+    any later write that repeats lane=plan must not restart it behind the person's back."""
+    c = card(lane="plan")["id"]
+    core.update_card(c, "ann", lane="plan", title="edited while waiting")
+    assert core.get_card(c)["auto_advance"] is False
+
+
+def test_creating_a_card_in_plan_does_not_switch_it_on():
+    assert card(lane="plan")["auto_advance"] is False, "a move turns it on, not a create"

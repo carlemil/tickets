@@ -116,7 +116,7 @@ name is a `ValueError`.
 
 `GET /` → board.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
 `POST /api/cards` · `POST /api/cards/{id}/comment` · `POST|DELETE /api/links` ·
-`GET|POST /api/users` · `GET /api/activity` · `GET|POST /api/projects` · `PATCH /api/projects/{name}`. Every
+`GET|POST /api/users` · `GET /api/activity` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}`. Every
 write body carries `actor` — except `POST /api/users` (`{"name"}` → 201), the one write
 that predates having an actor, and the project writes, which are configuration rather
 than card activity and log no event.
@@ -157,12 +157,20 @@ output becomes a comment, and the card moves on
 (`plan → develop`, `develop → test`, `test → verify`) and is unassigned. Unassigning is both the human gate
 (read the plan, reassign to have it built) and the loop guard (no re-trigger on its own
 write, no state file). On any failure it comments `agent failed: …` and unassigns, lane
-unchanged. Development runs with `--dangerously-skip-permissions` so it can run
-tests: full rights in that repo, and it leaves changes uncommitted for review in `test`.
-The test stage runs with the same rights, reviews the uncommitted diff against the card
+unchanged. Development is a normal agent in auto mode (`--permission-mode auto`, never
+plan mode): it edits and runs the tests on its own, with Claude Code's auto-mode checks
+still on, and leaves changes uncommitted for review in `test`. The test stage runs with
+`--dangerously-skip-permissions`, reviews the uncommitted diff against the card
 and plan, runs the tests, and must end with a last line of `RESULT: PASS` (markdown
 `*`/`` ` `` around it tolerated) to move on; anything else is a failure.
 Cards are handled one at a time.
+
+**A person's move wins.** A run takes minutes, and the card can be moved meanwhile — card
+#3 was: its auto advance was switched back on in `test`, the agent started a test run,
+the card was then moved to `develop`, and the finished run failed it and switched auto
+advance off, as if it were still in `test`. So after a run the agent re-reads the lane;
+if it changed, the output is kept as a comment noting the move, and the card is not moved
+on, unassigned or switched off.
 
 **The plan stage** runs `claude -p --permission-mode plan` (what `/plan` switches on, so it is
 read-only) and the plan **replaces the card's description** — the old text survives as the
@@ -204,24 +212,32 @@ prompts and `POST`s to `/api/users`, so a new person or agent is registered and 
 without writing a card first — and a project `<select>`
 (also persisted) filters the board — an agent and a human both scope to one project.
 
-**No save button: click outside to close.** Every field saves on `change`. A click
-anywhere outside the sheet closes it (a capture-phase listener, so it runs before the
-click reaches its target: clicking another card closes this one and opens that). Closing
-blurs the focused field, so the edit still in progress saves too, and text left in the
-comment box is posted rather than dropped. The sheet keeps "archive"; the projects sheet
-keeps "done" and closes on an outside click as well.
+**The sheet covers the whole window; "close" closes it.** Every field saves on
+`change`, so there is no save button. The sheet is full width, so there is no outside to
+click: the "close" button top right is the way out (the projects sheet's is "done").
+Closing blurs the focused field, so the edit still in progress saves too, and text left
+in the comment box is posted rather than dropped. The error bar is fixed above the sheet
+so its messages stay visible. The sheet keeps "archive".
 
 "New Card" opens the same panel on an unsaved draft (title focused, project from the
 filter). It shows everything a saved card does — links, activity, comment box. Nothing
-is written until the draft is closed by a click outside (or Enter in the title), which
+is written until the draft is closed with "close" (or Enter in the title), which
 `POST`s the fields all at once (one `created` event), then the links and comments queued
 on the draft (links are checked to exist as they are added), plus any text left in the
 comment box, and hides the sheet. A draft with nothing typed just closes. A draft with
-content but no title stays open, says "a card needs a title", and swallows the click so
-whatever was behind it does not replace the draft. If the `POST` fails the sheet stays
-with everything in it and the next click outside retries; a double click makes one
+content but no title stays open and says "a card needs a title". If the `POST` fails
+the sheet stays with everything in it and the next "close" retries; a double click makes one
 card. "cancel" discards the draft. The draft re-renders only for checklist edits and
 queued links and comments.
+
+**Deleting a project.** Each project in the settings has "delete project…", which opens a
+native `<dialog>`: it counts the cards (archived too) that will move, says they go to
+"No Project" where agents will not work on them, and that it cannot be undone; only
+"Delete project" acts, Cancel or Esc do nothing. `DELETE /api/projects/{name}` →
+`core.delete_project` moves the cards to `NO_PROJECT` (created on first use, grey; no
+card events, like a rename) and removes the row. "No Project" itself has no delete
+button and the server refuses to delete it. The agent skips any card in it, silently,
+auto advance or not. Renaming "No Project" to something else makes its cards workable again.
 
 "projects…" in the header opens the panel on project settings: name, path, agent
 instructions and a color picker per project, each saving on change, plus a "new project"
@@ -262,6 +278,7 @@ the button for 150 ms.
 | 13 | no save/create buttons: click outside closes the sheet and saves, creating a new card | done — 252 checks |
 | 14 | project colors: cards tagged with their project's name and color, after the priority/auto chips | done — 283 checks |
 | 15 | agent status bar: `set_activity` tool, `GET /api/activity`, bar polls and reloads the board | done — 297 checks |
+| 16 | delete a project (confirm dialog; cards move to "No Project", off limits to agents); full-width sheet with a close button | done — 307 checks |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
@@ -337,4 +354,4 @@ everything else → `edited`.
 - ~~Native drag unverified~~ — **resolved in task 4.** A real `left_click_drag` in
   Chrome moved a card between lanes and the server recorded the `moved` event. The
   native gesture works.
-- Panel is a fixed 460px single column: fine on a laptop, cramped on a phone.
+- The sheet is full width, so a card's fields stretch across a wide screen.

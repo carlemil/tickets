@@ -125,6 +125,11 @@ async def api_create_project(request):
     return JSONResponse(core.create_project(**await request.json()), status_code=201)
 
 
+@route("/api/projects/{name:path}", methods=["DELETE"])
+async def api_delete_project(request):
+    return JSONResponse(core.delete_project(request.path_params["name"]))
+
+
 @route("/api/projects/{name:path}", methods=["PATCH"])
 async def api_update_project(request):
     return JSONResponse(core.update_project(request.path_params["name"],
@@ -185,6 +190,8 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     changing; omitted fields are left alone, and a field passed unchanged records nothing.
 
     `lane` moves the card, in order todo -> plan -> develop -> test -> verify -> done.
+    Moving a card into plan also turns auto_advance on, so the board agent starts on it;
+    pass auto_advance=False in the same call to move it without that.
     `assignee` assigns it to a person; pass "" to unassign. `priority` is low, med or high.
     `checklist` REPLACES the whole list, so send every item back, not just the one you
     ticked: get_card first, flip the `done` you want, send the full list. `labels` likewise
@@ -210,6 +217,8 @@ def list_projects() -> list[dict]:
     a `path` — the project's folder on this machine, "" if not set — and free-text
     `instructions`: how the humans want agents to work on that project. Read them before
     working a card, and follow them.
+
+    "No Project" holds the cards of deleted projects: do not work on cards in it.
     """
     return core.list_projects()
 
