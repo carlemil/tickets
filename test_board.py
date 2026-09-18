@@ -308,3 +308,34 @@ def test_an_empty_title_creates_nothing(page):
     page.wait_for_selector("#err.on")
     assert "needs a title" in page.text_content("#err")
     assert core.list_cards() == []
+
+
+def test_a_slow_patch_response_does_not_roll_back_a_newer_panel(page):
+    """patch() re-rendered from its own response unconditionally. A PATCH whose response
+    arrived after a later link had re-rendered the panel put the older card back on
+    screen, and the link vanished from view though it was saved."""
+    other = core.create_card("other", actor="ce")
+    cid = add_card(page, "race me")
+    page.wait_for_function("() => window.__inflight === 0")
+    # the server writes at once; only the PATCH *response* is held back
+    page.evaluate("""const original = window.fetch;
+        window.fetch = (url, opts) => original(url, opts).then(r => opts && opts.method === "PATCH"
+            ? new Promise(ok => setTimeout(() => ok(r), 600)) : r)""")
+    page.evaluate("void patch({priority: 'high'})")
+    while core.get_card(cid)["priority"] != "high":   # written, response still held
+        page.wait_for_timeout(20)
+    page.evaluate(f"""api("POST", "/api/links", {{from_id: {cid}, to_id: {other['id']},
+                                                   kind: "blocks"}}).then(() => openCard({cid}))""")
+    page.wait_for_selector("#panel button:text('unlink')")
+    page.wait_for_function("() => window.__inflight === 0")   # the slow PATCH has landed
+    assert page.locator("#panel button:text('unlink')").count() == 1, \
+        "the late PATCH response rolled the panel back"
+    assert page.eval_on_selector("#panel select >> nth=0", "s => s.value") == "high"
+
+
+def test_a_stale_card_does_not_roll_back_the_board(page):
+    add_card(page, "fresh title")
+    page.click("#panel .close.primary")
+    page.evaluate("""() => { const c = cards[0];
+        replace({...c, title: "stale title", updated_at: "2000-01-01T00:00:00+00:00"}); }""")
+    assert page.text_content(".card .t") == "fresh title"

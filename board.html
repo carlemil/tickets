@@ -274,17 +274,26 @@ async function move(id, lane) {
   }
 }
 
+// Responses can land out of order, so an older copy of a card must never replace a newer
+// one already shown. Board fields all bump updated_at; links and comments do not, but
+// every write appends an event, so for the panel the newest event id names the state.
 function replace(card) {
   const i = cards.findIndex(c => c.id === card.id);
-  if (i >= 0) cards[i] = card;
+  if (i >= 0 && card.updated_at >= cards[i].updated_at) cards[i] = card;
   renderBoard();
 }
 
 // ---------- detail panel ----------
 async function openCard(id) {
-  try { open = await api("GET", "/api/cards/" + id); } catch (e) { return showErr(e.message); }
+  let card;
+  try { card = await api("GET", "/api/cards/" + id); } catch (e) { return showErr(e.message); }
+  if (stale(card)) return;
+  open = card;
   renderPanel();
 }
+
+const lastEvent = c => c.events[c.events.length - 1].id;
+const stale = card => open && open.id === card.id && lastEvent(card) < lastEvent(open);
 
 function field(label, node) {
   const w = document.createElement("div");
@@ -298,7 +307,7 @@ async function patch(body) {
   try {
     const card = await api("PATCH", "/api/cards/" + id, body);
     replace(card);
-    if (open && open.id === id) { open = card; renderPanel(); }
+    if (open && open.id === id && !stale(card)) { open = card; renderPanel(); }
   } catch (e) {
     showErr(e.message);
     if (open && open.id === id) renderPanel();
@@ -445,8 +454,10 @@ function renderPanel() {
   const post = async () => {
     if (!box.value.trim()) return;
     try {
-      open = await api("POST", `/api/cards/${c.id}/comment`, { text: box.value.trim() });
-      replace(open);
+      const card = await api("POST", `/api/cards/${c.id}/comment`, { text: box.value.trim() });
+      replace(card);
+      if (stale(card)) return;
+      open = card;
       renderPanel();
     } catch (e) { showErr(e.message); }
   };

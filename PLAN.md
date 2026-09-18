@@ -214,11 +214,10 @@ everything else → `edited`.
   `list_cards` unless `archived=True` (`?archived=1`, the board's "show archived" box).
   Still no hard delete: cards are forever.
 - `GET /api/cards` returns every match, unpaginated, by design.
-- Panel responses can land out of order: `patch()` re-renders from its own PATCH
-  response, so a slow PATCH that returns after a later link/comment re-render briefly
-  shows the older card (the data is saved; reopening shows it). Found while writing the
-  panel link test; only reachable with two edits inside one round trip. Fix, if it bites,
-  is to ignore a response older than the card already shown (`updated_at`).
+- ~~Panel responses can land out of order~~ — **resolved.** A slow PATCH response used
+  to re-render the panel over a newer link/comment render. The board now drops any card
+  older than the one shown: by newest event id in the panel (links and comments do not
+  bump `updated_at`, but every write appends an event), by `updated_at` on the board.
 - ~~Native drag unverified~~ — **resolved in task 4.** A real `left_click_drag` in
   Chrome moved a card between lanes and the server recorded the `moved` event. The
   native gesture works.
