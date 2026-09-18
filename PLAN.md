@@ -15,12 +15,17 @@ A single `LANES` constant in `core.py`. Renaming or reordering is a one-line cha
 ## Shape
 
 One process, one SQLite file, no build step, two dependencies (`mcp`, `uvicorn`).
+Tests add two more, dev-only: `pytest` and `playwright`.
 
 ```
 core.py        schema + every operation (the only file that touches SQL)
 app.py         MCPServer: MCP tools + HTTP routes, both thin wrappers over core
 board.html     the board, vanilla JS
-test_core.py   assert-based self-check
+conftest.py    fixtures: temp DB, TestClient, uvicorn thread, Chrome page
+test_core.py   core operations, rejections and no-ops
+test_app.py    status codes, the actor rule, both error mappings, ToolError, the MCP wire
+test_board.py  the board in a real browser, plus one lock per bug that shipped
+test_e2e.py    one card, browser and MCP, one attributed history
 ```
 
 Run: `uv run uvicorn app:app --host 127.0.0.1 --port 8123`
@@ -84,18 +89,26 @@ is what makes it trustworthy. HTTP maps `NotFound` → 404, `ValueError` → 400
 
 Actors self-register: `_event()` is the choke point every mutation passes through, so it
 does an `INSERT OR IGNORE` into `users`. The board's dropdown self-populates and no
-caller has to remember.
+caller has to remember. `ensure_user(name)` is the explicit door for a name that has not
+written anything yet — an agent announcing itself, or a person you want to assign work to
+before they have touched the board. Same `INSERT OR IGNORE`, so it is idempotent; a blank
+name is a `ValueError`.
 
 ## HTTP routes (`app.py`)
 
 `GET /` → board.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
 `POST /api/cards` · `POST /api/cards/{id}/comment` · `POST|DELETE /api/links` ·
-`GET /api/users` · `GET /api/projects`. Every write body carries `actor`.
+`GET|POST /api/users` · `GET /api/projects`. Every write body carries `actor` — except
+`POST /api/users` (`{"name"}` → 201), the one write that predates having an actor.
 
 ## MCP tools (`app.py`)
 
 `list_cards` · `get_card` · `create_card` · `update_card` · `comment` · `link_cards` ·
-`unlink_cards`
+`unlink_cards` · `create_user`
+
+`update_card` takes only the fields you are changing, so `None` means "not passed".
+That leaves no way to spell "clear it", which matters for exactly one field: pass
+`assignee=""` to unassign.
 
 Docstrings state the lane order and that `actor` identifies the caller — they are the
 agent's only instruction manual, so they carry more weight than the code around them.
@@ -116,7 +129,9 @@ an agent expected to correct itself.
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
 `drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: description,
 priority, labels, checklist, links, activity log, comment box. A "you are:" `<select>`
-persisted in `localStorage` supplies `actor` on every write, and a project `<select>`
+persisted in `localStorage` supplies `actor` on every write — its "+ another name…" entry
+prompts and `POST`s to `/api/users`, so a new person or agent is registered and assignable
+without writing a card first — and a project `<select>`
 (also persisted) filters the board — an agent and a human both scope to one project.
 
 ## Status
@@ -128,8 +143,21 @@ persisted in `localStorage` supplies `actor` on every write, and a project `<sel
 | 2 | `app.py` — MCP tools + HTTP routes | done |
 | 3 | `board.html` — drag & drop board | done |
 | 4 | end-to-end verification | done |
+| 5 | explicit user registration: `POST /api/users`, `create_user` tool, UI wiring | done |
+| 6 | board fixes: panel above the header, save button, dismissal race, actor placeholder | done |
+| 7 | pytest suite across all four surfaces | done — 77 checks |
 
-Gate for every task: `uv run python test_core.py`
+Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
+and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
+temp database, so `tickets.db` is never touched. The browser tests drive the real
+`board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
+themselves if Playwright or Chrome is missing, so the gate still passes on a bare
+checkout — `66 passed, 11 skipped`.
+
+The suite shares one process on purpose: `core.DB_PATH` is re-read on every connect, so
+the temp database reaches the in-thread uvicorn server the browser talks to. That is what
+lets `test_e2e.py` drag a card in Chrome and then call an MCP tool on the same card — and
+it is why this suite must not be run under `pytest-xdist`.
 
 ## End-to-end result (task 4)
 
@@ -174,9 +202,9 @@ Field → kind: `lane` → `moved`, `assignee` → `assigned`, everything else �
   existing table. A `tickets.db` predating a schema change must be deleted, not migrated.
 - `NOCASE` folds ASCII only, so `Ärende` and `ärende` list as two projects. Upgrade is a
   normalised `project_key` column, if it ever matters.
-- The MCP `update_card` tool cannot unassign a card: it filters `None` to mean "not
-  passed", so there is no way to say "set to nobody". `PATCH {"assignee": null}` over
-  HTTP can. Needs a sentinel if an agent should be able to unassign.
+- ~~The MCP `update_card` tool cannot unassign a card~~ — **resolved in task 7.** The
+  tool maps `assignee=""` to `None` before calling core, so `None` keeps meaning "not
+  passed" and an agent can still clear the field. Documented in the tool's docstring.
 - No `DELETE /api/cards/{id}` and no delete in `core` — cards are forever. Decide in use
   whether a board with no way to remove a mistake is actually tolerable.
 - `GET /api/cards` returns every match, unpaginated, by design.

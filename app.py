@@ -160,7 +160,7 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     changing; omitted fields are left alone, and a field passed unchanged records nothing.
 
     `lane` moves the card, in order todo -> plan -> develop -> test -> verify -> done.
-    `assignee` assigns it to a person. `priority` is low, med or high.
+    `assignee` assigns it to a person; pass "" to unassign. `priority` is low, med or high.
     `checklist` REPLACES the whole list, so send every item back, not just the one you
     ticked: get_card first, flip the `done` you want, send the full list. `labels` likewise
     replaces the whole list.
@@ -168,6 +168,8 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     fields = {k: v for k, v in dict(
         title=title, description=description, lane=lane, assignee=assignee, priority=priority,
         labels=labels, checklist=checklist, project=project).items() if v is not None}
+    if fields.get("assignee") == "":
+        fields["assignee"] = None   # None already means "not passed", so "" is how you unassign
     return core.update_card(id, actor, **fields)
 
 

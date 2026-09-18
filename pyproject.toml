@@ -7,3 +7,9 @@ dependencies = [
     "mcp>=2.2",
     "uvicorn>=0.30",
 ]
+
+[dependency-groups]
+dev = [
+    "playwright>=1.63.0",
+    "pytest>=9.1.1",
+]
