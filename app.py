@@ -101,6 +101,13 @@ async def api_users(request):
     return JSONResponse(core.list_users())
 
 
+@route("/api/users", methods=["POST"])
+async def api_create_user(request):
+    # no `actor` here: registering a name is the one write that predates having one
+    return JSONResponse({"name": core.ensure_user((await request.json()).get("name"))},
+                        status_code=201)
+
+
 @route("/api/projects", methods=["GET"])
 async def api_projects(request):
     return JSONResponse(core.list_projects())
@@ -162,6 +169,18 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
         title=title, description=description, lane=lane, assignee=assignee, priority=priority,
         labels=labels, checklist=checklist, project=project).items() if v is not None}
     return core.update_card(id, actor, **fields)
+
+
+@tool
+def create_user(name: str) -> str:
+    """Register a person or agent by name so they appear on the board before writing anything.
+
+    You do not need this to work: any `actor` you pass to another tool registers itself on
+    its first write. Use it to put a name on the board ahead of time — your own agent name
+    so a human can assign you work, or a teammate you are about to assign a card to.
+    Registering a name that already exists does nothing. Returns the name as stored.
+    """
+    return core.ensure_user(name)
 
 
 @tool

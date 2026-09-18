@@ -442,10 +442,18 @@ function renderWho() {
   s.append(new Option("+ another name…", NEWUSER));
 }
 
-$("#who").onchange = ev => {
+$("#who").onchange = async ev => {
   if (ev.target.value === NEWUSER) {
-    const name = (prompt("Your name (it registers on your first write):") || "").trim();
-    if (name) localStorage.setItem("actor", name);
+    const name = (prompt("Name to add (a person, or an agent's name):") || "").trim();
+    if (name) {
+      try {
+        await api("POST", "/api/users", { name });
+        localStorage.setItem("actor", name);
+        users = await api("GET", "/api/users");  // so the new name is assignable too
+      } catch (e) { showErr(e.message); }
+    } else {
+      showErr("no name given — nothing was added");  // a suppressed prompt looks like a cancel
+    }
   } else {
     localStorage.setItem("actor", ev.target.value);
   }

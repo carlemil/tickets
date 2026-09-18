@@ -114,6 +114,11 @@ def _checklist_events(old, new):
 
 
 def ensure_user(name):
+    """The explicit door into `users`, for a name that has not written anything yet.
+    Idempotent; a blank name is bad input, not a silent no-op."""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("name is required")
     with closing(connect()) as db, db:
         db.execute("INSERT OR IGNORE INTO users (name) VALUES (?)", (name,))
     return name
