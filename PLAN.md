@@ -248,7 +248,7 @@ the button for 150 ms.
 | 11 | no default project: a card needs a configured one; project picked under the title | done — 236 checks |
 | 12 | new-card sheet shows links, activity and comments; "create" saves and closes | done — 241 checks |
 | 13 | no save/create buttons: click outside closes the sheet and saves, creating a new card | done — 252 checks |
-| 14 | project colors: cards tagged with their project's name and color | done — 282 checks |
+| 14 | project colors: cards tagged with their project's name and color, after the priority/auto chips | done — 283 checks |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
