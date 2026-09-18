@@ -93,6 +93,20 @@
   .chk.done span { text-decoration: line-through; color: var(--dim); }
   .links li { list-style: none; display: flex; gap: 6px; align-items: center; }
   ul.links { padding: 0; margin: 0; }
+
+  body { padding-bottom: 36px; }   /* room for the status bar over the board's last cards */
+  #status {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+    display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+    padding: 6px 16px; font-size: 12px; color: var(--dim);
+    background: var(--panel); border-top: 1px solid var(--line);
+  }
+  #status .job { cursor: pointer; }
+  #status .job:hover .t { text-decoration: underline; }
+  #status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+                 background: #36b37e; margin-right: 6px; animation: pulse 1.2s infinite; }
+  #status .who, #status .t { color: var(--ink); font-weight: 600; }
+  @keyframes pulse { 50% { opacity: .3; } }
 </style>
 </head>
 <body>
@@ -110,6 +124,7 @@
 <div id="err"></div>
 <div id="board"></div>
 <div id="panel"></div>
+<footer id="status"></footer>
 
 <script>
 const LANES = ["todo", "plan", "develop", "test", "verify", "done"];
@@ -759,7 +774,38 @@ async function load() {
   renderBoard();
 }
 
+// ---------- status bar: what agents are doing right now ----------
+let busy = null;   // card ids agents were working on at the last poll
+
+async function loadStatus() {
+  const bar = $("#status");
+  let jobs;
+  try { jobs = await api("GET", "/api/activity"); }
+  catch { bar.textContent = "agent status unavailable"; return; }
+  bar.textContent = jobs.length ? "" : "no agent is working on anything";
+  for (const j of jobs) {
+    const n = document.createElement("span");
+    n.className = "job";
+    n.title = j.project + " · " + j.lane;
+    n.append(Object.assign(document.createElement("span"), { className: "dot" }),
+             Object.assign(document.createElement("span"), { className: "who", textContent: j.actor }),
+             " " + j.doing + " ",
+             Object.assign(document.createElement("span"), { className: "id", textContent: "#" + j.card_id }),
+             " ",
+             Object.assign(document.createElement("span"), { className: "t", textContent: j.title }),
+             " · started " + ago(j.since));
+    n.onclick = () => openCard(j.card_id);
+    bar.append(n);
+  }
+  // an agent finishing moves its card: reload the board then, but never under a drag
+  const now = jobs.map(j => j.card_id).join();
+  if (busy !== null && now !== busy && !$(".card.dragging")) load();
+  busy = now;
+}
+
 load();
+loadStatus();
+setInterval(loadStatus, 5000);
 </script>
 </body>
 </html>

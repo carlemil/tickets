@@ -1070,3 +1070,40 @@ def test_the_project_tag_sits_after_the_priority_and_auto_chips(page):
     chips = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').all_text_contents()
     assert chips(plain) == [f"#{plain}", "bob", "high", "Home", "ui"], chips(plain)
     assert chips(auto) == [f"#{auto}", "med", "auto", "Home"], chips(auto)
+
+
+# ---------- status bar ----------
+
+def test_the_status_bar_says_when_no_agent_is_working(page):
+    page.wait_for_function("() => document.querySelector('#status').textContent !== ''")
+    assert page.text_content("#status") == "no agent is working on anything"
+
+
+def test_the_status_bar_shows_each_agent_and_opens_its_card(page):
+    a = core.create_card("Paint it blue", actor="ce", project="Home", lane="plan")["id"]
+    b = core.create_card("Wire <b>it</b>", actor="ce", project="Home", lane="develop")["id"]
+    core.set_activity("claude-agent", a, "planning")
+    core.set_activity("other-bot", b, "developing")
+    page.evaluate("loadStatus()")
+    jobs = page.locator("#status .job")
+    jobs.first.wait_for()
+    texts = jobs.all_text_contents()
+    assert texts[0].startswith(f"claude-agent planning #{a} Paint it blue · started "), texts
+    assert texts[1].startswith(f"other-bot developing #{b} Wire <b>it</b>"), "text, not HTML"
+    jobs.nth(1).click()
+    page.wait_for_selector("#panel.on")
+    assert page.input_value("#panel input[type=text] >> nth=0") == "Wire <b>it</b>"
+
+
+def test_an_agent_finishing_reloads_the_board(page):
+    cid = core.create_card("Ship it", actor="ce", project="Home", lane="plan")["id"]
+    page.evaluate("load()")
+    page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{cid}"]')
+    core.set_activity("claude-agent", cid, "planning")
+    page.evaluate("loadStatus()")
+    page.locator("#status .job").wait_for()
+    core.update_card(cid, "claude-agent", lane="develop")   # the agent's work lands...
+    core.set_activity("claude-agent")                        # ...and it clears its status
+    page.evaluate("loadStatus()")
+    page.wait_for_selector(f'.lane[data-lane="develop"] .card[data-id="{cid}"]')
+    assert page.text_content("#status") == "no agent is working on anything"

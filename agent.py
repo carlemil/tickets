@@ -33,6 +33,7 @@ POLL = 15
 NEXT = {"plan": "develop", "develop": "test", "test": "verify"}
 PASS = "RESULT: PASS"
 NO_QUESTIONS = "QUESTIONS: NONE"
+DOING = {"plan": "planning", "develop": "developing", "test": "testing"}   # the status bar
 
 PROMPTS = {
     "plan": "Plan the implementation of this ticket card. Read the code in the current "
@@ -128,12 +129,17 @@ async def tick(client):
     for c in await call(client, "list_cards"):
         if c["lane"] in NEXT and (c["assignee"] == AGENT or c["auto_advance"]):
             print(f"#{c['id']} {c['lane']}: {c['title']}", flush=True)
-            await handle(client, await call(client, "get_card", id=c["id"]))
+            await call(client, "set_activity", actor=AGENT, card_id=c["id"], doing=DOING[c["lane"]])
+            try:
+                await handle(client, await call(client, "get_card", id=c["id"]))
+            finally:
+                await call(client, "set_activity", actor=AGENT)
 
 
 async def main():
     async with Client(URL) as client:
         await call(client, "create_user", name=AGENT)
+        await call(client, "set_activity", actor=AGENT)   # a crashed run may have left one
     print(f"{AGENT} polling {URL} every {POLL}s", flush=True)
     while True:
         try:  # a fresh client per poll, so a backend restart does not kill the agent

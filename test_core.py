@@ -710,3 +710,47 @@ def test_projects_backfilled_from_cards_get_colors_too(db):
     raw.close()
     assert core.list_projects() == [{"name": "Legacy", "path": "", "instructions": "",
                                      "color": core.PALETTE[0]}]
+
+
+# ---------- activity ----------
+
+def test_activity_is_set_replaced_and_cleared_per_actor():
+    a, b = card("a")["id"], card("b", lane="develop")["id"]
+    core.set_activity("bot", a, "planning")
+    core.set_activity("bot2", b, "developing")
+    core.set_activity("bot", b, " testing ")          # replaces bot's row, stripped
+    got = {r["actor"]: (r["card_id"], r["doing"], r["title"], r["lane"], r["project"])
+           for r in core.list_activity()}
+    assert got == {"bot": (b, "testing", "b", "develop", "Home"),
+                   "bot2": (b, "developing", "b", "develop", "Home")}
+    assert core.set_activity("bot") == [r for r in core.list_activity()]
+    assert [r["actor"] for r in core.list_activity()] == ["bot2"]
+    core.set_activity("bot")                            # clearing twice is a no-op
+    assert len(core.list_activity()) == 1
+
+
+def test_activity_writes_no_event_and_no_updated_at():
+    c = card()
+    core.set_activity("bot", c["id"], "planning")
+    after = core.get_card(c["id"])
+    assert [e["kind"] for e in after["events"]] == ["created"]
+    assert after["updated_at"] == c["updated_at"]
+
+
+def test_activity_rejects_bad_input():
+    c = card()["id"]
+    with pytest.raises(core.NotFound):
+        core.set_activity("bot", 999, "planning")
+    for blank in ("", "  ", None):
+        with pytest.raises(ValueError):
+            core.set_activity(blank, c, "planning")
+        with pytest.raises(ValueError):
+            core.set_activity("bot", c, blank)
+    assert core.list_activity() == []
+
+
+def test_activity_shows_the_card_as_it_is_now():
+    c = card()["id"]
+    core.set_activity("bot", c, "planning")
+    core.update_card(c, "ann", title="renamed", lane="develop")
+    assert (core.list_activity()[0]["title"], core.list_activity()[0]["lane"]) == ("renamed", "develop")

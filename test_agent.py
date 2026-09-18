@@ -370,3 +370,34 @@ def test_run_claude_plans_in_plan_mode_and_asks_for_a_questions_verdict(monkeypa
     agent.run_claude({"lane": "plan", "id": 7}, tmp_path)
     assert got["cmd"][-2:] == ["--permission-mode", "plan"]
     assert "QUESTIONS: NONE" in got["input"] and "## Open questions" in got["input"]
+
+
+# ---------- the status bar ----------
+
+@pytest.mark.parametrize("lane, doing", [("plan", "planning"), ("develop", "developing"),
+                                         ("test", "testing")])
+def test_activity_is_shown_while_claude_runs_and_cleared_after(ran, monkeypatch, lane, doing):
+    id = card(lane)
+    seen = []
+    monkeypatch.setattr(agent, "run_claude", lambda c, cwd, instr:
+                        seen.append(core.list_activity()) or "x\nQUESTIONS: NONE\nRESULT: PASS")
+    tick()
+    assert [(r["actor"], r["card_id"], r["doing"]) for r in seen[0]] == [(agent.AGENT, id, doing)]
+    assert core.list_activity() == []
+
+
+def test_activity_is_cleared_when_the_card_fails(ran, monkeypatch):
+    card("develop", project="Pathless")
+    tick()
+    assert core.list_activity() == []
+
+
+def test_activity_is_cleared_even_when_handling_crashes(ran, monkeypatch):
+    card("develop")
+
+    async def crash(client, card):
+        raise ConnectionError("server went away")
+    monkeypatch.setattr(agent, "handle", crash)
+    with pytest.raises(Exception, match="server went away|unhandled errors"):  # may arrive grouped
+        tick()
+    assert core.list_activity() == []

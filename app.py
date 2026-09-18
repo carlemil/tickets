@@ -109,6 +109,11 @@ async def api_create_user(request):
                         status_code=201)
 
 
+@route("/api/activity", methods=["GET"])
+async def api_activity(request):
+    return JSONResponse(core.list_activity())
+
+
 @route("/api/projects", methods=["GET"])
 async def api_projects(request):
     return JSONResponse(core.list_projects())
@@ -219,6 +224,17 @@ def create_user(name: str) -> str:
     Registering a name that already exists does nothing. Returns the name as stored.
     """
     return core.ensure_user(name)
+
+
+@tool
+def set_activity(actor: str, card_id: int | None = None, doing: str = "") -> list[dict]:
+    """Show on the board's status bar what you are doing right now, e.g. card_id=12,
+    doing="planning". `actor` is you; you have one entry, and setting it replaces it.
+    Call it again with no card_id when you stop, so the board does not show you working
+    on something you finished. Writes nothing to the card's activity log. Returns every
+    agent's current entry.
+    """
+    return core.set_activity(actor, card_id, doing)
 
 
 @tool

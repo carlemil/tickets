@@ -65,6 +65,12 @@ CREATE TABLE IF NOT EXISTS projects (
     instructions TEXT NOT NULL DEFAULT '',
     color TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS activity (
+    actor TEXT PRIMARY KEY,
+    card_id INTEGER NOT NULL REFERENCES cards(id),
+    doing TEXT NOT NULL,
+    since TEXT NOT NULL
+);
 """
 
 
@@ -177,6 +183,33 @@ def ensure_user(name):
 def list_users():
     with closing(connect()) as db:
         return [r["name"] for r in db.execute("SELECT name FROM users ORDER BY name")]
+
+
+# ---------- activity: what agents are doing right now ----------
+
+def set_activity(actor, card_id=None, doing=""):
+    """One row per actor: setting replaces it, card_id=None clears it. Live state for the
+    board's status bar, not history, so it writes no event."""
+    actor = (actor or "").strip()
+    if not actor:
+        raise ValueError("actor is required")
+    with closing(connect()) as db, db:
+        if card_id is None:
+            db.execute("DELETE FROM activity WHERE actor=?", (actor,))
+        else:
+            _load(db, card_id)
+            if not (doing or "").strip():
+                raise ValueError("doing is required: say what you are doing to the card")
+            db.execute("INSERT OR REPLACE INTO activity VALUES (?,?,?,?)",
+                       (actor, card_id, doing.strip(), _now()))
+    return list_activity()
+
+
+def list_activity():
+    with closing(connect()) as db:
+        return [dict(r) for r in db.execute(
+            "SELECT a.actor, a.card_id, a.doing, a.since, c.title, c.project, c.lane"
+            " FROM activity a JOIN cards c ON c.id = a.card_id ORDER BY a.since")]
 
 
 # ---------- projects ----------

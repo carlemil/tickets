@@ -254,7 +254,8 @@ def test_the_mcp_endpoint_serves_the_tools(db):
 
         listed = {t["name"] for t in call({"method": "tools/list"})["tools"]}
         assert listed == {"list_cards", "get_card", "create_card", "update_card", "list_projects",
-                          "create_user", "comment", "link_cards", "unlink_cards"}, listed
+                          "create_user", "comment", "link_cards", "unlink_cards",
+                          "set_activity"}, listed
 
         made = call({"method": "tools/call",
                      "params": {"name": "create_card",
@@ -398,3 +399,23 @@ def test_project_colors_over_rest(client):
     assert r.status_code == 200 and r.json()["color"] == "#00ff00", r.text
     assert {p["name"]: p["color"] for p in client.get("/api/projects").json()} == {
         "Home": core.PALETTE[0], "Red": "#00ff00"}
+
+
+# ---------- activity: the status bar's feed ----------
+
+def test_activity_route_lists_what_agents_are_doing(client):
+    assert client.get("/api/activity").json() == []
+    c = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home"}).json()
+    app.set_activity("bot", c["id"], "planning")
+    [row] = client.get("/api/activity").json()
+    assert (row["actor"], row["card_id"], row["doing"], row["title"]) == ("bot", c["id"], "planning", "a")
+    app.set_activity("bot")
+    assert client.get("/api/activity").json() == []
+
+
+def test_set_activity_tool_errors_reach_the_agent():
+    with pytest.raises(ToolError, match="no card 999"):
+        app.set_activity("bot", 999, "planning")
+    c = core.create_card("a", "ann", project="Home")["id"]
+    with pytest.raises(ToolError, match="doing is required"):
+        app.set_activity("bot", c)

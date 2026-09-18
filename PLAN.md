@@ -57,6 +57,7 @@ cards(id, project, title, description, lane, assignee, created_by,
 events(id, card_id, actor, kind, detail, at)     -- append-only
 links(from_id, to_id, kind)                      -- kind: 'parent' | 'blocks'
 projects(name PRIMARY KEY COLLATE NOCASE, path, instructions, color)
+activity(actor PRIMARY KEY, card_id, doing, since)   -- what agents are doing now
 ```
 
 - `labels` and `checklist` are JSON text columns parsed in Python. No child tables.
@@ -115,7 +116,7 @@ name is a `ValueError`.
 
 `GET /` → board.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
 `POST /api/cards` · `POST /api/cards/{id}/comment` · `POST|DELETE /api/links` ·
-`GET|POST /api/users` · `GET|POST /api/projects` · `PATCH /api/projects/{name}`. Every
+`GET|POST /api/users` · `GET /api/activity` · `GET|POST /api/projects` · `PATCH /api/projects/{name}`. Every
 write body carries `actor` — except `POST /api/users` (`{"name"}` → 201), the one write
 that predates having an actor, and the project writes, which are configuration rather
 than card activity and log no event.
@@ -124,7 +125,8 @@ than card activity and log no event.
 
 `list_cards` · `get_card` · `create_card` · `update_card` · `comment` · `link_cards` ·
 `unlink_cards` · `create_user` · `list_projects` (read-only: agents see each project's
-path and instructions, but configuring projects is left to the board)
+path and instructions, but configuring projects is left to the board) · `set_activity`
+(the status bar)
 
 `update_card` takes only the fields you are changing, so `None` means "not passed".
 That leaves no way to spell "clear it", which matters for exactly one field: pass
@@ -180,6 +182,16 @@ where it is unassigned. `todo` is the backlog, so moving the card to `plan` is t
 signal. Any failure — a stage erroring, a project with no path, a test stage without a
 pass — comments why, unassigns and **turns the switch off**, leaving the card in its
 lane: that is the loop guard for auto cards, which have no unassign-to-stop of their own.
+
+**Status bar.** Around each card it works, the agent calls the `set_activity` tool
+(`planning` / `developing` / `testing`) and clears it in a `finally`; it also clears its
+own entry on startup, in case a crashed run left one. `activity` is one row per actor in
+SQLite, so it survives a backend restart, and it is live state, not history: it writes no
+event and does not bump `updated_at`. The board polls `GET /api/activity` every 5s and
+shows each agent, what it is doing, the card (click to open) and how long ago it started;
+when the set of busy cards changes it reloads the board (skipped mid-drag), so a card the
+agent just moved shows up in its new lane. A killed agent's entry lingers until it
+restarts — the "started" age is what makes that visible.
 
 ## Board (`board.html`)
 
@@ -249,6 +261,7 @@ the button for 150 ms.
 | 12 | new-card sheet shows links, activity and comments; "create" saves and closes | done — 241 checks |
 | 13 | no save/create buttons: click outside closes the sheet and saves, creating a new card | done — 252 checks |
 | 14 | project colors: cards tagged with their project's name and color, after the priority/auto chips | done — 283 checks |
+| 15 | agent status bar: `set_activity` tool, `GET /api/activity`, bar polls and reloads the board | done — 297 checks |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
