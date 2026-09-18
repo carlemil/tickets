@@ -208,3 +208,92 @@ def test_the_mcp_endpoint_serves_the_tools(db):
                        "params": {"name": "get_card", "arguments": {"id": 999}}})
         assert failed["isError"] is True, failed
         assert "no card 999" in json.dumps(failed["content"]), failed
+
+        # archive over the wire: the tool schema must carry the new argument through
+        cid = core.list_cards()[0]["id"]
+        done = call({"method": "tools/call",
+                     "params": {"name": "update_card",
+                                "arguments": {"id": cid, "actor": "agent", "archived": True}}})
+        assert done["isError"] is False, done
+        assert core.get_card(cid)["archived"] is True and core.list_cards() == []
+
+
+def test_archived_query_param_switches_the_list(client):
+    c = client.post("/api/cards", json={"title": "a", "actor": "ann"}).json()
+    client.patch(f"/api/cards/{c['id']}", json={"archived": True, "actor": "ann"})
+    assert client.get("/api/cards").json() == []
+    assert [x["id"] for x in client.get("/api/cards?archived=1").json()] == [c["id"]]
+
+
+def test_update_card_tool_can_archive():
+    c = app.create_card(title="a", actor="bot")
+    assert app.update_card(c["id"], "bot", archived=True)["archived"] is True
+    assert app.list_cards() == [] and len(app.list_cards(archived=True)) == 1
+
+
+@pytest.mark.parametrize("q", ["", "?archived=0", "?archived=", "?archived=true"])
+def test_anything_but_archived_1_lists_the_active_board(client, q):
+    a = client.post("/api/cards", json={"title": "active", "actor": "ann"}).json()
+    b = client.post("/api/cards", json={"title": "gone", "actor": "ann"}).json()
+    client.patch(f"/api/cards/{b['id']}", json={"archived": True, "actor": "ann"})
+    assert [x["id"] for x in client.get("/api/cards" + q).json()] == [a["id"]]
+
+
+def test_archived_filter_combines_with_project_over_http(client):
+    a = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "P"}).json()
+    client.post("/api/cards", json={"title": "b", "actor": "ann", "project": "Q"})
+    client.patch(f"/api/cards/{a['id']}", json={"archived": True, "actor": "ann"})
+    got = client.get("/api/cards?archived=1&project=p").json()
+    assert [x["id"] for x in got] == [a["id"]], got
+
+
+def test_an_archived_card_still_opens_by_id(client):
+    a = client.post("/api/cards", json={"title": "a", "actor": "ann"}).json()
+    client.patch(f"/api/cards/{a['id']}", json={"archived": True, "actor": "ann"})
+    r = client.get(f"/api/cards/{a['id']}")
+    assert r.status_code == 200 and r.json()["archived"] is True, r.text
+
+
+@pytest.mark.parametrize("bad", ["yes", 1, None])
+def test_non_bool_archived_is_400(client, bad):
+    a = client.post("/api/cards", json={"title": "a", "actor": "ann"}).json()
+    r = client.patch(f"/api/cards/{a['id']}", json={"archived": bad, "actor": "ann"})
+    assert r.status_code == 400 and "archived" in r.json()["error"], r.text
+
+
+def test_archiving_an_unknown_card_is_404(client):
+    r = client.patch("/api/cards/999", json={"archived": True, "actor": "ann"})
+    assert r.status_code == 404, r.text
+
+
+def test_link_with_a_missing_field_is_400(client):
+    r = client.post("/api/links", json={"from_id": 1, "actor": "ann"})
+    assert r.status_code == 400, r.text
+
+
+def test_users_are_listed_sorted(client):
+    for n in ("zoe", "ann", "mia"):
+        client.post("/api/users", json={"name": n})
+    assert client.get("/api/users").json() == ["ann", "mia", "zoe"]
+
+
+def test_update_card_tool_can_unarchive_and_omitting_archived_leaves_it():
+    c = app.create_card(title="a", actor="bot")
+    app.update_card(c["id"], "bot", archived=True)
+    assert app.update_card(c["id"], "bot", lane="plan")["archived"] is True,         "archived=None means not passed, like every other field"
+    assert app.update_card(c["id"], "bot", archived=False)["archived"] is False
+    assert [x["id"] for x in app.list_cards()] == [c["id"]]
+
+
+def test_list_cards_tool_combines_archived_with_project():
+    a = app.create_card(title="a", actor="bot", project="P")
+    app.create_card(title="b", actor="bot", project="Q")
+    app.update_card(a["id"], "bot", archived=True)
+    assert [x["id"] for x in app.list_cards(project="p", archived=True)] == [a["id"]]
+    assert app.list_cards(project="q", archived=True) == []
+
+
+def test_update_card_tool_rejects_a_non_bool_archived():
+    c = app.create_card(title="a", actor="bot")
+    with pytest.raises(ToolError, match="archived"):
+        app.update_card(c["id"], "bot", archived="yes")

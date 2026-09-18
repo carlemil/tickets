@@ -205,3 +205,106 @@ def test_the_actor_box_never_shows_a_name_it_has_not_stored(page):
     page.wait_for_selector("#err.on")
     assert "say who you are first" in page.text_content("#err")
     assert core.list_cards() == [], "and nothing was written"
+
+
+def test_archive_button_removes_the_card_and_show_archived_brings_it_back(page):
+    cid = add_card(page, "archive me")
+    page.click("#panel button:text('archive')")
+    page.wait_for_selector(f'.card[data-id="{cid}"]', state="detached")
+    assert core.get_card(cid)["archived"] is True, "archived, not deleted"
+    page.check("#showArch")
+    page.click(f'.card[data-id="{cid}"]')
+    page.click("#panel button:text('unarchive')")
+    page.wait_for_selector(f'.card[data-id="{cid}"]', state="detached")
+    page.uncheck("#showArch")
+    page.wait_for_selector(f'.card[data-id="{cid}"]')
+    assert core.get_card(cid)["archived"] is False
+
+
+def test_a_failed_archive_keeps_the_card_and_says_why(page):
+    cid = add_card(page, "stays put")
+    page.evaluate("""window.fetch = () => Promise.resolve(
+        new Response(JSON.stringify({error: "nope"}), {status: 400}))""")
+    page.click("#panel button:text('archive')")
+    page.wait_for_selector("#err.on")
+    assert "nope" in page.text_content("#err")
+    assert page.locator("#panel.on").count() == 1, "the panel stays open on failure"
+    assert page.locator(f'.card[data-id="{cid}"]').count() == 1
+    assert core.get_card(cid)["archived"] is False
+
+
+def test_show_archived_respects_the_project_filter(page):
+    for title, project in (("mine", "P"), ("theirs", "Q")):
+        c = core.create_card(title, actor="ce", project=project)
+        core.update_card(c["id"], "ce", archived=True)
+    page.evaluate("localStorage.setItem('project', 'P'); load()")
+    page.check("#showArch")
+    page.wait_for_function("() => document.querySelectorAll('.card').length === 1")
+    assert page.text_content(".card .t") == "mine"
+
+
+def test_every_event_kind_reads_as_a_sentence(page):
+    """eventLine() falls back to the raw kind for anything it does not know, which is
+    how a new event kind (like `archived`) ships looking broken. Emit every kind core can
+    write and check none of them hits the fallback."""
+    a = core.create_card("a", actor="ce", checklist=[{"text": "x", "done": False}])
+    b = core.create_card("b", actor="ce")
+    core.update_card(a["id"], "ce", lane="plan", assignee="bob", title="a2",
+                     checklist=[{"text": "x", "done": True}])
+    core.update_card(a["id"], "ce", checklist=[{"text": "x", "done": True},
+                                                {"text": "y", "done": False}])
+    core.link_cards(a["id"], b["id"], "blocks", "ce")
+    core.unlink_cards(a["id"], b["id"], "blocks", "ce")
+    core.update_card(a["id"], "ce", archived=True)
+    core.update_card(a["id"], "ce", archived=False)
+    events = [e for e in core.get_card(a["id"])["events"] if e["kind"] != "comment"]
+    assert {e["kind"] for e in events} == {"created", "moved", "assigned", "edited",
+                                           "checked", "linked", "unlinked", "archived"}
+    lines = page.evaluate("evs => evs.map(eventLine)", events)
+    leaked = [(e["kind"], l) for e, l in zip(events, lines) if l == e["kind"]]
+    assert not leaked, f"rendered as a bare kind: {leaked}"
+    assert "archived it" in lines and "unarchived it" in lines, lines
+
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{a["id"]}"]')
+    page.click(f'.card[data-id="{a["id"]}"]')
+    page.wait_for_selector("#panel.on .log")
+    assert "unarchived it" in page.text_content("#panel .log"), "and the panel shows it"
+
+
+def test_assignee_and_links_from_the_panel(page):
+    core.ensure_user("bob")
+    other = core.create_card("other", actor="ce")
+    page.evaluate("load()")
+    cid = add_card(page, "linked one")
+    page.select_option("#panel select >> nth=1", "bob")           # assignee
+    wait_saved(page, cid, "assignee", "bob")
+    page.fill("#panel input[type=number]", str(other["id"]))
+    page.select_option("#panel .links select", "blocks")
+    page.click("#panel button:text('link')")
+    page.wait_for_function("() => window.__inflight === 0")
+    page.wait_for_selector("#panel button:text('unlink')")
+    assert core.get_card(cid)["links"] == [
+        {"from_id": cid, "to_id": other["id"], "kind": "blocks"}]
+    page.click("#panel button:text('unlink')")
+    page.wait_for_function("() => window.__inflight === 0")
+    page.wait_for_selector("#panel button:text('unlink')", state="detached")
+    assert core.get_card(cid)["links"] == []
+    page.select_option("#panel select >> nth=1", "")              # back to nobody
+    wait_saved(page, cid, "assignee", None)
+
+
+def test_linking_to_a_missing_card_shows_the_error(page):
+    add_card(page, "lonely")
+    page.fill("#panel input[type=number]", "999")
+    page.click("#panel button:text('link')")
+    page.wait_for_selector("#err.on")
+    assert "no card 999" in page.text_content("#err")
+
+
+def test_an_empty_title_creates_nothing(page):
+    page.fill("#newTitle", "   ")
+    page.click("#add")
+    page.wait_for_selector("#err.on")
+    assert "needs a title" in page.text_content("#err")
+    assert core.list_cards() == []

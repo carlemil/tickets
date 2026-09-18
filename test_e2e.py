@@ -44,3 +44,20 @@ def test_a_human_and_an_agent_share_one_attributed_card(page):
     assert "claude-agent" in log and "ce" in log, log
     assert "Shared state works." in log, log
     assert page.text_content(f'.card[data-id="{cid}"] .pill.who') == "ce", "assigned by the agent"
+
+
+def test_an_agent_archives_and_the_human_board_follows(page):
+    cid = add_card(page, "agent will archive this")
+    page.click("#panel .close.primary")
+    app.update_card(id=cid, actor="claude-agent", archived=True)
+    page.reload()
+    page.wait_for_selector("#board .lane")
+    assert page.locator(f'.card[data-id="{cid}"]').count() == 0, "gone from the board"
+    page.check("#showArch")
+    page.wait_for_selector(f'.card[data-id="{cid}"]')
+    page.click(f'.card[data-id="{cid}"]')
+    page.click("#panel button:text('unarchive')")          # the human brings it back
+    page.uncheck("#showArch")
+    page.wait_for_selector(f'.card[data-id="{cid}"]')
+    assert [(e["actor"], e["kind"]) for e in core.get_card(cid)["events"]][-2:] == [
+        ("claude-agent", "archived"), ("ce", "archived")]

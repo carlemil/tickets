@@ -12,10 +12,11 @@ DEFAULT_PROJECT = "inbox"
 
 DB_PATH = "tickets.db"  # reassign core.DB_PATH to point elsewhere (tests, alt board)
 
-CARD_FIELDS = ("project", "title", "description", "lane", "assignee", "priority", "labels", "checklist")
+CARD_FIELDS = ("project", "title", "description", "lane", "assignee", "priority", "labels", "checklist",
+               "archived")
 JSON_FIELDS = ("labels", "checklist")
 # lane/assignee get their own event kind; everything else is an `edited`
-EVENT_KIND = {"lane": "moved", "assignee": "assigned"}
+EVENT_KIND = {"lane": "moved", "assignee": "assigned", "archived": "archived"}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -34,7 +35,8 @@ CREATE TABLE IF NOT EXISTS cards (
     updated_at TEXT NOT NULL,
     priority TEXT NOT NULL,
     labels TEXT NOT NULL DEFAULT '[]',
-    checklist TEXT NOT NULL DEFAULT '[]'
+    checklist TEXT NOT NULL DEFAULT '[]',
+    archived INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY,
@@ -63,6 +65,10 @@ def connect():
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA foreign_keys=ON")
     db.executescript(SCHEMA)
+    # the one migration: a tickets.db from before archiving holds real cards, so add the
+    # column rather than make the user delete the file
+    if "archived" not in {r["name"] for r in db.execute("PRAGMA table_info(cards)")}:
+        db.execute("ALTER TABLE cards ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
     return db
 
 
@@ -74,6 +80,7 @@ def _card(row):
     card = dict(row)
     for f in JSON_FIELDS:
         card[f] = json.loads(card[f])
+    card["archived"] = bool(card["archived"])
     return card
 
 
@@ -99,6 +106,8 @@ def _validate(fields):
         raise ValueError(f"lane must be one of {LANES}")
     if "priority" in fields and fields["priority"] not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
+    if "archived" in fields and not isinstance(fields["archived"], bool):
+        raise ValueError("archived must be true or false")
 
 
 def _checklist_events(old, new):
@@ -178,8 +187,9 @@ def get_card(id):
     return card
 
 
-def list_cards(lane=None, assignee=None, label=None, project=None):
-    where, args = [], []
+def list_cards(lane=None, assignee=None, label=None, project=None, archived=False):
+    """Archived cards are off the board: listed only when asked for with archived=True."""
+    where, args = ["archived=?"], [int(archived)]
     if lane is not None:
         where.append("lane=?")
         args.append(lane)
@@ -189,7 +199,7 @@ def list_cards(lane=None, assignee=None, label=None, project=None):
     if project is not None:
         where.append("project=? COLLATE NOCASE")  # stored casing displays, matching ignores it
         args.append(project)
-    sql = "SELECT * FROM cards" + (" WHERE " + " AND ".join(where) if where else "")
+    sql = "SELECT * FROM cards WHERE " + " AND ".join(where)
     with closing(connect()) as db:
         cards = [_card(r) for r in db.execute(sql + " ORDER BY updated_at DESC", args)]
     # ponytail: label filter scans in Python — fine to a few thousand cards.

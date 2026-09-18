@@ -63,7 +63,8 @@ async def index(request):
 async def api_list_cards(request):
     q = request.query_params
     return JSONResponse(core.list_cards(lane=q.get("lane"), assignee=q.get("assignee"),
-                                        label=q.get("label"), project=q.get("project")))
+                                        label=q.get("label"), project=q.get("project"),
+                                        archived=q.get("archived") == "1"))
 
 
 @route("/api/cards", methods=["POST"])
@@ -115,15 +116,18 @@ async def api_projects(request):
 
 @tool
 def list_cards(project: str | None = None, lane: str | None = None,
-               assignee: str | None = None, label: str | None = None) -> list[dict]:
+               assignee: str | None = None, label: str | None = None,
+               archived: bool = False) -> list[dict]:
     """List cards, most recently changed first. Filters combine; omit one to ignore it.
 
     Lanes in order: todo -> plan -> develop -> test -> verify -> done.
     `project` scopes the board and is matched case-insensitively; work is grouped by
     project and new cards land in "inbox" unless told otherwise. `label` matches one
-    label on a card. Cards come back without their activity log — use get_card for that.
+    label on a card. Archived cards are hidden; pass archived=True to list only those.
+    Cards come back without their activity log — use get_card for that.
     """
-    return core.list_cards(lane=lane, assignee=assignee, label=label, project=project)
+    return core.list_cards(lane=lane, assignee=assignee, label=label, project=project,
+                           archived=archived)
 
 
 @tool
@@ -153,7 +157,7 @@ def create_card(title: str, actor: str, description: str = "", lane: str = core.
 def update_card(id: int, actor: str, title: str | None = None, description: str | None = None,
                 lane: str | None = None, assignee: str | None = None, priority: str | None = None,
                 labels: list[str] | None = None, checklist: list[dict] | None = None,
-                project: str | None = None) -> dict:
+                project: str | None = None, archived: bool | None = None) -> dict:
     """Change a card: this is how you move it between lanes, assign it, and tick checklist items.
 
     `actor` is you — every change is logged under that name. Pass only the fields you are
@@ -163,11 +167,13 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     `assignee` assigns it to a person; pass "" to unassign. `priority` is low, med or high.
     `checklist` REPLACES the whole list, so send every item back, not just the one you
     ticked: get_card first, flip the `done` you want, send the full list. `labels` likewise
-    replaces the whole list.
+    replaces the whole list. `archived=True` takes the card off the board without deleting
+    it; `archived=False` puts it back.
     """
     fields = {k: v for k, v in dict(
         title=title, description=description, lane=lane, assignee=assignee, priority=priority,
-        labels=labels, checklist=checklist, project=project).items() if v is not None}
+        labels=labels, checklist=checklist, project=project, archived=archived).items()
+        if v is not None}
     if fields.get("assignee") == "":
         fields["assignee"] = None   # None already means "not passed", so "" is how you unassign
     return core.update_card(id, actor, **fields)

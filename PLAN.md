@@ -192,22 +192,33 @@ needs five branches:
 | `checked` | `{"text", "done"}` |
 | `comment` | `{"text"}` |
 | `linked` / `unlinked` | `{"to", "kind"}` |
+| `archived` | `{"field": "archived", "from", "to"}` — `to` false means unarchived |
 
-Field → kind: `lane` → `moved`, `assignee` → `assigned`, everything else → `edited`.
+Field → kind: `lane` → `moved`, `assignee` → `assigned`, `archived` → `archived`,
+everything else → `edited`.
 `from`/`to` carry real values, so for `labels` they are lists, not strings.
 
 ## Follow-ups
 
-- No migrations by design: `CREATE TABLE IF NOT EXISTS` will not add a column to an
-  existing table. A `tickets.db` predating a schema change must be deleted, not migrated.
+- No migration framework: `CREATE TABLE IF NOT EXISTS` will not add a column to an
+  existing table. The one exception is `cards.archived`, added by a guarded `ALTER` in
+  `connect()` because the live board already held real cards. The next column that
+  needs it should make this a list, not a second `if`.
 - `NOCASE` folds ASCII only, so `Ärende` and `ärende` list as two projects. Upgrade is a
   normalised `project_key` column, if it ever matters.
 - ~~The MCP `update_card` tool cannot unassign a card~~ — **resolved in task 7.** The
   tool maps `assignee=""` to `None` before calling core, so `None` keeps meaning "not
   passed" and an agent can still clear the field. Documented in the tool's docstring.
-- No `DELETE /api/cards/{id}` and no delete in `core` — cards are forever. Decide in use
-  whether a board with no way to remove a mistake is actually tolerable.
+- ~~No way to remove a card~~ — **resolved by archiving.** `archived` is a card field set
+  through `update_card` (panel button, `PATCH`, MCP tool); archived cards drop out of
+  `list_cards` unless `archived=True` (`?archived=1`, the board's "show archived" box).
+  Still no hard delete: cards are forever.
 - `GET /api/cards` returns every match, unpaginated, by design.
+- Panel responses can land out of order: `patch()` re-renders from its own PATCH
+  response, so a slow PATCH that returns after a later link/comment re-render briefly
+  shows the older card (the data is saved; reopening shows it). Found while writing the
+  panel link test; only reachable with two edits inside one round trip. Fix, if it bites,
+  is to ignore a response older than the card already shown (`updated_at`).
 - ~~Native drag unverified~~ — **resolved in task 4.** A real `left_click_drag` in
   Chrome moved a card between lanes and the server recorded the `moved` event. The
   native gesture works.

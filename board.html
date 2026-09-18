@@ -96,6 +96,7 @@
   <h1>Tickets</h1>
   <label class="f">you are</label> <select id="who"></select>
   <label class="f">project</label> <select id="proj"></select>
+  <label class="f"><input type="checkbox" id="showArch"> show archived</label>
   <span class="spacer"></span>
   <input id="newTitle" placeholder="new card title…" size="18">
   <button class="primary" id="add">Add to todo</button>
@@ -168,6 +169,7 @@ function eventLine(e) {
     case "checked":  return `${d.done ? "ticked" : "unticked"} “${d.text}”`;
     case "linked":   return `linked this as a ${d.kind} of #${d.to}`;
     case "unlinked": return `removed the ${d.kind} link to #${d.to}`;
+    case "archived": return d.to ? "archived it" : "unarchived it";
     default:         return e.kind;
   }
 }
@@ -320,6 +322,19 @@ function renderPanel() {
     p.classList.remove("on");
   };
   p.append(close);
+  // archiving takes the card out of the current view (active or archived), so reload and close
+  const arch = Object.assign(document.createElement("button"),
+    { className: "close", textContent: c.archived ? "unarchive" : "archive",
+      style: "margin-right:6px" });
+  arch.onclick = async () => {
+    try {
+      await api("PATCH", "/api/cards/" + c.id, { archived: !c.archived });
+      open = null;
+      p.classList.remove("on");
+      load();
+    } catch (e) { showErr(e.message); }
+  };
+  p.append(arch);
   p.append(Object.assign(document.createElement("div"),
     { className: "sub", textContent: `#${c.id} · ${c.project} · ${c.lane} · created by ${c.created_by} ${ago(c.created_at)}` }));
 
@@ -484,6 +499,7 @@ function renderProj() {
 }
 
 $("#proj").onchange = ev => { localStorage.setItem("project", ev.target.value); load(); };
+$("#showArch").onchange = () => load();
 
 $("#add").onclick = async () => {
   const title = $("#newTitle").value.trim();
@@ -502,9 +518,11 @@ $("#newTitle").onkeydown = ev => { if (ev.key === "Enter") $("#add").click(); };
 
 async function load() {
   try {
-    const q = proj() ? "?project=" + encodeURIComponent(proj()) : "";
+    const q = new URLSearchParams();
+    if (proj()) q.set("project", proj());
+    if ($("#showArch").checked) q.set("archived", "1");
     [cards, users, projects] = await Promise.all([
-      api("GET", "/api/cards" + q), api("GET", "/api/users"), api("GET", "/api/projects"),
+      api("GET", "/api/cards?" + q), api("GET", "/api/users"), api("GET", "/api/projects"),
     ]);
   } catch (e) { return showErr("could not load the board: " + e.message); }
   renderWho();

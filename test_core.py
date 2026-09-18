@@ -304,3 +304,137 @@ def test_ensure_user_strips_and_rejects_blanks():
         with pytest.raises(ValueError):
             core.ensure_user(blank)
     assert core.list_users() == ["eve"], core.list_users()
+
+
+# ---------- archiving ----------
+
+def test_archive_hides_the_card_and_unarchive_brings_it_back():
+    c = card()
+    c = core.update_card(c["id"], "bob", archived=True)
+    assert c["archived"] is True, c
+    assert core.list_cards() == [], "archived cards are off the board"
+    assert [x["id"] for x in core.list_cards(archived=True)] == [c["id"]]
+    c = core.update_card(c["id"], "bob", archived=False)
+    assert [x["id"] for x in core.list_cards()] == [c["id"]]
+    evs = [e["detail"] for e in c["events"] if e["kind"] == "archived"]
+    assert evs == [{"field": "archived", "from": False, "to": True},
+                   {"field": "archived", "from": True, "to": False}], evs
+
+
+def test_archived_must_be_a_bool():
+    with pytest.raises(ValueError):
+        core.update_card(card()["id"], "bob", archived="yes")
+
+
+def test_a_database_from_before_archiving_gains_the_column(db):
+    import sqlite3
+    old = sqlite3.connect(core.DB_PATH)
+    old.execute("DROP TABLE IF EXISTS cards")
+    old.execute("CREATE TABLE cards (id INTEGER PRIMARY KEY, project TEXT NOT NULL,"
+                " title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', lane TEXT NOT NULL,"
+                " assignee TEXT, created_by TEXT NOT NULL, created_at TEXT NOT NULL,"
+                " updated_at TEXT NOT NULL, priority TEXT NOT NULL,"
+                " labels TEXT NOT NULL DEFAULT '[]', checklist TEXT NOT NULL DEFAULT '[]')")
+    old.execute("INSERT INTO cards VALUES (1,'inbox','old','','todo',NULL,'ann','t','t','med','[]','[]')")
+    old.commit()
+    old.close()
+    assert [(c["title"], c["archived"]) for c in core.list_cards()] == [("old", False)],         "existing cards survive and come back unarchived"
+    core.update_card(1, "ann", archived=True)   # the added column is writable
+    assert core.list_cards() == [] and core.list_cards() == [], "and the second connect is a no-op"
+
+
+def test_new_cards_start_unarchived():
+    assert card()["archived"] is False
+
+
+def test_archiving_twice_writes_one_event():
+    c = core.update_card(card()["id"], "bob", archived=True)
+    before = c["updated_at"], len(c["events"])
+    c = core.update_card(c["id"], "bob", archived=True)
+    assert (c["updated_at"], len(c["events"])) == before, "a repeat archive is a no-op"
+
+
+def test_unarchiving_an_active_card_is_a_no_op():
+    c = card()
+    assert core.update_card(c["id"], "bob", archived=False)["events"] == c["events"]
+
+
+@pytest.mark.parametrize("bad", ["yes", 1, 0, None, "true"])
+def test_archived_rejects_everything_but_a_bool(bad):
+    c = card()
+    with pytest.raises(ValueError):
+        core.update_card(c["id"], "bob", archived=bad)
+    assert core.get_card(c["id"])["archived"] is False, "and nothing was written"
+
+
+def test_archived_cards_stay_fully_usable():
+    """Archived means off the board, not frozen: the panel opens it, edits and comments
+    still land, and links to it still resolve."""
+    a = core.update_card(card()["id"], "ann", archived=True)
+    b = card("Active", actor="bob")
+    assert core.get_card(a["id"])["title"] == "Wire the board"
+    assert core.update_card(a["id"], "ann", lane="done")["lane"] == "done"
+    assert core.comment(a["id"], "ann", "still here")["events"][-1]["kind"] == "comment"
+    core.link_cards(b["id"], a["id"], "blocks", "ann")
+    assert core.get_card(a["id"])["links"] == core.get_card(b["id"])["links"] != []
+
+
+def test_archived_filter_combines_with_the_others():
+    a = core.update_card(card(project="Tickets", lane="plan")["id"], "ann", archived=True)
+    card("Active same project", actor="bob", project="Tickets", lane="plan")
+    core.update_card(card("Archived elsewhere", project="Other")["id"], "ann", archived=True)
+    assert [x["id"] for x in core.list_cards(project="tickets", archived=True)] == [a["id"]]
+    assert [x["id"] for x in core.list_cards(lane="plan", archived=True,
+                                             project="Tickets")] == [a["id"]]
+    assert core.list_cards(lane="done", archived=True) == []
+
+
+def test_a_project_with_only_archived_cards_is_still_listed():
+    # so the project filter can still reach it with "show archived" on
+    core.update_card(card(project="Old")["id"], "ann", archived=True)
+    assert core.list_projects() == ["Old"]
+
+
+def test_archived_cannot_be_set_at_creation():
+    with pytest.raises(TypeError):
+        core.create_card("x", actor="ann", archived=True)
+
+
+# ---------- more updating corner cases ----------
+
+def test_one_update_with_several_fields_writes_one_event_each():
+    c = core.update_card(card()["id"], "bob", lane="plan", assignee="cat", title="New")
+    kinds = sorted(e["kind"] for e in c["events"][1:])
+    assert kinds == ["assigned", "edited", "moved"], c["events"]
+
+
+def test_a_no_op_update_does_not_bump_updated_at():
+    c = card()
+    assert core.update_card(c["id"], "bob", title=c["title"])["updated_at"] == c["updated_at"]
+
+
+def test_a_rejected_update_writes_nothing():
+    c = card()
+    with pytest.raises(ValueError):
+        core.update_card(c["id"], "bob", title="half", lane="nowhere")
+    assert core.get_card(c["id"]) == c, "validation runs before any field is written"
+
+
+def test_removing_a_checklist_item_is_an_edit():
+    c = card(checklist=[{"text": "a", "done": False}, {"text": "b", "done": True}])
+    c = core.update_card(c["id"], "ann", checklist=[{"text": "a", "done": False}])
+    ed = [e["detail"] for e in c["events"] if e["kind"] == "edited"]
+    assert ed == [{"field": "checklist", "from": ["a", "b"], "to": ["a"]}], ed
+
+
+def test_unticking_writes_a_checked_event_with_done_false():
+    c = card(checklist=[{"text": "a", "done": True}])
+    c = core.update_card(c["id"], "ann", checklist=[{"text": "a", "done": False}])
+    assert c["events"][-1]["detail"] == {"text": "a", "done": False}, c["events"]
+
+
+def test_text_round_trips_unchanged():
+    t = "Ärende ✓ \"quoted\" <b>not html</b>\nsecond line"
+    c = card(t, description=t, labels=[t])
+    c = core.get_card(c["id"])
+    assert c["title"] == c["description"] == c["labels"][0] == t, c
