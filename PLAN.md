@@ -26,6 +26,8 @@ test_core.py   core operations, rejections and no-ops
 test_app.py    status codes, the actor rule, both error mappings, ToolError, the MCP wire
 test_board.py  the board in a real browser, plus one lock per bug that shipped
 test_e2e.py    one card, browser and MCP, one attributed history
+agent.py       board agent: plans and develops cards assigned to it, over MCP
+test_agent.py  the agent against the real tools in-process, claude faked
 ```
 
 Run: `uv run uvicorn app:app --host 127.0.0.1 --port 8123`
@@ -124,6 +126,20 @@ same core exceptions to `ToolError`, which is what puts the reason in front of t
 Without it the SDK masks a `ValueError` as a bare "Error executing tool X" — useless to
 an agent expected to correct itself.
 
+## Agent (`agent.py`)
+
+Run: `uv run python agent.py` (needs the server on 8123). Polls `list_cards` over MCP every
+15s — there is no push channel. **Assignment is the go signal:** a card assigned to
+`claude-agent` in `plan` or `develop` gets headless `claude -p` run on it in
+`D:/source/<project>`. The output becomes a comment, and the card moves on
+(`plan → develop`, `develop → test`) and is unassigned. Unassigning is both the human gate
+(read the plan, reassign to have it built) and the loop guard (no re-trigger on its own
+write, no state file). On any failure it comments `agent failed: …` and unassigns, lane
+unchanged. Planning runs in the default permission mode, where headless edits are denied,
+so it is read-only. Development runs with `--dangerously-skip-permissions` so it can run
+tests: full rights in that repo, and it leaves changes uncommitted for review in `test`.
+Cards are handled one at a time.
+
 ## Board (`board.html`)
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
@@ -146,6 +162,7 @@ without writing a card first — and a project `<select>`
 | 5 | explicit user registration: `POST /api/users`, `create_user` tool, UI wiring | done |
 | 6 | board fixes: panel above the header, save button, dismissal race, actor placeholder | done |
 | 7 | pytest suite across all four surfaces | done — 77 checks |
+| 8 | board agent: plan/develop cards assigned to `claude-agent` | done — 143 checks |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
