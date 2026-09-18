@@ -372,3 +372,14 @@ def test_a_landed_comment_does_not_hijack_another_open_card(page):
     page.wait_for_function("() => window.__inflight === 0")
     assert page.evaluate("open.id") == other["id"], "the comment response switched the panel back"
     assert core.get_card(cid)["events"][-1]["detail"] == {"text": "for the first card"}
+
+
+def test_adding_a_card_leaves_the_archived_view(page):
+    """A new card is active, so adding one while "show archived" is ticked used to
+    create it out of sight. Adding switches back to the active board."""
+    page.check("#showArch")
+    cid = add_card(page, "new while viewing archive")
+    assert not page.is_checked("#showArch"), "back on the active board"
+    page.wait_for_selector(f'.card[data-id="{cid}"]')
+    page.wait_for_selector("#panel.on")
+    assert core.get_card(cid)["archived"] is False

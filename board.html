@@ -521,6 +521,7 @@ $("#add").onclick = async () => {
     if (proj()) body.project = proj();
     const card = await api("POST", "/api/cards", body);
     $("#newTitle").value = "";
+    $("#showArch").checked = false;   // a new card is active: show the board it landed on
     await load();
     openCard(card.id);
   } catch (e) { showErr(e.message); }
