@@ -60,6 +60,9 @@
   .card.p-low  { border-left-color: #36b37e; }
   .pill { background: #dfe1e6; border-radius: 10px; padding: 1px 7px; font-size: 11px; color: #42526e; }
   .pill.who { background: #deebff; color: #0747a6; }
+  .pill.auto { background: #e3fcef; color: #006644; }
+  .pill.proj { font-weight: 600; }
+  #panel .project input[type=color] { width: 60px; height: 28px; padding: 2px; }
   .id { color: #a5adba; }
 
   #panel {
@@ -75,6 +78,8 @@
   #panel .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   #panel input[type=text], #panel textarea, #panel select { width: 100%; }
   #panel textarea { min-height: 70px; resize: vertical; }
+  #panel .project { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  #panel .project button { align-self: flex-start; }
   .close { float: right; }
   .sub { color: var(--dim); font-size: 12px; }
 
@@ -84,7 +89,7 @@
   .log .when { color: #a5adba; font-size: 11px; margin-left: 4px; }
   .log .say { display: block; margin-top: 2px; white-space: pre-wrap; }
   .log li.comment { background: #f7f8fc; border-radius: 4px; padding: 6px 8px; }
-  .chk { display: flex; gap: 6px; align-items: baseline; }
+  .chk, .auto-sw { display: flex; gap: 6px; align-items: baseline; }
   .chk.done span { text-decoration: line-through; color: var(--dim); }
   .links li { list-style: none; display: flex; gap: 6px; align-items: center; }
   ul.links { padding: 0; margin: 0; }
@@ -96,10 +101,10 @@
   <h1>Tickets</h1>
   <label class="f">you are</label> <select id="who"></select>
   <label class="f">project</label> <select id="proj"></select>
+  <button id="projects">projects…</button>
   <label class="f"><input type="checkbox" id="showArch"> show archived</label>
   <span class="spacer"></span>
-  <input id="newTitle" placeholder="new card title…" size="18">
-  <button class="primary" id="add">Add to todo</button>
+  <button class="primary" id="add">New Card</button>
 </header>
 
 <div id="err"></div>
@@ -112,7 +117,8 @@ const $ = (s, r = document) => r.querySelector(s);
 
 let cards = [];      // current board (filtered)
 let users = [];
-let projects = [];
+let projects = [];   // configured projects: {name, path, instructions}
+const PROJECTS = "projects";   // `open` holds this while the panel shows project settings
 let open = null;     // full card (with events/links) shown in the panel
 
 // ---------- plumbing ----------
@@ -127,7 +133,8 @@ $("#err").onclick = () => $("#err").classList.remove("on");
 
 async function api(method, path, body) {
   const opts = { method, headers: { "Content-Type": "application/json" } };
-  if (body) opts.body = JSON.stringify({ ...body, actor: who() });
+  if (body) opts.body = JSON.stringify(path.startsWith("/api/projects") ? body
+                                                                         : { ...body, actor: who() });
   const r = await fetch(path, opts);
   const data = await r.json();
   if (!r.ok) throw new Error(data.error || (r.status + " " + r.statusText));
@@ -165,6 +172,7 @@ function eventLine(e) {
       if (d.field === "description") return "edited the description";
       if (d.field === "checklist")   return `changed the checklist to ${val(d.to)}`;
       if (d.field === "labels")      return `changed the labels from ${val(d.from)} to ${val(d.to)}`;
+      if (d.field === "auto_advance") return `turned auto advance ${d.to ? "on" : "off"}`;
       return `changed the ${d.field} from ${val(d.from)} to ${val(d.to)}`;
     case "checked":  return `${d.done ? "ticked" : "unticked"} “${d.text}”`;
     case "linked":   return `linked this as a ${d.kind} of #${d.to}`;
@@ -201,6 +209,19 @@ function renderLog(events) {
 }
 
 // ---------- board ----------
+// The card's project, in the project's color. Text goes dark on a light color.
+function projectTag(name) {
+  const tag = Object.assign(document.createElement("span"),
+    { className: "pill proj", textContent: name });
+  const color = projects.find(p => p.name.toLowerCase() === name.toLowerCase())?.color;
+  if (color) {
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16));
+    tag.style.background = color;
+    tag.style.color = (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? "#172b4d" : "#fff";
+  }
+  return tag;
+}
+
 function cardNode(c) {
   const n = document.createElement("div");
   n.className = "card p-" + c.priority;
@@ -216,6 +237,9 @@ function cardNode(c) {
     { className: "pill who", textContent: c.assignee }));
   meta.append(Object.assign(document.createElement("span"),
     { className: "pill", textContent: c.priority }));
+  if (c.auto_advance) meta.append(Object.assign(document.createElement("span"),
+    { className: "pill auto", textContent: "auto", title: "auto advance is on" }));
+  meta.append(projectTag(c.project));
   for (const l of c.labels) meta.append(Object.assign(document.createElement("span"),
     { className: "pill", textContent: l }));
   if (c.checklist.length) meta.append(Object.assign(document.createElement("span"),
@@ -303,6 +327,14 @@ function field(label, node) {
 
 // Every edit is a PATCH; the response is the full card, so no follow-up GET.
 async function patch(body) {
+  if (!open.id) {
+    // an unsaved card: edits stay local until "create". No re-render per field: leaving a
+    // field is what fires its change, so a re-render would swap the create button out
+    // from under the click that left it.
+    Object.assign(open, body);
+    if ("checklist" in body) renderPanel();   // the one edit that must show new nodes
+    return;
+  }
   const id = open.id;   // the panel can be closed while this PATCH is in flight
   try {
     const card = await api("PATCH", "/api/cards/" + id, body);
@@ -314,47 +346,130 @@ async function patch(body) {
   }
 }
 
+// A field saves on `change`, which fires on the mousedown that leaves it, and the save's
+// response re-renders the panel. Landing before mouseup, that swapped out the button under
+// the pointer and the browser dropped the click (a person's click on "save" did nothing).
+// So while a pointer is held, a panel render waits for its release -- and for the click
+// that follows it, which is why the deferred render is a setTimeout, not in pointerup.
+let pointerHeld = false, renderPending = false;
+// Not on a <select>: its native popup can swallow the pointerup, which would leave every
+// later render waiting, and a select is not a button a re-render can steal a click from.
+addEventListener("pointerdown", e => { pointerHeld = e.target.tagName !== "SELECT"; }, true);
+for (const ev of ["pointerup", "pointercancel", "dragend"])
+  addEventListener(ev, () => {
+    pointerHeld = false;
+    if (renderPending) setTimeout(() => { renderPending = false; if (open) renderPanel(); });
+  }, true);
+
+function hidePanel() { open = null; $("#panel").classList.remove("on"); }
+
+// There is no save button: every field saves on change, and clicking outside the sheet
+// closes it. Closing blurs the field still focused, which fires its change -- the last
+// edit saves too -- and text left in the comment box is posted rather than thrown away.
+// A new card is created on the way out. Returns false when the sheet has to stay: a
+// draft with things typed into it but no title, which cannot be created or discarded
+// silently.
+function closePanel() {
+  const c = open;
+  if (!c) return true;
+  document.activeElement?.blur();   // a draft's change lands synchronously, a card's PATCHes
+  if (c === PROJECTS) { hidePanel(); return true; }
+  const typed = $("#panel .say-box").value.trim();
+  if (c.id) {
+    hidePanel();
+    if (typed) api("POST", `/api/cards/${c.id}/comment`, { text: typed })
+      .then(replace, e => showErr(e.message));
+    return true;
+  }
+  if (!c.title.trim()) {
+    if (!c.description.trim() && !c.labels.length && !c.checklist.length && !c.links.length
+        && !c.comments.length && !typed) { hidePanel(); return true; }   // nothing to keep
+    showErr("a card needs a title — give it one, or cancel to throw it away");
+    $("#panel input[type=text]").focus();
+    return false;
+  }
+  if (!c.creating) createDraft(c, typed);   // a second click must not make two cards
+  return true;
+}
+
+async function createDraft(c, typed) {
+  c.creating = true;
+  const { events, links, comments, creating, ...fields } = c;
+  let card;
+  try {
+    card = await api("POST", "/api/cards", { ...fields, title: c.title.trim() });
+  } catch (e) {   // the sheet is still open with everything in it: fix and click out again
+    c.creating = false;
+    return showErr(e.message);
+  }
+  try {   // the card exists now, so a failure below is reported, not retried as a create
+    for (const l of links)
+      await api("POST", "/api/links", { from_id: card.id, to_id: l.to_id, kind: l.kind });
+    for (const text of [...comments, ...(typed ? [typed] : [])])
+      await api("POST", `/api/cards/${card.id}/comment`, { text });
+  } catch (e) { showErr(`#${card.id} was created, but: ${e.message}`); }
+  $("#showArch").checked = false;   // a new card is active: show the board it landed on
+  if (proj() && proj().toLowerCase() !== card.project.toLowerCase())
+    localStorage.setItem("project", card.project);   // and the project it landed in
+  if (open === c) hidePanel();      // unless cancelled or switched meanwhile
+  await load();
+}
+
+// Capture phase, so the sheet closes before the click reaches what it landed on: a card
+// on the board then opens in its place, and "New Card" opens a fresh draft. A draft that
+// must stay open swallows the click, so it cannot be replaced out from under the person.
+addEventListener("click", e => {
+  if (!open || $("#panel").contains(e.target) || e.target.closest("#err")) return;
+  if (!closePanel()) { e.stopPropagation(); e.preventDefault(); }
+}, true);
+
 function renderPanel() {
+  if (pointerHeld) { renderPending = true; return; }
   const p = $("#panel");
   p.textContent = "";
   p.classList.add("on");
   const c = open;
+  const dismiss = hidePanel;
+  if (c === PROJECTS) return renderProjects(p, dismiss);
 
-  const close = Object.assign(document.createElement("button"),
-    { className: "close primary", textContent: "save" });
-  close.onclick = () => {
-    // Flush the field still focused; each one saves on change. Clicking a button already
-    // blurs in Chrome, but not in every browser (Safari does not focus buttons on click),
-    // so this is what makes "type, then hit save" reliable rather than incidental.
-    document.activeElement?.blur();
-    open = null;
-    p.classList.remove("on");
-  };
-  p.append(close);
-  // archiving takes the card out of the current view (active or archived), so reload and close
-  const arch = Object.assign(document.createElement("button"),
-    { className: "close", textContent: c.archived ? "unarchive" : "archive",
-      style: "margin-right:6px" });
-  arch.onclick = async () => {
-    try {
-      await api("PATCH", "/api/cards/" + c.id, { archived: !c.archived });
-      open = null;
-      p.classList.remove("on");
-      load();
-    } catch (e) { showErr(e.message); }
-  };
-  p.append(arch);
-  p.append(Object.assign(document.createElement("div"),
-    { className: "sub", textContent: `#${c.id} · ${c.project} · ${c.lane} · created by ${c.created_by} ${ago(c.created_at)}` }));
+  if (c.id) {
+    // archiving takes the card out of the current view (active or archived), so reload and close
+    const arch = Object.assign(document.createElement("button"),
+      { className: "close", textContent: c.archived ? "unarchive" : "archive" });
+    arch.onclick = async () => {
+      try {
+        await api("PATCH", "/api/cards/" + c.id, { archived: !c.archived });
+        dismiss();
+        load();
+      } catch (e) { showErr(e.message); }
+    };
+    p.append(arch);
+    p.append(Object.assign(document.createElement("div"),
+      { className: "sub", textContent: `#${c.id} · ${c.project} · ${c.lane} · created by ${c.created_by} ${ago(c.created_at)}` }));
+  } else {
+    const cancel = Object.assign(document.createElement("button"),
+      { className: "close", textContent: "cancel" });
+    cancel.onclick = dismiss;
+    p.append(cancel, Object.assign(document.createElement("div"),
+      { className: "sub", textContent: `new card · ${c.project} · created when you click outside` }));
+  }
 
   const title = Object.assign(document.createElement("input"),
-    { type: "text", value: c.title });
+    { type: "text", value: c.title, placeholder: "what needs doing?" });
   title.onchange = () => patch({ title: title.value });
+  title.onkeydown = ev => { if (!c.id && ev.key === "Enter") closePanel(); };
   p.append(field("title", title));
+
+  const pj = document.createElement("select");
+  for (const x of projects)   // a card from before projects may spell its project differently
+    pj.append(new Option(x.name, x.name, false, x.name.toLowerCase() === c.project.toLowerCase()));
+  pj.onchange = () => patch({ project: pj.value });
+  p.append(field("project", pj));
 
   const desc = Object.assign(document.createElement("textarea"), { value: c.description });
   desc.onchange = () => patch({ description: desc.value });
   p.append(field("description", desc));
+
 
   const row = document.createElement("div");
   row.className = "row";
@@ -382,6 +497,16 @@ function renderPanel() {
   }
   p.append(row);
 
+  // the agent picks the card up once it is in plan, and carries it to verify on its own
+  const auto = document.createElement("label");
+  auto.className = "auto-sw";
+  const autoBox = Object.assign(document.createElement("input"),
+    { type: "checkbox", checked: c.auto_advance });
+  autoBox.onchange = () => patch({ auto_advance: autoBox.checked });
+  auto.append(autoBox, Object.assign(document.createElement("span"),
+    { textContent: "the agent moves it plan → develop → test → verify, no input needed" }));
+  p.append(field("auto advance", auto));
+
   const labels = Object.assign(document.createElement("input"),
     { type: "text", value: c.labels.join(", "), placeholder: "comma, separated" });
   labels.onchange = () => patch({
@@ -408,15 +533,17 @@ function renderPanel() {
   };
   list.append(addItem);
   p.append(field("checklist", list));
-
+  // A new card shows everything a saved one does. Links and comments cannot be written
+  // before the card exists, so the draft holds them and "create" sends them after it.
   const links = document.createElement("ul");
   links.className = "links";
   for (const l of c.links) {
     const li = document.createElement("li");
-    const other = l.from_id === c.id ? `→ #${l.to_id}` : `← #${l.from_id}`;
+    const other = !c.id || l.from_id === c.id ? `→ #${l.to_id}` : `← #${l.from_id}`;
     li.append(document.createTextNode(`${l.kind} ${other}`));
     const rm = Object.assign(document.createElement("button"), { textContent: "unlink" });
     rm.onclick = async () => {
+      if (!c.id) { c.links = c.links.filter(x => x !== l); return renderPanel(); }
       try {
         await api("DELETE", "/api/links",
                   { from_id: l.from_id, to_id: l.to_id, kind: l.kind });
@@ -434,6 +561,15 @@ function renderPanel() {
   for (const k of ["parent", "blocks"]) lkind.append(new Option(k, k));
   const lgo = Object.assign(document.createElement("button"), { textContent: "link" });
   lgo.onclick = async () => {
+    if (!c.id) {
+      const to = Number(lid.value);
+      try { await api("GET", "/api/cards/" + to); }   // refuse a bad link now, not after create
+      catch (e) { return showErr(e.message); }
+      if (open !== c) return;
+      if (!c.links.some(l => l.to_id === to && l.kind === lkind.value))
+        c.links.push({ to_id: to, kind: lkind.value });
+      return renderPanel();
+    }
     try {
       await api("POST", "/api/links",
                 { from_id: c.id, to_id: Number(lid.value), kind: lkind.value });
@@ -445,14 +581,17 @@ function renderPanel() {
   links.append(lk);
   p.append(field("links", links));
 
-  p.append(field("activity", renderLog(c.events)));
+  // a draft's queued comments show as they will read once posted
+  p.append(field("activity", renderLog(c.id ? c.events : c.comments.map(text =>
+    ({ actor: who(), kind: "comment", detail: { text }, at: new Date().toISOString() })))));
 
   const box = Object.assign(document.createElement("textarea"),
-    { placeholder: "comment… (ctrl+enter to send)" });
+    { className: "say-box", placeholder: "comment… (ctrl+enter to send)" });
   const send = Object.assign(document.createElement("button"),
     { className: "primary", textContent: "comment" });
   const post = async () => {
     if (!box.value.trim()) return;
+    if (!c.id) { c.comments.push(box.value.trim()); return renderPanel(); }
     try {
       const card = await api("POST", `/api/cards/${c.id}/comment`, { text: box.value.trim() });
       replace(card);
@@ -466,6 +605,7 @@ function renderPanel() {
   const cw = document.createElement("div");
   cw.append(box, send);
   p.append(field("say something", cw));
+  if (!c.id) title.focus();
 }
 
 // ---------- header controls ----------
@@ -505,28 +645,105 @@ function renderProj() {
   const s = $("#proj");
   s.textContent = "";
   s.append(new Option("all projects", "", false, !proj()));
-  for (const p of projects) s.append(new Option(p, p, false, p === proj()));
-  if (proj() && !projects.includes(proj())) s.append(new Option(proj(), proj(), false, true));
+  for (const p of projects) s.append(new Option(p.name, p.name, false, p.name === proj()));
+  if (proj() && !projects.some(p => p.name === proj()))
+    s.append(new Option(proj(), proj(), false, true));
 }
+
+// ---------- project settings ----------
+// Each field saves on change, like a card's. A successful save does not re-render: the
+// input already shows the value, and a re-render would swap out whatever button the
+// click that left the field is landing on. Only a failure re-renders, to show what the
+// server actually holds.
+function renderProjects(p, dismiss) {
+  const done = Object.assign(document.createElement("button"),
+    { className: "close primary", textContent: "done" });
+  done.onclick = () => { document.activeElement?.blur(); dismiss(); };
+  p.append(done, Object.assign(document.createElement("div"),
+    { className: "sub", textContent: "projects · every card belongs to one" }));
+
+  const inputs = (x = {}) => ({
+    name: Object.assign(document.createElement("input"),
+      { type: "text", value: x.name || "", placeholder: "name" }),
+    path: Object.assign(document.createElement("input"),
+      { type: "text", value: x.path || "", placeholder: "folder, e.g. D:\\source\\tickets (optional)" }),
+    instructions: Object.assign(document.createElement("textarea"),
+      { value: x.instructions || "", placeholder: "instructions for agents working on this project (optional)" }),
+    // a new project's picker starts black and means "pick one for me" until touched
+    color: Object.assign(document.createElement("input"),
+      { type: "color", value: x.color || "#000000", title: "the color its cards are tagged with" }),
+  });
+  const block = (label, f, extra) => {
+    const w = document.createElement("div");
+    w.className = "project";
+    w.append(Object.assign(document.createElement("h3"), { textContent: label }),
+             f.name, f.path, f.instructions, f.color, ...(extra ? [extra] : []));
+    p.append(w);
+  };
+
+  for (const x of projects) {
+    const f = inputs(x);
+    let name = x.name;   // follows a rename, so later edits address the new name
+    for (const [key, el] of Object.entries(f)) {
+      el.onchange = async () => {
+        try {
+          const saved = await api("PATCH", "/api/projects/" + encodeURIComponent(name),
+                                  { [key]: el.value });
+          if (key === "name") {
+            if (proj().toLowerCase() === name.toLowerCase())
+              localStorage.setItem("project", saved.name);   // the filter follows the rename
+            name = saved.name;
+          }
+          el.value = saved[key];   // as stored: trimmed
+          await load();            // the filter list and every card's project name
+        } catch (e) {
+          showErr(e.message);
+          await load();
+          if (open === PROJECTS) renderPanel();
+        }
+      };
+    }
+    block(x.name, f);
+  }
+
+  const f = inputs();
+  let picked = false;
+  f.color.oninput = () => { picked = true; };
+  const add = Object.assign(document.createElement("button"),
+    { className: "primary", textContent: "add project" });
+  add.onclick = async () => {
+    try {
+      await api("POST", "/api/projects", { name: f.name.value, path: f.path.value,
+                                           instructions: f.instructions.value,
+                                           color: picked ? f.color.value : "" });
+      await load();
+      if (open === PROJECTS) renderPanel();
+    } catch (e) { showErr(e.message); }   // the typed values stay for a retry
+  };
+  block("new project", f, add);
+}
+
+$("#projects").onclick = () => { open = PROJECTS; renderPanel(); };
 
 $("#proj").onchange = ev => { localStorage.setItem("project", ev.target.value); load(); };
 $("#showArch").onchange = () => load();
 
-$("#add").onclick = async () => {
-  const title = $("#newTitle").value.trim();
-  if (!title) return showErr("a card needs a title");
+// Opens the panel on an unsaved card; nothing is written until its "create" button.
+$("#add").onclick = () => {
   if (!who()) return showErr("say who you are first — set it in the “you are” box, top left");
-  try {
-    const body = { title };
-    if (proj()) body.project = proj();
-    const card = await api("POST", "/api/cards", body);
-    $("#newTitle").value = "";
-    $("#showArch").checked = false;   // a new card is active: show the board it landed on
-    await load();
-    openCard(card.id);
-  } catch (e) { showErr(e.message); }
+  if (!projects.length) {   // every card belongs to a project, and there is none yet
+    showErr("create a project first — every card belongs to one");
+    open = PROJECTS;
+    renderPanel();
+    return $("#panel .project:last-child input").focus();
+  }
+  // the filtered project, if it still exists (it may have been renamed elsewhere)
+  const home = projects.find(p => p.name.toLowerCase() === proj().toLowerCase());
+  open = { title: "", description: "", lane: "todo", assignee: null, priority: "med",
+           labels: [], checklist: [], project: (home || projects[0]).name, auto_advance: false,
+           events: [], links: [], comments: [] };
+  renderPanel();
 };
-$("#newTitle").onkeydown = ev => { if (ev.key === "Enter") $("#add").click(); };
 
 async function load() {
   try {

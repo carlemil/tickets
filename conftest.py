@@ -23,6 +23,19 @@ def db(tmp_path):
     return core.DB_PATH
 
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "no_home: start with no projects configured")
+
+
+@pytest.fixture(autouse=True)
+def home(db, request):
+    """Every card needs a configured project, and a fresh database has none. Most tests
+    just need one to exist, so "Home" does unless the test is marked no_home."""
+    if "no_home" not in request.keywords:
+        core.create_project("Home")
+    return "Home"
+
+
 @pytest.fixture
 def client():
     """Drives the custom HTTP routes in-process. No context manager: the routes sit

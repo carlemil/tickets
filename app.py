@@ -114,6 +114,18 @@ async def api_projects(request):
     return JSONResponse(core.list_projects())
 
 
+# Project config is not card activity, so these writes carry no `actor` and log no event.
+@route("/api/projects", methods=["POST"])
+async def api_create_project(request):
+    return JSONResponse(core.create_project(**await request.json()), status_code=201)
+
+
+@route("/api/projects/{name:path}", methods=["PATCH"])
+async def api_update_project(request):
+    return JSONResponse(core.update_project(request.path_params["name"],
+                                            **await request.json()))
+
+
 @tool
 def list_cards(project: str | None = None, lane: str | None = None,
                assignee: str | None = None, label: str | None = None,
@@ -122,8 +134,7 @@ def list_cards(project: str | None = None, lane: str | None = None,
 
     Lanes in order: todo -> plan -> develop -> test -> verify -> done.
     `project` scopes the board and is matched case-insensitively; work is grouped by
-    project and new cards land in "inbox" unless told otherwise. `label` matches one
-    label on a card. Archived cards are hidden; pass archived=True to list only those.
+    project (see list_projects). `label` matches one label on a card. Archived cards are hidden; pass archived=True to list only those.
     Cards come back without their activity log — use get_card for that.
     """
     return core.list_cards(lane=lane, assignee=assignee, label=label, project=project,
@@ -137,27 +148,32 @@ def get_card(id: int) -> dict:
 
 
 @tool
-def create_card(title: str, actor: str, description: str = "", lane: str = core.LANES[0],
-                assignee: str | None = None, priority: str = "med",
+def create_card(title: str, actor: str, project: str, description: str = "",
+                lane: str = core.LANES[0], assignee: str | None = None, priority: str = "med",
                 labels: list[str] | None = None, checklist: list[dict] | None = None,
-                project: str = core.DEFAULT_PROJECT) -> dict:
+                auto_advance: bool = False) -> dict:
     """Create a card. `actor` is you: pass your own agent name, it is recorded as the author.
 
     `lane` is one of todo -> plan -> develop -> test -> verify -> done, and normally starts
-    at todo. `priority` is low, med or high. `project` groups related work and defaults to
-    "inbox" — pass the project you are working on so the card is not orphaned.
+    at todo. `priority` is low, med or high. `project` is required: the project the work
+    belongs to. It must be a configured project (list_projects); an unknown name is an
+    error, not a new project, and if there are none, ask a person to create one on the
+    board — agents do not configure projects.
     `checklist` items are {"text": str, "done": bool}. `assignee` is a person's name.
+    `auto_advance=True` lets the board agent carry the card plan -> develop -> test ->
+    verify on its own once it reaches plan.
     """
     return core.create_card(title=title, actor=actor, description=description, lane=lane,
                             assignee=assignee, priority=priority, labels=labels,
-                            checklist=checklist, project=project)
+                            checklist=checklist, project=project, auto_advance=auto_advance)
 
 
 @tool
 def update_card(id: int, actor: str, title: str | None = None, description: str | None = None,
                 lane: str | None = None, assignee: str | None = None, priority: str | None = None,
                 labels: list[str] | None = None, checklist: list[dict] | None = None,
-                project: str | None = None, archived: bool | None = None) -> dict:
+                project: str | None = None, archived: bool | None = None,
+                auto_advance: bool | None = None) -> dict:
     """Change a card: this is how you move it between lanes, assign it, and tick checklist items.
 
     `actor` is you — every change is logged under that name. Pass only the fields you are
@@ -168,15 +184,29 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     `checklist` REPLACES the whole list, so send every item back, not just the one you
     ticked: get_card first, flip the `done` you want, send the full list. `labels` likewise
     replaces the whole list. `archived=True` takes the card off the board without deleting
-    it; `archived=False` puts it back.
+    it; `archived=False` puts it back. `auto_advance` switches the board agent's hands-off
+    plan -> develop -> test -> verify run on or off.
     """
     fields = {k: v for k, v in dict(
         title=title, description=description, lane=lane, assignee=assignee, priority=priority,
-        labels=labels, checklist=checklist, project=project, archived=archived).items()
+        labels=labels, checklist=checklist, project=project, archived=archived,
+        auto_advance=auto_advance).items()
         if v is not None}
     if fields.get("assignee") == "":
         fields["assignee"] = None   # None already means "not passed", so "" is how you unassign
     return core.update_card(id, actor, **fields)
+
+
+@tool
+def list_projects() -> list[dict]:
+    """List the configured projects. Every card belongs to one of these.
+
+    Each has a `name` (what cards and the `project` filters use, matched ignoring case),
+    a `path` — the project's folder on this machine, "" if not set — and free-text
+    `instructions`: how the humans want agents to work on that project. Read them before
+    working a card, and follow them.
+    """
+    return core.list_projects()
 
 
 @tool

@@ -26,7 +26,7 @@ test_core.py   core operations, rejections and no-ops
 test_app.py    status codes, the actor rule, both error mappings, ToolError, the MCP wire
 test_board.py  the board in a real browser, plus one lock per bug that shipped
 test_e2e.py    one card, browser and MCP, one attributed history
-agent.py       board agent: plans and develops cards assigned to it, over MCP
+agent.py       board agent: plans, develops and tests cards, over MCP
 test_agent.py  the agent against the real tools in-process, claude faked
 ```
 
@@ -53,19 +53,33 @@ example found online needs translating.
 ```sql
 users(id, name UNIQUE)
 cards(id, project, title, description, lane, assignee, created_by,
-      created_at, updated_at, priority, labels, checklist)
+      created_at, updated_at, priority, labels, checklist, archived, auto_advance)
 events(id, card_id, actor, kind, detail, at)     -- append-only
 links(from_id, to_id, kind)                      -- kind: 'parent' | 'blocks'
+projects(name PRIMARY KEY COLLATE NOCASE, path, instructions, color)
 ```
 
 - `labels` and `checklist` are JSON text columns parsed in Python. No child tables.
 - **`events` is both the activity log and the comment store.** Every mutation appends a
   row (`created` | `moved` | `assigned` | `edited` | `checked` | `comment` | `linked`)
   carrying the `actor`. That one table answers "who did what".
-- `project` is a free-text string on the card, not a table. `list_projects()` is a
-  `SELECT DISTINCT` — that gives the board a dropdown without a second table to manage.
-  Matching in filters is case-insensitive; the stored casing is preserved for display.
-  Default is `DEFAULT_PROJECT = "inbox"` so a card always belongs somewhere.
+- **Projects are configured, and every card names one.** `cards.project` holds the
+  project's name (not an id, so MCP callers pass names); `create_card`/`update_card`
+  reject a name with no `projects` row and store the project's own spelling. A project
+  has an optional `path` (an absolute, existing folder — where the agent works) and free
+  `instructions` for agents. Renaming one rewrites `cards.project` for all its cards,
+  archived ones too, with no card events: the cards did not change. **There is no
+  default project:** a fresh board has none, and a card without a project is refused
+  with "a card needs a project: create one first" (400 over HTTP; `project` is a
+  required argument of the `create_card` tool). `connect()` backfills a row for every
+  name already on a card, so a database from before projects — or from when `inbox`
+  was the built-in default — keeps working, its `inbox` now an ordinary, renamable
+  project; case variants collapse into one project and cards keep their stored
+  spelling. Filters match ignoring case.
+- **Every project has a color** (`#rrggbb`, stored lowercase), and its cards are tagged
+  with it. A new project takes the least-used color of `PALETTE`, earliest on a tie, unless
+  one is given; `connect()` gives one the same way to every project without a color — a
+  database from before colors, or rows just backfilled from cards.
 - `updated_at` is denormalised onto cards so the board sorts without a join.
 - WAL mode, one connection per request.
 
@@ -74,7 +88,8 @@ links(from_id, to_id, kind)                      -- kind: 'parent' | 'blocks'
 `list_cards(project, lane, assignee, label)` · `get_card(id)` · `create_card(...)` ·
 `update_card(id, actor, **fields)` · `comment(id, actor, text)` ·
 `link_cards(from_id, to_id, kind, actor)` / `unlink_cards(...)` ·
-`list_users()` / `ensure_user(name)` · `list_projects()`
+`list_users()` / `ensure_user(name)` · `list_projects()` / `get_project(name)` /
+`create_project(name, path, instructions)` / `update_project(name, /, **fields)`
 
 `update_card` is one function covering move-lane, assign, retitle, edit body and tick
 checklist. It diffs old against new and writes one event per changed field — that is
@@ -100,13 +115,16 @@ name is a `ValueError`.
 
 `GET /` → board.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
 `POST /api/cards` · `POST /api/cards/{id}/comment` · `POST|DELETE /api/links` ·
-`GET|POST /api/users` · `GET /api/projects`. Every write body carries `actor` — except
-`POST /api/users` (`{"name"}` → 201), the one write that predates having an actor.
+`GET|POST /api/users` · `GET|POST /api/projects` · `PATCH /api/projects/{name}`. Every
+write body carries `actor` — except `POST /api/users` (`{"name"}` → 201), the one write
+that predates having an actor, and the project writes, which are configuration rather
+than card activity and log no event.
 
 ## MCP tools (`app.py`)
 
 `list_cards` · `get_card` · `create_card` · `update_card` · `comment` · `link_cards` ·
-`unlink_cards` · `create_user`
+`unlink_cards` · `create_user` · `list_projects` (read-only: agents see each project's
+path and instructions, but configuring projects is left to the board)
 
 `update_card` takes only the fields you are changing, so `None` means "not passed".
 That leaves no way to spell "clear it", which matters for exactly one field: pass
@@ -130,25 +148,87 @@ an agent expected to correct itself.
 
 Run: `uv run python agent.py` (needs the server on 8123). Polls `list_cards` over MCP every
 15s — there is no push channel. **Assignment is the go signal:** a card assigned to
-`claude-agent` in `plan` or `develop` gets headless `claude -p` run on it in
-`D:/source/<project>`. The output becomes a comment, and the card moves on
-(`plan → develop`, `develop → test`) and is unassigned. Unassigning is both the human gate
+`claude-agent` in `plan`, `develop` or `test` gets headless `claude -p` run on it in its
+project's configured `path`, with the project's `instructions` placed before the card in
+the prompt; a project with no path fails the card with "has no path configured". The
+output becomes a comment, and the card moves on
+(`plan → develop`, `develop → test`, `test → verify`) and is unassigned. Unassigning is both the human gate
 (read the plan, reassign to have it built) and the loop guard (no re-trigger on its own
 write, no state file). On any failure it comments `agent failed: …` and unassigns, lane
-unchanged. Planning runs in the default permission mode, where headless edits are denied,
-so it is read-only. Development runs with `--dangerously-skip-permissions` so it can run
+unchanged. Development runs with `--dangerously-skip-permissions` so it can run
 tests: full rights in that repo, and it leaves changes uncommitted for review in `test`.
+The test stage runs with the same rights, reviews the uncommitted diff against the card
+and plan, runs the tests, and must end with a last line of `RESULT: PASS` (markdown
+`*`/`` ` `` around it tolerated) to move on; anything else is a failure.
 Cards are handled one at a time.
+
+**The plan stage** runs `claude -p --permission-mode plan` (what `/plan` switches on, so it is
+read-only) and the plan **replaces the card's description** — the old text survives as the
+`from` of the `edited` event. Nobody can answer questions mid-run, so the prompt has Claude
+list them under `## Open questions` and end with a last line of `QUESTIONS: NONE` or
+`QUESTIONS: OPEN`; that line is stripped from the description. `NONE` → the card moves to
+`develop` and, unless auto advance is on, halts there unassigned. Anything else, including
+no verdict line, → the card stays in `plan`, unassigned, with a comment asking for the
+answers in the description; auto advance is switched off so it is not replanned every
+poll. Answer, reassign, and it replans. An empty reply is a failure, so a description is
+never blanked. Verified with one real headless run: full markdown plan, verdict last.
+
+**Auto advance.** `cards.auto_advance` is a switch on the card. With it on, the agent
+works the card in `plan`, `develop` and `test` whoever it is assigned to (or nobody) and
+keeps it moving, one stage per poll, until it lands in `verify` — the person's stage —
+where it is unassigned. `todo` is the backlog, so moving the card to `plan` is the go
+signal. Any failure — a stage erroring, a project with no path, a test stage without a
+pass — comments why, unassigns and **turns the switch off**, leaving the card in its
+lane: that is the loop guard for auto cards, which have no unassign-to-stop of their own.
 
 ## Board (`board.html`)
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
 `drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: description,
-priority, labels, checklist, links, activity log, comment box. A "you are:" `<select>`
+priority, labels, checklist, an "auto advance" checkbox (an `auto` pill on the
+board card), links, activity log, comment box. A "you are:" `<select>`
 persisted in `localStorage` supplies `actor` on every write — its "+ another name…" entry
 prompts and `POST`s to `/api/users`, so a new person or agent is registered and assignable
 without writing a card first — and a project `<select>`
 (also persisted) filters the board — an agent and a human both scope to one project.
+
+**No save button: click outside to close.** Every field saves on `change`. A click
+anywhere outside the sheet closes it (a capture-phase listener, so it runs before the
+click reaches its target: clicking another card closes this one and opens that). Closing
+blurs the focused field, so the edit still in progress saves too, and text left in the
+comment box is posted rather than dropped. The sheet keeps "archive"; the projects sheet
+keeps "done" and closes on an outside click as well.
+
+"New Card" opens the same panel on an unsaved draft (title focused, project from the
+filter). It shows everything a saved card does — links, activity, comment box. Nothing
+is written until the draft is closed by a click outside (or Enter in the title), which
+`POST`s the fields all at once (one `created` event), then the links and comments queued
+on the draft (links are checked to exist as they are added), plus any text left in the
+comment box, and hides the sheet. A draft with nothing typed just closes. A draft with
+content but no title stays open, says "a card needs a title", and swallows the click so
+whatever was behind it does not replace the draft. If the `POST` fails the sheet stays
+with everything in it and the next click outside retries; a double click makes one
+card. "cancel" discards the draft. The draft re-renders only for checklist edits and
+queued links and comments.
+
+"projects…" in the header opens the panel on project settings: name, path, agent
+instructions and a color picker per project, each saving on change, plus a "new project"
+form (its picker means "pick one for me" until touched). Each board card carries a tag
+with its project's name in its project's color, with dark text on a light color. The card
+panel and the draft each have a project `<select>`, right under the title; a draft
+starts in the filtered project, or the first one. With no projects at all, "New Card"
+says "create a project first" and opens the project settings with the name field
+focused. Creating a card in a project the filter hides switches the filter to it, so a
+new card is always on screen. Renaming the filtered project carries the filter with it.
+
+**Lost clicks.** A field saves on `change`, which fires on the mousedown that leaves it;
+the save's response re-rendered the panel before mouseup, replacing the button under the
+pointer, and the browser dropped the click — typing a title and clicking the (since
+removed) "save" button left the panel open. `renderPanel()` therefore defers itself while a pointer is held and runs
+after the release and its click. A `<select>` press does not count as held: its native
+popup can swallow the pointerup and would stall every later render. `page.click()`
+presses and releases at once, so it never saw this; `human_click()` in the tests holds
+the button for 150 ms.
 
 ## Status
 
@@ -163,6 +243,12 @@ without writing a card first — and a project `<select>`
 | 6 | board fixes: panel above the header, save button, dismissal race, actor placeholder | done |
 | 7 | pytest suite across all four surfaces | done — 77 checks |
 | 8 | board agent: plan/develop cards assigned to `claude-agent` | done — 143 checks |
+| 9 | archiving, new-card panel, configured projects (path + agent instructions), lost-click fix | done — 198 checks |
+| 10 | auto advance: agent carries a card plan → verify, with a test stage that must pass | done — 228 checks |
+| 11 | no default project: a card needs a configured one; project picked under the title | done — 236 checks |
+| 12 | new-card sheet shows links, activity and comments; "create" saves and closes | done — 241 checks |
+| 13 | no save/create buttons: click outside closes the sheet and saves, creating a new card | done — 252 checks |
+| 14 | project colors: cards tagged with their project's name and color | done — 282 checks |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
@@ -219,8 +305,8 @@ everything else → `edited`.
 
 - No migration framework: `CREATE TABLE IF NOT EXISTS` will not add a column to an
   existing table. The one exception is `cards.archived`, added by a guarded `ALTER` in
-  `connect()` because the live board already held real cards. The next column that
-  needs it should make this a list, not a second `if`.
+  `connect()` because the live board already held real cards, and `cards.auto_advance`
+  the same way: `BOOL_FIELDS` is the list the guarded `ALTER` walks.
 - `NOCASE` folds ASCII only, so `Ärende` and `ärende` list as two projects. Upgrade is a
   normalised `project_key` column, if it ever matters.
 - ~~The MCP `update_card` tool cannot unassign a card~~ — **resolved in task 7.** The

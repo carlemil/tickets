@@ -13,7 +13,7 @@ from test_board import add_card, drag
 def test_a_human_and_an_agent_share_one_attributed_card(page):
     # --- the human, in the browser ---
     cid = add_card(page, "Verify the real mouse drag")
-    page.click("#panel .close.primary")
+    page.mouse.click(8, 500)   # outside the sheet: closes it
     drag(page, cid, "develop")
     page.wait_for_selector(f'.lane[data-lane="develop"] .card[data-id="{cid}"]')
     assert core.get_card(cid)["lane"] == "develop"
@@ -48,7 +48,7 @@ def test_a_human_and_an_agent_share_one_attributed_card(page):
 
 def test_an_agent_archives_and_the_human_board_follows(page):
     cid = add_card(page, "agent will archive this")
-    page.click("#panel .close.primary")
+    page.mouse.click(8, 500)   # outside the sheet: closes it
     app.update_card(id=cid, actor="claude-agent", archived=True)
     page.reload()
     page.wait_for_selector("#board .lane")

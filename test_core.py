@@ -10,7 +10,13 @@ import core
 
 
 def card(title="Wire the board", actor="ann", **kw):
+    kw.setdefault("project", "Home")   # the conftest `home` fixture made it
     return core.create_card(title, actor=actor, **kw)
+
+
+def projects(*names):
+    for n in names:
+        core.create_project(n)
 
 
 # ---------- creating ----------
@@ -18,12 +24,13 @@ def card(title="Wire the board", actor="ann", **kw):
 def test_new_card_defaults_and_created_event():
     c = card(labels=["ui"], checklist=[{"text": "sketch", "done": False}])
     assert c["lane"] == "todo" and c["priority"] == "med", c
-    assert c["project"] == core.DEFAULT_PROJECT == "inbox", c
+    assert c["project"] == "Home", c
     assert c["labels"] == ["ui"], c["labels"]
     assert [(e["kind"], e["actor"]) for e in c["events"]] == [("created", "ann")], c["events"]
 
 
 def test_create_card_persists_every_optional_field():
+    projects("Tickets")
     c = card(description="the long version", assignee="bob", priority="high",
              project="Tickets", lane="plan")
     assert c["description"] == "the long version"
@@ -247,41 +254,86 @@ def test_listed_most_recently_changed_first():
 
 # ---------- projects ----------
 
-def test_project_casing_is_preserved_but_matched_case_insensitively():
+def test_a_card_takes_its_projects_spelling_and_filters_ignore_case():
+    projects("Tickets")
     t1 = card("Ship it", project="Tickets")
     t2 = card("Ship it too", actor="bob", project="tickets")
-    inbox = card("Unfiled")
-    assert t1["project"] == "Tickets" and t2["project"] == "tickets", (t1, t2)
+    home = card("Elsewhere")
+    assert t1["project"] == t2["project"] == "Tickets", (t1, t2)
     found = sorted(x["id"] for x in core.list_cards(project="tickets"))
     assert found == sorted([t1["id"], t2["id"]]), found
     assert sorted(x["id"] for x in core.list_cards(project="TICKETS")) == found
-    assert {x["id"] for x in core.list_cards(project="inbox")} == {inbox["id"]}
+    assert {x["id"] for x in core.list_cards(project="home")} == {home["id"]}
 
 
 def test_project_and_lane_filters_combine():
+    projects("Tickets", "Other")
     t1 = card("Ship it", project="Tickets")
     card("Elsewhere", actor="bob", project="Other")
     assert [x["id"] for x in core.list_cards(project="Tickets", lane="todo")] == [t1["id"]]
     assert core.list_cards(project="Tickets", lane="done") == []
 
 
-def test_list_projects_collapses_case_variants():
-    card("Ship it", project="Tickets")
-    card("Ship it too", actor="bob", project="tickets")
-    card("Unfiled")
-    projects = core.list_projects()
-    assert len(projects) == 2, projects
-    assert projects[0] == "inbox" and projects[1].lower() == "tickets", projects
+def test_names_already_on_cards_become_projects_once_each(db):
+    """A database from before projects: its cards name projects that were only strings.
+    Each name gets one project row, case variants collapsing into one, and cards keep
+    the spelling they had."""
+    import sqlite3
+    core.list_projects()                       # creates the schema
+    old = sqlite3.connect(core.DB_PATH)
+    old.execute("DELETE FROM projects")
+    for n, proj in enumerate(("Tickets", "tickets", "inbox"), 1):
+        old.execute("INSERT INTO cards (id, project, title, lane, created_by, created_at,"
+                    " updated_at, priority) VALUES (?,?,'t','todo','ann','t','t','med')",
+                    (n, proj))
+    old.commit()
+    old.close()
+    names = [p["name"] for p in core.list_projects()]
+    assert names == ["inbox", "Tickets"], names
+    assert core.get_card(2)["project"] == "tickets", "a card's stored spelling survives"
+    assert sorted(c["id"] for c in core.list_cards(project="TICKETS")) == [1, 2]
+
+
+@pytest.mark.no_home
+def test_a_fresh_board_has_no_projects_and_a_card_needs_one():
+    assert core.list_projects() == []
+    for missing in ({}, {"project": None}, {"project": ""}):
+        with pytest.raises(ValueError, match="a card needs a project: create one first"):
+            core.create_card("x", actor="ann", **missing)
+    assert core.list_cards() == [] and core.list_projects() == [], "nothing was made"
+    core.create_project("First")
+    assert core.create_card("x", actor="ann", project="first")["project"] == "First"
+
+
+@pytest.mark.no_home
+def test_connect_invents_no_default_project(db):
+    for _ in range(2):
+        assert core.list_projects() == []
+
+
+def test_an_old_database_keeps_its_inbox_as_an_ordinary_project(db):
+    """A board from when "inbox" was the built-in default keeps it, now renamable."""
+    import sqlite3
+    old = sqlite3.connect(core.DB_PATH)
+    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at, updated_at,"
+                " priority) VALUES ('inbox','old','todo','ann','t','t','med')")
+    old.commit()
+    old.close()
+    assert [p["name"] for p in core.list_projects()] == ["Home", "inbox"]
+    core.update_project("inbox", name="Misc")
+    assert core.list_cards()[0]["project"] == "Misc"
 
 
 def test_changing_project_is_a_plain_edit():
+    projects("Tickets", "Backlog")
     t1 = card("Ship it", project="Tickets")
     t1 = core.update_card(t1["id"], "cat", project="Backlog")
     assert t1["project"] == "Backlog"
     ed = [e for e in t1["events"] if e["kind"] == "edited"]
     assert len(ed) == 1, ed
     assert ed[0]["detail"] == {"field": "project", "from": "Tickets", "to": "Backlog"}, ed[0]
-    assert core.list_projects() == ["Backlog"], core.list_projects()
+    assert core.update_card(t1["id"], "cat", project="backlog")["project"] == "Backlog", \
+        "normalised to the project's spelling"
 
 
 # ---------- users ----------
@@ -338,7 +390,8 @@ def test_a_database_from_before_archiving_gains_the_column(db):
     old.execute("INSERT INTO cards VALUES (1,'inbox','old','','todo',NULL,'ann','t','t','med','[]','[]')")
     old.commit()
     old.close()
-    assert [(c["title"], c["archived"]) for c in core.list_cards()] == [("old", False)],         "existing cards survive and come back unarchived"
+    assert [(c["title"], c["archived"], c["auto_advance"]) for c in core.list_cards()] == [
+        ("old", False, False)],         "existing cards survive and come back unarchived"
     core.update_card(1, "ann", archived=True)   # the added column is writable
     assert core.list_cards() == [] and core.list_cards() == [], "and the second connect is a no-op"
 
@@ -380,6 +433,7 @@ def test_archived_cards_stay_fully_usable():
 
 
 def test_archived_filter_combines_with_the_others():
+    projects("Tickets", "Other")
     a = core.update_card(card(project="Tickets", lane="plan")["id"], "ann", archived=True)
     card("Active same project", actor="bob", project="Tickets", lane="plan")
     core.update_card(card("Archived elsewhere", project="Other")["id"], "ann", archived=True)
@@ -389,15 +443,16 @@ def test_archived_filter_combines_with_the_others():
     assert core.list_cards(lane="done", archived=True) == []
 
 
-def test_a_project_with_only_archived_cards_is_still_listed():
-    # so the project filter can still reach it with "show archived" on
+def test_a_project_is_listed_whatever_its_cards_are_doing():
+    # so the project filter can still reach it with "show archived" on, or before any card
+    projects("Old", "Empty")
     core.update_card(card(project="Old")["id"], "ann", archived=True)
-    assert core.list_projects() == ["Old"]
+    assert [p["name"] for p in core.list_projects()] == ["Empty", "Home", "Old"]
 
 
 def test_archived_cannot_be_set_at_creation():
     with pytest.raises(TypeError):
-        core.create_card("x", actor="ann", archived=True)
+        core.create_card("x", actor="ann", project="Home", archived=True)
 
 
 # ---------- more updating corner cases ----------
@@ -438,3 +493,220 @@ def test_text_round_trips_unchanged():
     c = card(t, description=t, labels=[t])
     c = core.get_card(c["id"])
     assert c["title"] == c["description"] == c["labels"][0] == t, c
+
+
+# ---------- configuring projects ----------
+
+def test_create_project_with_path_and_instructions(tmp_path):
+    p = core.create_project("  Tickets  ", path=str(tmp_path), instructions="run uv run pytest")
+    assert p == {"name": "Tickets", "path": str(tmp_path), "instructions": "run uv run pytest", "color": "#00875a"}
+    assert core.get_project("tickets") == p, "looked up ignoring case"
+    assert p in core.list_projects()
+
+
+def test_path_and_instructions_are_optional():
+    assert core.create_project("Bare") == {"name": "Bare", "path": "", "instructions": "", "color": "#00875a"}
+
+
+@pytest.mark.parametrize("name", ["", "   ", None])
+def test_a_project_needs_a_name(name):
+    with pytest.raises(ValueError, match="needs a name"):
+        core.create_project(name)
+
+
+@pytest.mark.parametrize("name", ["Tickets", "TICKETS", "home", "Home"])
+def test_project_names_are_unique_ignoring_case(name):
+    projects("Tickets")
+    with pytest.raises(ValueError, match="already exists"):
+        core.create_project(name)
+
+
+def test_a_relative_path_is_rejected():
+    with pytest.raises(ValueError, match="absolute"):
+        core.create_project("Rel", path="some/dir")
+
+
+def test_a_path_that_is_not_a_folder_is_rejected(tmp_path):
+    f = tmp_path / "file.txt"
+    f.write_text("x")
+    for bad in (tmp_path / "missing", f):
+        with pytest.raises(ValueError, match="no folder"):
+            core.create_project("X", path=str(bad))
+    assert [p["name"] for p in core.list_projects()] == ["Home"], "nothing was created"
+
+
+def test_update_path_and_instructions(tmp_path):
+    projects("Tickets")
+    p = core.update_project("tickets", path=str(tmp_path), instructions="be brief")
+    assert p == {"name": "Tickets", "path": str(tmp_path), "instructions": "be brief", "color": "#00875a"}
+    assert core.update_project("Tickets", path="")["path"] == "", "a path can be cleared"
+
+
+def test_update_rejects_a_bad_path_and_writes_nothing(tmp_path):
+    core.create_project("Tickets", path=str(tmp_path))
+    with pytest.raises(ValueError):
+        core.update_project("Tickets", path=str(tmp_path / "missing"), instructions="lost")
+    assert core.get_project("Tickets") == {"name": "Tickets", "path": str(tmp_path),
+                                           "instructions": "", "color": "#00875a"}
+
+
+def test_rename_carries_every_card_including_archived_and_writes_no_events():
+    projects("Tickets")
+    a = card(project="Tickets")
+    b = core.update_card(card("b", project="Tickets")["id"], "ann", archived=True)
+    other = card("c")
+    before = {id: core.get_card(id) for id in (a["id"], b["id"])}
+    core.update_project("Tickets", name="Board")
+    for id, was in before.items():
+        now = core.get_card(id)
+        assert now["project"] == "Board", now
+        assert now["events"] == was["events"] and now["updated_at"] == was["updated_at"]
+    assert core.get_card(other["id"])["project"] == "Home", "other projects untouched"
+    assert [p["name"] for p in core.list_projects()] == ["Board", "Home"]
+    with pytest.raises(core.NotFound):
+        core.get_project("Tickets")
+
+
+def test_a_case_only_rename_respells_the_project_and_its_cards():
+    projects("tickets")
+    c = card(project="tickets")
+    assert core.update_project("tickets", name="Tickets")["name"] == "Tickets"
+    assert core.get_card(c["id"])["project"] == "Tickets"
+
+
+def test_rename_onto_another_project_is_rejected():
+    projects("Tickets", "Board")
+    c = card(project="Tickets")
+    with pytest.raises(ValueError, match="already exists"):
+        core.update_project("Tickets", name="board")
+    assert core.get_card(c["id"])["project"] == "Tickets", "nothing moved"
+
+
+def test_any_project_can_be_renamed_and_configured(tmp_path):
+    c = card()
+    assert core.update_project("Home", name="Misc", path=str(tmp_path)) == {
+        "name": "Misc", "path": str(tmp_path), "instructions": "", "color": "#0052cc"}
+    assert core.get_card(c["id"])["project"] == "Misc"
+
+
+def test_update_project_rejects_unknown_fields_and_unknown_projects():
+    with pytest.raises(ValueError, match="bogus"):
+        core.update_project("Home", bogus=1)
+    with pytest.raises(core.NotFound):
+        core.update_project("nope", path="")
+
+
+def test_a_card_cannot_name_an_unconfigured_project():
+    with pytest.raises(ValueError, match="unknown project 'Nowhere'"):
+        card(project="Nowhere")
+    c = card()
+    with pytest.raises(ValueError, match="unknown project"):
+        core.update_card(c["id"], "ann", project="Nowhere")
+    with pytest.raises(ValueError, match="a card needs a project"):
+        core.update_card(c["id"], "ann", project=None)
+    assert core.get_card(c["id"]) == c, "and nothing was written"
+    assert len(core.list_cards()) == 1
+
+
+# ---------- auto advance ----------
+
+def test_auto_advance_defaults_off_and_can_be_set_at_creation():
+    assert card()["auto_advance"] is False
+    assert card(auto_advance=True)["auto_advance"] is True
+
+
+def test_auto_advance_toggles_and_logs_an_edit():
+    c = core.update_card(card()["id"], "bob", auto_advance=True)
+    assert c["auto_advance"] is True
+    c = core.update_card(c["id"], "bob", auto_advance=False)
+    evs = [e["detail"] for e in c["events"] if e["detail"].get("field") == "auto_advance"]
+    assert evs == [{"field": "auto_advance", "from": False, "to": True},
+                   {"field": "auto_advance", "from": True, "to": False}], evs
+
+
+@pytest.mark.parametrize("bad", ["yes", 1, None])
+def test_auto_advance_rejects_everything_but_a_bool(bad):
+    c = card()
+    with pytest.raises(ValueError, match="auto_advance must be true or false"):
+        core.update_card(c["id"], "bob", auto_advance=bad)
+    with pytest.raises(ValueError, match="auto_advance must be true or false"):
+        core.create_card("x", actor="ann", project="Home", auto_advance=bad)
+    assert core.get_card(c["id"])["auto_advance"] is False
+    assert len(core.list_cards()) == 1, "the bad create wrote nothing"
+
+
+def test_a_database_with_archived_but_not_auto_advance_gains_it(db):
+    import sqlite3
+    core.list_cards()   # create today's schema, then take the newest column back out
+    old = sqlite3.connect(core.DB_PATH)
+    old.execute("ALTER TABLE cards DROP COLUMN auto_advance")
+    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at, updated_at,"
+                " priority, archived) VALUES ('inbox','old','todo','ann','t','t','med',1)")
+    old.commit()
+    old.close()
+    [c] = core.list_cards(archived=True)
+    assert (c["archived"], c["auto_advance"]) == (True, False)
+    assert core.update_card(c["id"], "ann", auto_advance=True)["auto_advance"] is True
+
+
+# ---------- project colors ----------
+
+def test_new_projects_take_the_least_used_palette_color():
+    assert core.get_project("Home")["color"] == core.PALETTE[0]
+    for i, name in enumerate(["B", "C", "D"], 1):
+        assert core.create_project(name)["color"] == core.PALETTE[i]
+    core.update_project("C", color="#123456")          # frees palette[2] up again
+    assert core.create_project("E")["color"] == core.PALETTE[2]
+
+
+def test_the_palette_wraps_once_every_color_is_used():
+    for i in range(1, len(core.PALETTE)):
+        core.create_project(f"P{i}")
+    assert core.create_project("Wrapped")["color"] == core.PALETTE[0]
+
+
+def test_a_chosen_color_is_kept_and_lowercased():
+    assert core.create_project("Mine", color="#AABBCC")["color"] == "#aabbcc"
+    assert core.update_project("Mine", color="#00FF00")["color"] == "#00ff00"
+
+
+@pytest.mark.parametrize("bad", ["red", "#abc", "#12345g", "123456", "#1234567", None, ""])
+def test_a_bad_color_is_refused_on_update_and_writes_nothing(bad):
+    with pytest.raises(ValueError, match="color must be #rrggbb"):
+        core.update_project("Home", color=bad, instructions="lost")
+    assert core.get_project("Home") == {"name": "Home", "path": "", "instructions": "",
+                                        "color": core.PALETTE[0]}
+
+
+@pytest.mark.parametrize("bad", ["red", "#abc", "#12345g"])
+def test_a_bad_color_is_refused_on_create(bad):
+    with pytest.raises(ValueError, match="color must be #rrggbb"):
+        core.create_project("X", color=bad)
+    assert [p["name"] for p in core.list_projects()] == ["Home"]
+
+
+@pytest.mark.no_home
+def test_an_older_database_gains_colors_for_its_projects(db):
+    import sqlite3
+    old = sqlite3.connect(db)
+    old.execute("CREATE TABLE projects (name TEXT PRIMARY KEY COLLATE NOCASE,"
+                " path TEXT NOT NULL DEFAULT '', instructions TEXT NOT NULL DEFAULT '')")
+    old.executemany("INSERT INTO projects (name) VALUES (?)", [("b",), ("a",), ("c",)])
+    old.commit()
+    old.close()
+    assert [(p["name"], p["color"]) for p in core.list_projects()] == [
+        ("a", core.PALETTE[0]), ("b", core.PALETTE[1]), ("c", core.PALETTE[2])]
+    assert core.list_projects() == core.list_projects(), "assigned once, stable after"
+
+
+@pytest.mark.no_home
+def test_projects_backfilled_from_cards_get_colors_too(db):
+    import sqlite3
+    core.list_projects()
+    raw = sqlite3.connect(db)
+    raw.execute("INSERT INTO cards (project, title, lane, created_by, created_at, updated_at,"
+                " priority) VALUES ('Legacy','old','todo','ann','t','t','med')")
+    raw.commit()
+    raw.close()
+    assert core.list_projects() == [{"name": "Legacy", "path": "", "instructions": "",
+                                     "color": core.PALETTE[0]}]

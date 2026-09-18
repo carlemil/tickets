@@ -1,20 +1,26 @@
 """Tickets core: schema plus every operation. The only module that touches SQL."""
 
 import json
+import re
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
+from pathlib import Path
 
 LANES = ["todo", "plan", "develop", "test", "verify", "done"]
 PRIORITIES = ["low", "med", "high"]
 LINK_KINDS = ["parent", "blocks"]
-DEFAULT_PROJECT = "inbox"
 
 DB_PATH = "tickets.db"  # reassign core.DB_PATH to point elsewhere (tests, alt board)
 
 CARD_FIELDS = ("project", "title", "description", "lane", "assignee", "priority", "labels", "checklist",
-               "archived")
+               "archived", "auto_advance")
+BOOL_FIELDS = ("archived", "auto_advance")   # stored as 0/1, surfaced as true/false
 JSON_FIELDS = ("labels", "checklist")
+PROJECT_FIELDS = ("name", "path", "instructions", "color")
+# a new project takes the least-used of these; any #rrggbb can be set instead
+PALETTE = ["#0052cc", "#00875a", "#ff991f", "#6554c0", "#de350b", "#00a3bf", "#c9372c",
+           "#5e4db2", "#b65c02", "#216e4e"]
 # lane/assignee get their own event kind; everything else is an `edited`
 EVENT_KIND = {"lane": "moved", "assignee": "assigned", "archived": "archived"}
 
@@ -36,7 +42,8 @@ CREATE TABLE IF NOT EXISTS cards (
     priority TEXT NOT NULL,
     labels TEXT NOT NULL DEFAULT '[]',
     checklist TEXT NOT NULL DEFAULT '[]',
-    archived INTEGER NOT NULL DEFAULT 0
+    archived INTEGER NOT NULL DEFAULT 0,
+    auto_advance INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY,
@@ -52,11 +59,17 @@ CREATE TABLE IF NOT EXISTS links (
     kind TEXT NOT NULL,
     PRIMARY KEY (from_id, to_id, kind)
 );
+CREATE TABLE IF NOT EXISTS projects (
+    name TEXT PRIMARY KEY COLLATE NOCASE,
+    path TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
+    color TEXT NOT NULL DEFAULT ''
+);
 """
 
 
 class NotFound(Exception):
-    """Unknown card id. Distinct from ValueError so HTTP maps it to 404."""
+    """Unknown card id or project name. Distinct from ValueError so HTTP maps it to 404."""
 
 
 def connect():
@@ -65,11 +78,37 @@ def connect():
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA foreign_keys=ON")
     db.executescript(SCHEMA)
-    # the one migration: a tickets.db from before archiving holds real cards, so add the
-    # column rather than make the user delete the file
-    if "archived" not in {r["name"] for r in db.execute("PRAGMA table_info(cards)")}:
-        db.execute("ALTER TABLE cards ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+    # columns added after the live board already held real cards: add them to an older
+    # tickets.db rather than make the user delete the file
+    have = {r["name"] for r in db.execute("PRAGMA table_info(cards)")}
+    for col in BOOL_FIELDS:
+        if col not in have:
+            db.execute(f"ALTER TABLE cards ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+    # Every card names a configured project. A database from before projects has cards
+    # naming projects that were only strings, so give each one a row. A fresh database has
+    # no projects at all: a card cannot be made until someone configures one. Checked
+    # first so a plain read does not take the write lock.
+    orphan = db.execute("SELECT 1 FROM cards c WHERE NOT EXISTS"
+                        " (SELECT 1 FROM projects p WHERE p.name = c.project)").fetchone()
+    if "color" not in {r["name"] for r in db.execute("PRAGMA table_info(projects)")}:
+        db.execute("ALTER TABLE projects ADD COLUMN color TEXT NOT NULL DEFAULT ''")
+    if orphan:
+        with db:
+            db.execute("INSERT OR IGNORE INTO projects (name) SELECT DISTINCT project FROM cards")
+    # every project has a color: one from before colors, or backfilled above, gets one
+    uncolored = [r["name"] for r in
+                 db.execute("SELECT name FROM projects WHERE color='' ORDER BY name")]
+    if uncolored:
+        with db:
+            for name in uncolored:
+                db.execute("UPDATE projects SET color=? WHERE name=?", (_next_color(db), name))
     return db
+
+
+def _next_color(db):
+    """The palette color fewest projects use, earliest in the palette on a tie."""
+    used = [r["color"] for r in db.execute("SELECT color FROM projects")]
+    return min(PALETTE, key=lambda c: (used.count(c), PALETTE.index(c)))
 
 
 def _now():
@@ -80,7 +119,8 @@ def _card(row):
     card = dict(row)
     for f in JSON_FIELDS:
         card[f] = json.loads(card[f])
-    card["archived"] = bool(card["archived"])
+    for f in BOOL_FIELDS:
+        card[f] = bool(card[f])
     return card
 
 
@@ -106,8 +146,9 @@ def _validate(fields):
         raise ValueError(f"lane must be one of {LANES}")
     if "priority" in fields and fields["priority"] not in PRIORITIES:
         raise ValueError(f"priority must be one of {PRIORITIES}")
-    if "archived" in fields and not isinstance(fields["archived"], bool):
-        raise ValueError("archived must be true or false")
+    for f in BOOL_FIELDS:
+        if f in fields and not isinstance(fields[f], bool):
+            raise ValueError(f"{f} must be true or false")
 
 
 def _checklist_events(old, new):
@@ -138,13 +179,100 @@ def list_users():
         return [r["name"] for r in db.execute("SELECT name FROM users ORDER BY name")]
 
 
+# ---------- projects ----------
+
+def _project(db, name):
+    """The configured project's own spelling of `name`. Cards may only name a real project."""
+    if not name:
+        raise ValueError("a card needs a project: create one first (see list_projects)")
+    row = db.execute("SELECT name FROM projects WHERE name=?", (name,)).fetchone()
+    if row is None:
+        raise ValueError(f"unknown project {name!r}: configure it first (see list_projects)")
+    return row["name"]
+
+
+def _load_project(db, name):
+    row = db.execute("SELECT name, path, instructions, color FROM projects WHERE name=?",
+                     (name,)).fetchone()
+    if row is None:
+        raise NotFound(f"no project {name!r}")
+    return dict(row)
+
+
+def _clean_name(name):
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("a project needs a name")
+    return name
+
+
+def _clean_path(path):
+    """"" means not configured. Anything else must be an existing folder, given absolutely:
+    the agent runs in it, and a relative path would depend on where the server started."""
+    path = (path or "").strip()
+    if path and not Path(path).is_absolute():
+        raise ValueError(f"path must be absolute: {path}")
+    if path and not Path(path).is_dir():
+        raise ValueError(f"no folder at {path}")
+    return path
+
+
+def _clean_color(color):
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", color or ""):
+        raise ValueError(f"color must be #rrggbb, not {color!r}")
+    return color.lower()
+
+
 def list_projects():
-    """Distinct projects in use, one entry per name ignoring case. No projects table."""
+    """Configured projects: name, path on disk ("" if unset), free-text agent instructions,
+    and the #rrggbb color their cards are tagged with."""
     with closing(connect()) as db:
-        return [r["project"] for r in db.execute(
-            "SELECT project FROM cards GROUP BY project COLLATE NOCASE"
-            " ORDER BY project COLLATE NOCASE"
-        )]
+        return [dict(r) for r in db.execute(
+            "SELECT name, path, instructions, color FROM projects ORDER BY name")]
+
+
+def get_project(name):
+    with closing(connect()) as db:
+        return _load_project(db, name)
+
+
+def create_project(name, path="", instructions="", color=""):
+    """`color` "" picks the least-used palette color."""
+    name, path = _clean_name(name), _clean_path(path)
+    color = color and _clean_color(color)
+    with closing(connect()) as db, db:
+        if db.execute("SELECT 1 FROM projects WHERE name=?", (name,)).fetchone():
+            raise ValueError(f"project {name!r} already exists")
+        db.execute("INSERT INTO projects (name, path, instructions, color) VALUES (?,?,?,?)",
+                   (name, path, instructions or "", color or _next_color(db)))
+    return get_project(name)
+
+
+def update_project(name, /, **fields):   # positional-only, so name= in fields is a rename
+    """Change a project's name, path, instructions or color. A rename carries every card with it
+    (archived ones too) and writes no card events: the cards did not change, the name did."""
+    unknown = set(fields) - set(PROJECT_FIELDS)
+    if unknown:
+        raise ValueError(f"unknown field(s): {sorted(unknown)}")
+    if "path" in fields:
+        fields["path"] = _clean_path(fields["path"])
+    if "instructions" in fields:
+        fields["instructions"] = fields["instructions"] or ""
+    if "color" in fields:
+        fields["color"] = _clean_color(fields["color"])
+    with closing(connect()) as db, db:
+        old = _load_project(db, name)
+        if "name" in fields:
+            new = fields["name"] = _clean_name(fields["name"])
+            clash = db.execute("SELECT name FROM projects WHERE name=?", (new,)).fetchone()
+            if clash and clash["name"] != old["name"]:
+                raise ValueError(f"project {new!r} already exists")
+            db.execute("UPDATE cards SET project=? WHERE project=? COLLATE NOCASE",
+                       (new, old["name"]))
+        if fields:
+            db.execute(f"UPDATE projects SET {', '.join(f'{f}=?' for f in fields)} WHERE name=?",
+                       [*fields.values(), old["name"]])
+    return get_project(fields.get("name", old["name"]))
 
 
 def create_card(
@@ -156,17 +284,20 @@ def create_card(
     priority="med",
     labels=None,
     checklist=None,
-    project=DEFAULT_PROJECT,
+    project=None,   # required in practice: _project refuses a missing one with a reason
+    auto_advance=False,
 ):
-    _validate({"lane": lane, "priority": priority})
+    _validate({"lane": lane, "priority": priority, "auto_advance": auto_advance})
     now = _now()
     with closing(connect()) as db, db:
+        project = _project(db, project)
         id = db.execute(
             "INSERT INTO cards (project, title, description, lane, assignee, created_by,"
-            " created_at, updated_at, priority, labels, checklist) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " created_at, updated_at, priority, labels, checklist, auto_advance)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 project, title, description, lane, assignee, actor, now, now, priority,
-                json.dumps(labels or []), json.dumps(checklist or []),
+                json.dumps(labels or []), json.dumps(checklist or []), int(auto_advance),
             ),
         ).lastrowid
         _event(db, id, actor, "created", {"title": title, "lane": lane})
@@ -215,6 +346,8 @@ def update_card(id, actor, **fields):
     _validate(fields)
     with closing(connect()) as db, db:
         old = _load(db, id)
+        if "project" in fields:
+            fields["project"] = _project(db, fields["project"])
         sets, args, evs = [], [], []
         for f, new in fields.items():
             if new == old[f]:
