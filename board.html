@@ -63,7 +63,9 @@
   .id { color: #a5adba; }
 
   #panel {
-    position: fixed; top: 0; right: 0; width: 460px; max-width: 100%; height: 100%;
+    /* above the sticky header (z-index 5): below it, the panel's own close button sat
+       under the header and every click on it hit "Add to todo" instead */
+    position: fixed; top: 0; right: 0; width: 460px; max-width: 100%; height: 100%; z-index: 10;
     background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto;
     padding: 16px 20px 40px; box-shadow: -4px 0 16px rgba(9,30,66,.15); display: none;
   }
@@ -290,12 +292,15 @@ function field(label, node) {
 
 // Every edit is a PATCH; the response is the full card, so no follow-up GET.
 async function patch(body) {
+  const id = open.id;   // the panel can be closed while this PATCH is in flight
   try {
-    const card = await api("PATCH", "/api/cards/" + open.id, body);
-    open = card;
+    const card = await api("PATCH", "/api/cards/" + id, body);
     replace(card);
-    renderPanel();
-  } catch (e) { showErr(e.message); renderPanel(); }
+    if (open && open.id === id) { open = card; renderPanel(); }
+  } catch (e) {
+    showErr(e.message);
+    if (open && open.id === id) renderPanel();
+  }
 }
 
 function renderPanel() {
@@ -305,8 +310,15 @@ function renderPanel() {
   const c = open;
 
   const close = Object.assign(document.createElement("button"),
-    { className: "close", textContent: "close" });
-  close.onclick = () => { open = null; p.classList.remove("on"); };
+    { className: "close primary", textContent: "save" });
+  close.onclick = () => {
+    // Flush the field still focused; each one saves on change. Clicking a button already
+    // blurs in Chrome, but not in every browser (Safari does not focus buttons on click),
+    // so this is what makes "type, then hit save" reliable rather than incidental.
+    document.activeElement?.blur();
+    open = null;
+    p.classList.remove("on");
+  };
   p.append(close);
   p.append(Object.assign(document.createElement("div"),
     { className: "sub", textContent: `#${c.id} · ${c.project} · ${c.lane} · created by ${c.created_by} ${ago(c.created_at)}` }));
@@ -436,7 +448,9 @@ const NEWUSER = " new";
 function renderWho() {
   const s = $("#who");
   s.textContent = "";
-  if (!users.length && !who()) s.append(new Option("— who are you? —", ""));
+  // the placeholder shows whenever no actor is stored: without it the box displays the first
+  // registered name while who() is still "", so writes fail against a box that says otherwise
+  if (!who()) s.append(new Option("— who are you? —", ""));
   for (const u of users) s.append(new Option(u, u, false, u === who()));
   if (who() && !users.includes(who())) s.append(new Option(who(), who(), false, true));
   s.append(new Option("+ another name…", NEWUSER));
@@ -474,7 +488,7 @@ $("#proj").onchange = ev => { localStorage.setItem("project", ev.target.value); 
 $("#add").onclick = async () => {
   const title = $("#newTitle").value.trim();
   if (!title) return showErr("a card needs a title");
-  if (!who()) return showErr("say who you are first");
+  if (!who()) return showErr("say who you are first — set it in the “you are” box, top left");
   try {
     const body = { title };
     if (proj()) body.project = proj();
