@@ -333,6 +333,7 @@ click: the "close" button top right is the way out (the projects sheet's is "don
 The top of a card's sheet is one sticky header row that stays put while the sheet
 scrolls: the card number, the title (edited in place), "created <when>" (the full date on
 hover), "archive" and "close". A new card's row is "new", the title, "cancel", "close".
+The card number carries the auto dot, which pulses while an agent works the card.
 Project, lane and creator sit on the line under it.
 Closing blurs the focused field, so the edit still in progress saves too, and text left
 in the comment box is posted rather than dropped. The error bar is fixed above the sheet
@@ -409,6 +410,7 @@ the button for 150 ms.
 | 25 | Markera deploy instructions; description box 10 lines tall (grows to 50); sticky header row on the card sheet | done |
 | 26 | docs page at `/docs`, linked from the header | done |
 | 27 | one agent at a time (`agent.py` holds 127.0.0.1:8124); Tickets deploy instructions: merge the card into master, test, push, restart the backend 30 s later with `restart-backend.ps1 -Delay 30`; the deploy prompt allows what the instructions say | done |
+| 28 | the auto dot pulses on cards an agent is working on, on the board and in the sheet header | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

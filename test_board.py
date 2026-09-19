@@ -1092,6 +1092,83 @@ def test_an_agent_finishing_reloads_the_board(page):
     assert page.text_content("#status") == "no agent is working on anything"
 
 
+
+# ---------- the auto dot pulses while an agent works the card ----------
+
+def pulsing(page, sel):
+    return page.locator(sel + " .auto.working").count()
+
+
+def test_the_board_dot_pulses_while_an_agent_works_the_card(page):
+    busy = core.create_card("busy", actor="ce", project="Home", auto_advance=True)["id"]
+    idle = core.create_card("idle", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{idle}"]')
+    core.set_activity("claude-agent", busy, "planning")
+    page.evaluate("loadStatus()")
+    page.wait_for_selector(f'.card[data-id="{busy}"] .auto.working')
+    assert pulsing(page, f'.card[data-id="{idle}"]') == 0
+    title = page.get_attribute(f'.card[data-id="{busy}"] .auto', "title")
+    assert title.endswith(" · an agent is working on it now"), title
+    core.set_activity("claude-agent")
+    page.evaluate("loadStatus()")
+    page.wait_for_function(f"() => !document.querySelector('.card[data-id=\"{busy}\"] .auto.working')")
+    assert "working on it now" not in page.get_attribute(f'.card[data-id="{busy}"] .auto', "title")
+
+
+def test_the_pulse_survives_a_board_reload(page):
+    cid = core.create_card("busy", actor="ce", project="Home")["id"]
+    core.set_activity("claude-agent", cid, "planning")
+    page.evaluate("loadStatus()")
+    page.wait_for_selector(f'.card[data-id="{cid}"] .auto.working')
+    page.evaluate("load()")   # rebuilt cards pulse without waiting for the next poll
+    assert pulsing(page, f'.card[data-id="{cid}"]') == 1
+
+
+def test_the_editor_shows_the_auto_dot_and_it_pulses_without_a_rerender(page):
+    page.click("#add")
+    assert page.locator("#panel .auto").count() == 0, "a card not yet created has no dot"
+    close_sheet(page)
+    cid = add_card(page, "watch me")
+    dot = page.locator("#panel .head .auto")
+    assert dot.get_attribute("class") == "auto", "a ring while auto advance is off"
+    page.fill("#panel input[type=text] >> nth=0", "half typed")   # not committed yet
+    core.set_activity("claude-agent", cid, "developing")
+    page.evaluate("loadStatus()")
+    page.wait_for_selector("#panel .head .auto.working")
+    assert page.input_value("#panel input[type=text] >> nth=0") == "half typed", "no re-render"
+    core.set_activity("claude-agent")
+    page.evaluate("loadStatus()")
+    page.wait_for_function("() => !document.querySelector('#panel .auto.working')")
+    page.fill("#panel input[type=text] >> nth=0", "watch me")
+    page.check(AUTO)
+    wait_saved(page, cid, "auto_advance", True)
+    assert page.locator("#panel .head .auto.on").count() == 1, "ticking the switch lights it"
+
+
+def test_the_editor_dot_is_lit_for_an_auto_advance_card(page):
+    cid = core.create_card("auto", actor="ce", project="Home", auto_advance=True)["id"]
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_selector("#panel .head .auto.on")
+
+
+def test_work_on_a_card_off_the_board_pulses_nothing(page):
+    core.create_project("Other")
+    core.create_card("here", actor="ce", project="Home")
+    away = core.create_card("away", actor="ce", project="Other")["id"]
+    page.evaluate("load()")
+    page.select_option("#proj", "Home")
+    page.wait_for_function("() => document.querySelectorAll('.card').length === 1")
+    errors = []
+    page.on("pageerror", lambda e: errors.append(e))
+    core.set_activity("claude-agent", away, "planning")
+    page.evaluate("loadStatus()")
+    page.locator("#status .job").wait_for()
+    assert page.locator(".auto.working").count() == 0
+    assert errors == []
+
+
 # ---------- deleting a project ----------
 
 def open_delete(page, name):
@@ -1423,3 +1500,32 @@ def test_the_title_in_the_header_still_saves(page):
     cid = add_card(page, "before")
     type_into(page, "#panel .head input", "after")
     wait_saved(page, cid, "title", "after")
+
+
+# ---------- the auto dot in the sheet header, and a busy board dot ----------
+
+def test_the_editor_dot_sits_in_the_header_number_and_clicking_it_does_nothing(page):
+    cid = add_card(page, "dotted")
+    assert page.locator("#panel .head .id .auto").count() == 1
+    assert page.locator("#panel .sub .auto").count() == 0
+    assert page.text_content("#panel .head .id") == f"#{cid}"
+    page.click("#panel .head .auto")
+    page.wait_for_timeout(300)
+    assert core.get_card(cid)["auto_advance"] is False, "only the switch changes it in the sheet"
+    assert page.locator("#panel.on").count() == 1, "the sheet stays open"
+
+
+def test_a_busy_board_dot_says_click_and_working_and_still_toggles(page):
+    cid = core.create_card("busy", actor="ce", project="Home")["id"]
+    core.set_activity("claude-agent", cid, "developing")
+    page.evaluate("load()")
+    page.evaluate("loadStatus()")
+    dot = f'.card[data-id="{cid}"] .auto'
+    page.wait_for_selector(dot + ".working")
+    tip = page.get_attribute(dot, "title")
+    assert "Click to turn it on." in tip and tip.endswith(" · an agent is working on it now")
+    page.click(dot)
+    wait_saved(page, cid, "auto_advance", True)
+    page.wait_for_selector(dot + ".on.working")
+    assert page.locator("#panel.on").count() == 0
+    core.set_activity("claude-agent")
