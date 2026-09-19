@@ -80,7 +80,7 @@ def test_add_a_card_from_the_header(page):
     cid = add_card(page, "typed in the box")
     c = core.get_card(cid)
     assert c["title"] == "typed in the box" and c["lane"] == "todo", c
-    assert c["events"][0]["actor"] == "ce", "the who-select supplies the actor"
+    assert c["events"][0]["actor"] == "User", "the board writes as User"
     page.wait_for_selector("#panel.on")  # a new card opens for editing
 
 
@@ -132,7 +132,7 @@ def test_panel_edits_each_save_on_change(page):
     assert c["labels"] == ["ui", "api"] and c["lane"] == "test", c
     assert c["checklist"] == [{"text": "first item", "done": True}], c["checklist"]
     assert c["events"][-1]["detail"]["text"] == "looks good", c["events"][-1]
-    assert {e["actor"] for e in c["events"]} == {"ce"}, "every edit is attributed"
+    assert {e["actor"] for e in c["events"]} == {"User"}, "every edit is attributed"
 
 
 def test_the_project_filter_scopes_the_board(page):
@@ -146,15 +146,6 @@ def test_the_project_filter_scopes_the_board(page):
     page.wait_for_function("() => document.querySelectorAll('.card').length === 1")
     assert page.text_content(".card .t") == "elsewhere"
     assert page.evaluate("localStorage.getItem('project')") == "Other", "and it persists"
-
-
-def test_adding_a_name_registers_it_and_selects_it(page):
-    page.on("dialog", lambda d: d.accept("  zoe  "))   # prompt(), else Playwright dismisses
-    who = page.locator("#who")
-    page.select_option("#who", index=who.locator("option").count() - 1)  # "+ another name…"
-    page.wait_for_function("() => document.querySelector('#who').value === 'zoe'")
-    assert core.list_users() == ["zoe"], "registered server-side, not just locally"
-    assert page.evaluate("localStorage.getItem('actor')") == "zoe"
 
 
 def test_closing_commits_the_field_you_are_still_typing_in(page):
@@ -207,23 +198,24 @@ def test_a_landed_patch_does_not_reopen_a_dismissed_panel(page):
         "the guard must suppress the re-render, not the write"
 
 
-def test_the_actor_box_never_shows_a_name_it_has_not_stored(page):
-    """renderWho() only offered the placeholder when the user list was empty, so with any
-    registered name and no stored actor the box displayed that name while who() was still
-    "" — and every write failed against a box that said otherwise."""
-    core.ensure_user("ann")
-    core.ensure_user("bob")
-    page.evaluate("localStorage.removeItem('actor'); load()")
-    page.wait_for_function("() => document.querySelector('#who').options.length > 2")
-    assert page.eval_on_selector("#who", "s => s.value") == "", "no actor is stored"
-    selected = page.eval_on_selector("#who", "s => s.selectedOptions[0].textContent")
-    assert "who are you" in selected, f"the box claims to be {selected!r}"
-
-    page.click("#add")
-    page.wait_for_selector("#err.on")
-    assert "say who you are first" in page.text_content("#err")
-    assert page.locator("#panel.on").count() == 0, "no new-card panel without an actor"
-    assert core.list_cards() == [], "and nothing was written"
+@pytest.mark.parametrize("stale", [None, "zoe"])
+def test_the_board_writes_as_user_with_no_who_box(page, stale):
+    """One person uses the board, so there is no "you are" box: every browser write is
+    logged as User, and an actor left in localStorage by the old box is ignored."""
+    if stale:
+        page.evaluate(f"localStorage.setItem('actor', '{stale}')")
+    else:
+        page.evaluate("localStorage.removeItem('actor')")
+    assert page.locator("#who").count() == 0, "the box is gone"
+    cid = add_card(page, "mine")
+    assert page.locator("#err.on").count() == 0, "no error opening the new-card panel"
+    page.fill("#panel textarea >> nth=1", "hello")
+    page.click("#panel button:has-text('comment')")
+    page.wait_for_selector("#panel .log li.comment")
+    assert "User" in page.text_content("#panel .log li.comment")
+    assert [(e["actor"], e["kind"]) for e in core.get_card(cid)["events"]] == [
+        ("User", "created"), ("User", "comment")]
+    assert "zoe" not in core.list_users()
 
 
 def test_archive_button_removes_the_card_and_show_archived_brings_it_back(page):
@@ -538,7 +530,7 @@ def test_every_field_in_the_new_card_panel_is_created(page):
     assert c["labels"] == ["ui", "api"] and c["project"] == "Tickets", c
     assert c["checklist"] == [{"text": "first", "done": True},
                               {"text": "second", "done": False}], c["checklist"]
-    assert [(e["actor"], e["kind"]) for e in c["events"]] == [("ce", "created")], \
+    assert [(e["actor"], e["kind"]) for e in c["events"]] == [("User", "created")], \
         "one created event, not a create followed by edits"
     page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{c["id"]}"]')
     assert page.locator("#panel.on").count() == 0, "create saves and closes the sheet"
@@ -961,7 +953,7 @@ def test_links_and_comments_on_a_new_card_are_sent_on_create(page):
     assert [(l["from_id"], l["to_id"], l["kind"]) for l in c["links"]] == [(cid, other, "blocks")]
     assert [e["detail"]["text"] for e in c["events"] if e["kind"] == "comment"] == [
         "queued first", "typed, never sent"]
-    assert all(e["actor"] == "ce" for e in c["events"])
+    assert all(e["actor"] == "User" for e in c["events"])
 
 
 def test_a_new_card_refuses_a_link_to_a_missing_card_right_away(page):

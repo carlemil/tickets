@@ -291,10 +291,8 @@ leaves it off. Edits to a card with no dot never start the agent. Each field sav
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
 `drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: description,
 priority, labels, checklist, an "auto advance" checkbox (an `auto` pill on the
-board card), links, activity log, comment box. A "you are:" `<select>`
-persisted in `localStorage` supplies `actor` on every write — its "+ another name…" entry
-prompts and `POST`s to `/api/users`, so a new person or agent is registered and assignable
-without writing a card first — and a project `<select>`
+board card), links, activity log, comment box. The board writes as `User`, a fixed
+name, and agents write under their own names. A project `<select>`
 (also persisted) filters the board — an agent and a human both scope to one project.
 
 Once a card has a plan, questions or answers, the sheet shows each in its own box under
