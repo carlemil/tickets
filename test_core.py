@@ -358,6 +358,41 @@ def test_ensure_user_strips_and_rejects_blanks():
     assert core.list_users() == ["eve"], core.list_users()
 
 
+def test_rename_user_moves_every_trace_of_the_old_name():
+    mine = card(actor="ce")["id"]
+    core.update_card(mine, "ce", assignee="ce")
+    core.comment(mine, "ce", "hi")
+    core.set_activity("ce", mine, "looking")
+    theirs = card(actor="zoe", assignee="zoe")["id"]
+    core.update_card(theirs, "zoe", assignee="ce")      # the old name as `to`...
+    core.update_card(theirs, "zoe", assignee="zoe")     # ...and as `from`
+    core.set_activity("User", theirs, "already here")   # a clash on activity's primary key
+
+    core.rename_user("ce", "User")
+
+    c = core.get_card(mine)
+    assert c["created_by"] == "User" and c["assignee"] == "User", c
+    assert {e["actor"] for e in c["events"]} == {"User"}, c["events"]
+    assert [e["detail"]["to"] for e in c["events"] if e["kind"] == "assigned"] == ["User"]
+    t = core.get_card(theirs)
+    assert t["created_by"] == "zoe" and t["assignee"] == "zoe", "zoe is untouched"
+    assert {e["actor"] for e in t["events"]} == {"zoe"}, t["events"]
+    assert [(e["detail"]["from"], e["detail"]["to"]) for e in t["events"]
+            if e["kind"] == "assigned"] == [("zoe", "User"), ("User", "zoe")]
+    assert [(a["actor"], a["doing"]) for a in core.list_activity()] == [("User", "already here")]
+    assert core.list_users() == ["User", "zoe"], core.list_users()
+
+    before = (core.get_card(mine), core.get_card(theirs), core.list_users())
+    core.rename_user("ce", "User")                      # a second run changes nothing
+    assert (core.get_card(mine), core.get_card(theirs), core.list_users()) == before
+    core.rename_user("User", "User")                    # same name: a no-op
+    for blank in ("", "  ", None):
+        with pytest.raises(ValueError):
+            core.rename_user(blank, "User")
+        with pytest.raises(ValueError):
+            core.rename_user("ce", blank)
+
+
 # ---------- archiving ----------
 
 def test_archive_hides_the_card_and_unarchive_brings_it_back():

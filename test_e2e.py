@@ -20,21 +20,21 @@ def test_a_human_and_an_agent_share_one_attributed_card(page):
 
     # --- the agent, through the MCP tools, on the same card ---
     app.update_card(id=cid, actor="claude-agent", lane="verify")
-    app.update_card(id=cid, actor="claude-agent", assignee="ce")
+    app.update_card(id=cid, actor="claude-agent", assignee="User")
     app.comment(id=cid, actor="claude-agent",
                 text="Dragged by hand, verified by agent. Shared state works.")
 
     assert [(e["actor"], e["kind"]) for e in core.get_card(cid)["events"]] == [
-        ("ce", "created"),
-        ("ce", "moved"),             # the mouse
-        ("ce", "edited"),            # a forward move switches auto advance on
+        ("User", "created"),
+        ("User", "moved"),           # the mouse
+        ("User", "edited"),            # a forward move switches auto advance on
         ("claude-agent", "moved"),   # the agent
         ("claude-agent", "assigned"),
         ("claude-agent", "comment"),
     ], core.get_card(cid)["events"]
 
     # both actors self-registered, from opposite surfaces
-    assert core.list_users() == ["ce", "claude-agent"], core.list_users()
+    assert core.list_users() == ["User", "claude-agent"], core.list_users()
 
     # --- and the human sees the agent's work ---
     page.reload()
@@ -42,9 +42,9 @@ def test_a_human_and_an_agent_share_one_attributed_card(page):
     page.evaluate("id => openCard(id)", cid)
     page.wait_for_selector("#panel.on .log li.comment")
     log = page.text_content("#panel .log")
-    assert "claude-agent" in log and "ce" in log, log
+    assert "claude-agent" in log and "User" in log, log
     assert "Shared state works." in log, log
-    assert page.text_content(f'.card[data-id="{cid}"] .pill.who') == "ce", "assigned by the agent"
+    assert page.text_content(f'.card[data-id="{cid}"] .pill.who') == "User", "assigned by the agent"
 
 
 def test_an_agent_archives_and_the_human_board_follows(page):
@@ -61,4 +61,4 @@ def test_an_agent_archives_and_the_human_board_follows(page):
     page.uncheck("#showArch")
     page.wait_for_selector(f'.card[data-id="{cid}"]')
     assert [(e["actor"], e["kind"]) for e in core.get_card(cid)["events"]][-2:] == [
-        ("claude-agent", "archived"), ("ce", "archived")]
+        ("claude-agent", "archived"), ("User", "archived")]

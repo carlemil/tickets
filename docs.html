@@ -53,8 +53,8 @@ what.</p>
 planning with others and anything shared stays there. Tickets is for the local loop: you
 hand coding tasks to an agent on your machine and review what comes back.</p>
 <p class="note"><b>Local and single-person only.</b> It is one process, bound to
-<code>127.0.0.1</code>. It has no auth, no accounts and no sync: "you are" is a name, not a
-login. Never put it on a network, never host it online and never share it with a group.</p>
+<code>127.0.0.1</code>. It has no auth, no accounts and no sync: the person at the board is logged as
+"User"; agents log under their own names. Never put it on a network, never host it online and never share it with a group.</p>
 
 <h2 id="run">2. Run it</h2>
 <p>Start the server (port 8000 is taken on this machine; any free port works if the MCP URL
@@ -84,8 +84,6 @@ again.</p>
 
 <h3>The header</h3>
 <ul>
-  <li><b>you are</b>: the name every change you make is logged under. "+ another name…" adds
-    one.</li>
   <li><b>project</b>: shows one project's cards, or all of them.</li>
   <li><b>projects…</b>: each project's name, path (the absolute folder of its git repo, where
     the agent works), agent instructions (how to build, test and deploy, and how to install

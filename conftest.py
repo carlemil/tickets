@@ -86,7 +86,7 @@ def browser():
 
 @pytest.fixture
 def page(browser, server):
-    """A page on the board with an actor already chosen. Any uncaught JS error or console
+    """A page on the board. Any uncaught JS error or console
     error fails the test that caused it — the board is one file of hand-written DOM code
     and a silent TypeError there is exactly the kind of bug these tests exist to catch."""
     pg = browser.new_page()
@@ -98,7 +98,6 @@ def page(browser, server):
     pg.on("console", lambda m: errors.append(f"{m.text} @ {(m.location or {}).get('url')}")
           if m.type == "error" and not m.text.startswith("Failed to load resource")
           else None)
-    pg.add_init_script("localStorage.setItem('actor', 'ce')")
     pg.goto(server)
     pg.wait_for_selector("#board .lane")
     # Count in-flight api() calls. Every panel edit PATCHes and then re-renders the panel,

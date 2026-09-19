@@ -209,6 +209,28 @@ def list_users():
         return [r["name"] for r in db.execute("SELECT name FROM users ORDER BY name")]
 
 
+def rename_user(old, new):
+    """One-off: move every trace of `old` to `new` (history, cards, activity, users).
+    Idempotent. Not run by connect(): call it by hand on the live tickets.db."""
+    old, new = (old or "").strip(), (new or "").strip()
+    if not old or not new:
+        raise ValueError("both names are required")
+    if old == new:
+        return
+    with closing(connect()) as db, db:
+        db.execute("UPDATE events SET actor=? WHERE actor=?", (new, old))
+        for f in ("assignee", "created_by"):
+            db.execute(f"UPDATE cards SET {f}=? WHERE {f}=?", (new, old))
+        for k in ("$.to", "$.from"):
+            db.execute("UPDATE events SET detail=json_set(detail, ?, ?)"
+                       " WHERE kind='assigned' AND json_extract(detail, ?)=?", (k, new, k, old))
+        # activity is one row per actor: if `new` already has one, it is the current one
+        db.execute("UPDATE OR IGNORE activity SET actor=? WHERE actor=?", (new, old))
+        db.execute("DELETE FROM activity WHERE actor=?", (old,))
+        db.execute("INSERT OR IGNORE INTO users (name) VALUES (?)", (new,))
+        db.execute("DELETE FROM users WHERE name=?", (old,))
+
+
 # ---------- activity: what agents are doing right now ----------
 
 def set_activity(actor, card_id=None, doing=""):
