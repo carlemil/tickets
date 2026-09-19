@@ -25,7 +25,7 @@ changed and a phone is connected (none connected: skipped). How is up to the pro
 instructions; either way the card stays in verify, with the result as a comment.
 
 Projects run side by side, but each project has one run at a time: a card waits while
-another card of its project is worked.
+another card of its project is worked, and the highest-priority waiting card goes next.
 
 Any failure comments why, unassigns and turns auto advance off, so the card sits in its
 lane until a person looks: no retry loop.
@@ -43,7 +43,7 @@ from pathlib import Path
 
 from mcp import Client
 
-from core import NO_PROJECT, number   # pure helpers only: the board is reached over MCP
+from core import NO_PROJECT, PRIORITIES, number   # pure helpers only: the board is reached over MCP
 
 AGENT = "claude-agent"
 URL = "http://127.0.0.1:8123/mcp"
@@ -306,7 +306,9 @@ async def tick(client, connect):
     run opens its own client with `connect`, as it outlives this poll. Returns the runs
     started: main leaves them going, the tests wait for them."""
     started = []
-    for c in await call(client, "list_cards"):
+    # highest priority first: it takes its project's one slot. Ties keep list_cards' order.
+    cards = sorted(await call(client, "list_cards"), key=lambda c: -PRIORITIES.index(c["priority"]))
+    for c in cards:
         key = c["project"].lower()
         if key == NO_PROJECT.lower():
             continue   # its project was deleted: off limits, silently
