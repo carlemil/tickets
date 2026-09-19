@@ -1147,7 +1147,7 @@ def test_the_tag_follows_a_card_moved_to_another_project(page):
     assert tag(page, cid).evaluate("e => getComputedStyle(e).backgroundColor") == rgb(core.PALETTE[1])
 
 
-def test_the_auto_dot_leads_and_the_project_tag_sits_after_the_priority(page):
+def test_the_auto_dot_leads_and_the_project_tag_sits_after_the_assignee(page):
     plain = core.create_card("a", actor="ce", project="Home", priority="high",
                              assignee="bob", labels=["ui"])["id"]
     auto = core.create_card("b", actor="ce", project="Home", auto_advance=True)["id"]
@@ -1155,8 +1155,11 @@ def test_the_auto_dot_leads_and_the_project_tag_sits_after_the_priority(page):
     page.wait_for_selector(f'.card[data-id="{auto}"]')
     chips = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').all_text_contents()
     # the auto dot, then the merged and deployed dots
-    assert chips(plain) == ["", "", "", f"#{plain}", "bob", "high", "Home", "ui"], chips(plain)
-    assert chips(auto) == ["", "", "", f"#{auto}", "med", "Home"], chips(auto)
+    assert chips(plain) == ["", "", "", f"#{plain}", "bob", "Home", "ui"], chips(plain)
+    assert chips(auto) == ["", "", "", f"#{auto}", "Home"], chips(auto)
+    # no priority chip: the colored left bar shows it
+    assert page.locator(".card .pill.pri").count() == 0
+    assert "p-high" in page.locator(f'.card[data-id="{plain}"]').get_attribute("class").split()
     first = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').first
     assert first(auto).get_attribute("class") == "auto on"
     assert first(plain).get_attribute("class") == "auto"

@@ -341,8 +341,6 @@ function cardNode(c) {
     { className: "id", textContent: "#" + c.id }));
   if (c.assignee) meta.append(Object.assign(document.createElement("span"),
     { className: "pill who", textContent: c.assignee }));
-  meta.append(Object.assign(document.createElement("span"),
-    { className: "pill pri", textContent: c.priority }));
   meta.prepend(autoDot(c, true), ...statusDots(c));
   meta.append(projectTag(c.project));
   for (const l of c.labels) meta.append(Object.assign(document.createElement("span"),
@@ -1048,7 +1046,6 @@ const TIPS = [
   ...LANES.map(l => [`.lane[data-lane="${l}"] h2`, LANE_TIPS[l]]),
   [".card .id", "the card's number"],
   [".card .pill.who", "assigned to"],
-  [".card .pill.pri", "priority"],
   [".card .pill.proj", "project"],
   [".card .pill.label", "label"],
   [".card .pill.checks", "checklist items done / total"],
