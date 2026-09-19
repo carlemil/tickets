@@ -14,8 +14,11 @@ LINK_KINDS = ["parent", "blocks"]
 DB_PATH = "tickets.db"  # reassign core.DB_PATH to point elsewhere (tests, alt board)
 
 CARD_FIELDS = ("project", "title", "description", "lane", "assignee", "priority", "labels", "checklist",
-               "archived", "auto_advance", "attention", "plan", "questions", "answers")
-BOOL_FIELDS = ("archived", "auto_advance", "attention")   # stored as 0/1, surfaced as true/false
+               "archived", "auto_advance", "attention", "plan", "questions", "answers",
+               "merged", "deployed")
+# merged: on the base branch on origin; deployed: on the local test backend or a device.
+# Only the agent's deploy step sets them.
+BOOL_FIELDS = ("archived", "auto_advance", "attention", "merged", "deployed")   # stored as 0/1, surfaced as true/false
 JSON_FIELDS = ("labels", "checklist")
 # the planning round, kept apart from the request in `description`: the agent's plan, its
 # open questions, a person's answers
@@ -54,6 +57,8 @@ CREATE TABLE IF NOT EXISTS cards (
     archived INTEGER NOT NULL DEFAULT 0,
     auto_advance INTEGER NOT NULL DEFAULT 0,
     attention INTEGER NOT NULL DEFAULT 0,
+    merged INTEGER NOT NULL DEFAULT 0,
+    deployed INTEGER NOT NULL DEFAULT 0,
     plan TEXT NOT NULL DEFAULT '',
     questions TEXT NOT NULL DEFAULT '',
     answers TEXT NOT NULL DEFAULT ''
@@ -444,6 +449,10 @@ def update_card(id, actor, **fields):
         frm, to = LANES.index(old["lane"]), LANES.index(fields.get("lane", old["lane"]))
         if to != frm and (to > frm or LANES[to] == "plan") and LANES[to] != "done":
             fields.setdefault("auto_advance", True)
+        # back into an agent lane is rework: the new work is neither on master nor deployed
+        if to != frm and LANES[to] in AGENT_LANES and LANES[frm] not in AGENT_LANES:
+            fields.setdefault("merged", False)
+            fields.setdefault("deployed", False)
         sets, args, evs = [], [], []
         for f, new in fields.items():
             if new == old[f]:

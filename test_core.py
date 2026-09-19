@@ -1019,3 +1019,69 @@ def test_questions_are_stored_numbered_from_1_whoever_writes_them():
         == "1. red?\n  - which red\n2. blue?"
     assert core.update_card(id, "ce", questions="3. only one?")["questions"] == "1. only one?"
     assert core.update_card(id, "ce", questions="")["questions"] == ""
+
+
+# ---------- merged and deployed ----------
+
+def shipped(lane="verify"):
+    c = card(lane=lane)
+    return core.update_card(c["id"], "agent", attention=True, merged=True, deployed=True)
+
+
+def test_merged_and_deployed_are_off_by_default():
+    c = card()
+    assert (c["merged"], c["deployed"]) == (False, False)
+    assert {"merged", "deployed"} <= set(core.list_cards()[0])
+
+
+def test_setting_them_is_logged_and_keeps_attention_set_in_the_same_write():
+    c = shipped()
+    assert (c["merged"], c["deployed"], c["attention"]) == (True, True, True)
+    got = [(e["kind"], e["detail"]["field"], e["detail"]["to"]) for e in c["events"][1:]]
+    assert got == [("edited", "merged", True), ("edited", "deployed", True)]
+
+
+@pytest.mark.parametrize("lane", ["plan", "develop", "test"])
+def test_rework_clears_them(lane):
+    c = core.update_card(shipped()["id"], "ce", lane=lane)
+    assert (c["merged"], c["deployed"]) == (False, False)
+
+
+@pytest.mark.parametrize("lane", ["done", "todo"])
+def test_a_move_out_of_the_agent_lanes_keeps_them(lane):
+    c = core.update_card(shipped()["id"], "ce", lane=lane)
+    assert (c["merged"], c["deployed"]) == (True, True)
+
+
+def test_a_move_between_agent_lanes_or_an_edit_keeps_them():
+    c = core.update_card(shipped("develop")["id"], "ce", lane="test")
+    assert (c["merged"], c["deployed"]) == (True, True)
+    c = core.update_card(shipped()["id"], "ce", title="renamed")
+    assert (c["merged"], c["deployed"]) == (True, True)
+
+
+def test_rework_that_sets_them_in_the_same_write_wins():
+    c = core.update_card(shipped()["id"], "ce", lane="develop", merged=True)
+    assert (c["merged"], c["deployed"]) == (True, False)
+
+
+@pytest.mark.parametrize("f", ["merged", "deployed"])
+@pytest.mark.parametrize("bad", ["yes", 1, None])
+def test_merged_and_deployed_reject_everything_but_a_bool(f, bad):
+    with pytest.raises(ValueError, match=f"{f} must be true or false"):
+        core.update_card(card()["id"], "bob", **{f: bad})
+
+
+def test_a_database_without_merged_and_deployed_gains_them(db):
+    import sqlite3
+    core.list_cards()
+    old = sqlite3.connect(core.DB_PATH)
+    old.execute("ALTER TABLE cards DROP COLUMN merged")
+    old.execute("ALTER TABLE cards DROP COLUMN deployed")
+    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at, updated_at,"
+                " priority) VALUES ('inbox','old','todo','ann','t','t','med')")
+    old.commit()
+    old.close()
+    [c] = core.list_cards()
+    assert (c["merged"], c["deployed"]) == (False, False)
+    assert core.update_card(c["id"], "ann", deployed=True)["deployed"] is True

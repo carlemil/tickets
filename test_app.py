@@ -452,3 +452,11 @@ def test_delete_project_route(client):
     assert client.delete("/api/projects/Old/one").status_code == 404
     r = client.delete("/api/projects/" + core.NO_PROJECT)
     assert r.status_code == 400 and "cannot be deleted" in r.json()["error"], r.text
+
+
+def test_update_card_tool_sets_merged_and_deployed_and_rejects_non_bools():
+    c = app.create_card(title="x", actor="ann", project="Home")
+    c = app.update_card(id=c["id"], actor="claude-agent", merged=True, deployed=True)
+    assert (c["merged"], c["deployed"]) == (True, True)
+    with pytest.raises(ToolError, match="deployed must be true or false"):
+        app.update_card(id=c["id"], actor="ann", deployed="yes")

@@ -53,6 +53,7 @@ NEXT = {"plan": "develop", "develop": "test", "test": "verify"}
 PASS = "RESULT: PASS"
 NO_QUESTIONS = "QUESTIONS: NONE"
 DEPLOYED = "DEPLOY: OK"
+SKIPPED = "DEPLOY: SKIPPED"
 DOING = {"plan": "planning", "develop": "developing", "test": "testing"}   # the status bar
 QUESTIONS_HEAD = re.compile(r"^#+[ \t]*open questions[ \t]*:?[ \t]*$", re.I | re.M)
 
@@ -88,8 +89,9 @@ PROMPTS = {
               "deploy. Change nothing beyond what those instructions say: they may merge, "
               "push or restart services, and then you do exactly that; edit no files and "
               "make no other commits. Reply with what you deployed and "
-              f"what you skipped, and end with a last line of exactly {DEPLOYED}, or "
-              "DEPLOY: FAILED if a deploy failed.",
+              f"what you skipped, and end with a last line of exactly {DEPLOYED} if it is "
+              f"on the test backend or a device, {SKIPPED} if nothing needed deploying or "
+              "no phone was connected, or DEPLOY: FAILED if a deploy failed.",
 }
 # planning runs in plan mode (what /plan switches on): read-only by design.
 # development is a normal agent in auto mode: it edits and runs the tests on its own, with
@@ -131,7 +133,8 @@ def git(repo, *args):
 
 
 def workspace(card, path):
-    """Where a stage runs, and what the prompt is told about it: (cwd, note, worktree).
+    """Where a stage runs, and what the prompt is told about it: (cwd, note, worktree,
+    base branch).
 
     Develop and test get a git worktree of their own per card, next to the repo
     (<repo>.worktrees/card-<id>, branch card/<id>, made from the repo's current branch), so
@@ -140,7 +143,7 @@ def workspace(card, path):
     the worktree: a folder that is not a git repository, or a test with no worktree to
     test, fails the card."""
     if card["lane"] == "plan":
-        return path, "", None
+        return path, "", None, None
     top = git(path, "rev-parse", "--show-toplevel")
     if top.returncode:
         raise RuntimeError(f"{path} is not a git repository: develop and test only run in "
@@ -164,7 +167,7 @@ def workspace(card, path):
              "branches." if card["lane"] == "develop" else
              f"This card's changes are the commits on {branch} since it left {base} (git diff "
              f"{base}...HEAD, git log {base}..HEAD) plus anything uncommitted (git status).")
-    return root / path.relative_to(top), note, root
+    return root / path.relative_to(top), note, root, base
 
 
 def ship(card, tree):
@@ -206,7 +209,7 @@ async def handle(client, card, back=""):
         cwd = Path(proj["path"])
         if not cwd.is_dir():
             raise RuntimeError(f"no repo at {cwd}")
-        cwd, note, tree = workspace(card, cwd)
+        cwd, note, tree, base = workspace(card, cwd)
         notes = "\n\n".join(x for x in (proj["instructions"], note) if x)
         out = await asyncio.to_thread(run_claude, card, cwd, notes)
         # so a person knows where to look, and what to merge
@@ -258,7 +261,7 @@ async def handle(client, card, back=""):
             await call(client, "update_card", id=id, actor=AGENT, lane=nxt, assignee=back,
                        attention=True, auto_advance=card["auto_advance"])
         if nxt == "verify":
-            await deploy(client, card, cwd, notes)
+            await deploy(client, card, cwd, notes, base)
     except Exception as e:  # any failure: say why, hand the card back, no retry loop
         await call(client, "comment", id=id, actor=AGENT, text=f"agent failed: {e}")
         await call(client, "update_card", id=id, actor=AGENT, assignee=back, auto_advance=False,
@@ -276,20 +279,26 @@ def doer(project):
     return f"{AGENT} ({project})"
 
 
-async def deploy(client, card, cwd, notes):
+async def deploy(client, card, cwd, notes, base):
     """The last step, on a card just moved to verify. It stays in verify either way: the
-    comment says what was deployed, or why the deploy failed."""
+    comment says what was deployed, or why the deploy failed. The card's merged and
+    deployed dots are set from it: merged from git, since a deploy can merge and push and
+    still fail after; deployed from the verdict."""
     id = card["id"]
     await call(client, "set_activity", actor=doer(card["project"]), card_id=id, doing="deploying")
     try:
         out = await asyncio.to_thread(run_claude, {**card, "lane": "deploy"}, cwd, notes)
-        ok = [ln.strip(" *`") for ln in out.splitlines()[-1:]] == [DEPLOYED]
+        verdict = [ln.strip(" *`") for ln in out.splitlines()[-1:]]
     except Exception as e:
-        out, ok = f"{e}", False
-    await call(client, "comment", id=id, actor=AGENT,
-               text=("deployed: " if ok else "deploy failed: ") + (out or "(no output)"))
+        out, verdict = f"{e}", []
+    head = {(DEPLOYED,): "deployed: ", (SKIPPED,): "deploy skipped: "}.get(tuple(verdict),
+                                                                          "deploy failed: ")
+    # the worktree shares refs with the repo, so the deploy's push is already in origin/<base>
+    merged = git(cwd, "merge-base", "--is-ancestor", f"card/{id}", f"origin/{base}").returncode == 0
+    await call(client, "comment", id=id, actor=AGENT, text=head + (out or "(no output)"))
     # a comment is a reply and clears the dot: set it again, verify waits for a person
-    await call(client, "update_card", id=id, actor=AGENT, attention=True)
+    await call(client, "update_card", id=id, actor=AGENT, attention=True, merged=merged,
+               deployed=verdict == [DEPLOYED])
 
 
 async def tick(client, connect):
