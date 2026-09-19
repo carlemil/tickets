@@ -1331,7 +1331,7 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     untitled = """sel => [...document.querySelectorAll(sel)]
         .filter(e => e.offsetParent !== null && !e.closest('[title]'))
         .map(e => e.outerHTML.slice(0, 80))"""
-    board = "header select, header button, header input, .lane h2, .card, .card *, #status"
+    board = "header select, header button, header input, header a, .lane h2, .card, .card *, #status"
     assert page.evaluate(untitled, board) == []
     tip = page.get_attribute(f'.card[data-id="{cid}"] .auto', "title")
     assert tip.startswith("auto advance is off")
@@ -1342,6 +1342,13 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     page.click("#projects")
     page.wait_for_selector("#panel .project")
     assert page.evaluate(untitled, "#panel input, #panel textarea, #panel button") == []
+
+
+def test_the_header_links_to_the_docs_in_a_new_tab(page):
+    link = page.locator("header a#docs")
+    assert link.get_attribute("href").endswith("/docs")
+    assert link.get_attribute("target") == "_blank"
+    assert link.get_attribute("title")
 
 
 def test_the_auto_dot_is_lit_only_when_auto_advance_is_on(page):

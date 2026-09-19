@@ -21,6 +21,7 @@ Tests add two more, dev-only: `pytest` and `playwright`.
 core.py        schema + every operation (the only file that touches SQL)
 app.py         MCPServer: MCP tools + HTTP routes, both thin wrappers over core
 board.html     the board, vanilla JS
+docs.html      the user docs: what Tickets is, the board, the agent, the workflow
 conftest.py    fixtures: temp DB, TestClient, uvicorn thread, Chrome page
 test_core.py   core operations, rejections and no-ops
 test_app.py    status codes, the actor rule, both error mappings, ToolError, the MCP wire
@@ -115,7 +116,7 @@ name is a `ValueError`.
 
 ## HTTP routes (`app.py`)
 
-`GET /` → board.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
+`GET /` → board.html · `GET /docs` → docs.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
 `POST /api/cards` · `POST /api/cards/{id}/comment` · `POST|DELETE /api/links` ·
 `GET|POST /api/users` · `GET /api/activity` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}`. Every
 write body carries `actor` — except `POST /api/users` (`{"name"}` → 201), the one write
@@ -275,6 +276,10 @@ input — answers, a comment on a failure, a fixed description. A write that set
 leaves it off. Edits to a card with no dot never start the agent. Each field saves on
 `change`, so an answers box is one reply however many questions it answers.
 
+**Docs.** `docs.html` is the user's manual, written by hand from this file and
+`agent.py`: a change to how the board or the agent behaves updates it too.
+`test_docs_page_is_served_and_covers_the_essentials` checks the lanes and key terms.
+
 ## Board (`board.html`)
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
@@ -396,6 +401,7 @@ the button for 150 ms.
 | 23 | develop and test run in a git worktree per card (`<repo>.worktrees/card-<id>`, branch `card/<id>`) | done — 422 checks |
 | 24 | worktree only (no in-place runs); one run per project, projects side by side; commit and push before verify; deploy once in verify; open questions numbered from 1 | done |
 | 25 | Markera deploy instructions; description box 10 lines tall (grows to 50); sticky header row on the card sheet | done |
+| 26 | docs page at `/docs`, linked from the header | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
