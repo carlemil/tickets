@@ -173,7 +173,10 @@ poll after that run ends (failed or not). Different projects run side by side: e
 starts a run for every waiting card whose project is free, and each run has its own MCP
 client, as it outlives the poll. The status bar keeps one entry per actor, so each run
 shows as `claude-agent (<project>)`. The limit is kept in the agent process (`running`),
-so it holds for one agent process, not for two started side by side.
+so it needs one agent process: `agent.py` holds 127.0.0.1:8124 while it runs (exclusive
+on Windows) and a second one exits at once with "already running", before it touches the
+board. Two agents did run side by side once (two sessions each started one): both
+worked card #32 at the same moment — double test runs, a worktree edited under a run.
 
 **A git worktree per card.** Develop and test run in a worktree of the card's own, next
 to the project's repo: `<repo>.worktrees/card-<id>` on branch `card/<id>`, made from the
@@ -203,7 +206,10 @@ nothing if neither changed. How to deploy comes from the project's instructions.
 must end in `DEPLOY: OK`; it becomes a comment `deployed: …`, anything else (or a crash)
 `deploy failed: …`. Either way the card stays in verify, handed back with the dot: a
 deploy never moves a card. Only the agent's own move to verify deploys; a card moved off
-test during its run, or a failed test, is not deployed. Merging `card/<id>` and removing
+test during its run, or a failed test, is not deployed. The deploy prompt lets the
+project's instructions merge, push or restart services (develop's "never merge" rule is
+not the deploy's), and forbids anything beyond them. Unless a project's deploy merges,
+merging `card/<id>` and removing
 the worktree (`git worktree remove`) is a person's job, after verify; a fresh worktree has
 no build output or installed dependencies, so the project's instructions should say how to
 get them if the tests need them.
@@ -402,6 +408,7 @@ the button for 150 ms.
 | 24 | worktree only (no in-place runs); one run per project, projects side by side; commit and push before verify; deploy once in verify; open questions numbered from 1 | done |
 | 25 | Markera deploy instructions; description box 10 lines tall (grows to 50); sticky header row on the card sheet | done |
 | 26 | docs page at `/docs`, linked from the header | done |
+| 27 | one agent at a time (`agent.py` holds 127.0.0.1:8124); Tickets deploy instructions: merge the card into master, test, push, restart the backend 30 s later with `restart-backend.ps1 -Delay 30`; the deploy prompt allows what the instructions say | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
