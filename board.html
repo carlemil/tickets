@@ -67,6 +67,10 @@
   .card .t { font-weight: 500; }
   .card .meta { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
                 font-size: 11px; color: var(--dim); }
+  /* archive on a done card and archive all in the done header: small, quiet, on the right */
+  .arch { margin-left: auto; font-size: 11px; padding: 0 6px; cursor: pointer;
+          text-transform: none; letter-spacing: normal; }
+  .lane h2 .arch { margin-right: 6px; }
   .card.p-high { border-left-color: #de350b; }
   .card.p-med  { border-left-color: #ffab00; }
   .card.p-low  { border-left-color: #36b37e; }
@@ -334,6 +338,13 @@ function cardNode(c) {
   if (c.checklist.length) meta.append(Object.assign(document.createElement("span"),
     { className: "pill checks",
       textContent: `☑ ${c.checklist.filter(i => i.done).length}/${c.checklist.length}` }));
+  if (c.lane === "done" && !c.archived) {
+    const a = Object.assign(document.createElement("button"),
+      { className: "arch", textContent: "archive", draggable: false,
+        title: "take the card off the board, without deleting it" });
+    a.onclick = ev => { ev.stopPropagation(); archive([c.id]); };   // not the card's sheet
+    meta.append(a);
+  }
   n.append(t, meta);
   // set by an agent handing the card back; any edit, move or comment clears it
   if (c.attention) n.append(Object.assign(document.createElement("span"),
@@ -375,8 +386,13 @@ function renderBoard() {
     col.dataset.lane = lane;
     const mine = cards.filter(c => c.lane === lane);
     const h = document.createElement("h2");
-    h.append(document.createTextNode(lane),
-             Object.assign(document.createElement("span"), { textContent: mine.length }));
+    h.append(document.createTextNode(lane));
+    if (lane === "done" && mine.length && !$("#showArch").checked)
+      h.append(Object.assign(document.createElement("button"),
+        { className: "arch", textContent: "archive all",
+          title: "archive every card in done that the board shows (this project's only, if one is picked)",
+          onclick: () => archive(mine.map(c => c.id)) }));
+    h.append(Object.assign(document.createElement("span"), { textContent: mine.length }));
     col.append(h);
     mine.forEach(c => col.append(cardNode(c)));
 
@@ -439,6 +455,13 @@ async function move(id, lane) {
     renderBoard();
     showErr("could not move #" + id + ": " + e.message);
   }
+}
+
+// archived, not deleted: "show archived" brings them back
+async function archive(ids) {
+  try { await Promise.all(ids.map(id => api("PATCH", "/api/cards/" + id, { archived: true }))); }
+  catch (e) { showErr("could not archive: " + e.message); }
+  load();   // reload either way: some may have landed
 }
 
 async function toggleAuto(id) {

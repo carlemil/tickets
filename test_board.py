@@ -263,6 +263,80 @@ def test_show_archived_respects_the_project_filter(page):
     assert page.text_content(".card .t") == "mine"
 
 
+# ---------- archive from the board: a done card's button and the done lane's "archive all" ----------
+
+ARCH_ALL = ".lane[data-lane=done] h2 .arch"
+
+
+def on_board(page, *cards):
+    """Creates (title, lane[, project]) cards, loads the board, returns their ids."""
+    ids = [core.create_card(t, actor="ce", project=p[0] if p else "Home", lane=lane)["id"]
+           for t, lane, *p in cards]
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{ids[-1]}"]')
+    return ids
+
+
+def test_only_done_cards_get_the_archive_button(page):
+    done, verify = on_board(page, ("finished", "done"), ("checking", "verify"))
+    assert page.locator(f'.card[data-id="{done}"] .arch').count() == 1
+    assert page.locator(f'.card[data-id="{verify}"] .arch').count() == 0
+    assert page.locator(".lane:not([data-lane=done]) h2 .arch").count() == 0
+
+
+def test_the_card_button_archives_without_opening_the_sheet(page):
+    cid, = on_board(page, ("finished", "done"))
+    page.click(f'.card[data-id="{cid}"] .arch')
+    page.wait_for_selector(f'.card[data-id="{cid}"]', state="detached")
+    assert core.get_card(cid)["archived"] is True
+    assert page.locator("#panel.on").count() == 0, "the sheet stayed shut"
+
+
+def test_archive_all_archives_every_done_card_and_nothing_else(page):
+    a, b, t = on_board(page, ("one", "done"), ("two", "done"), ("testing", "test"))
+    page.click(ARCH_ALL)
+    page.wait_for_selector(".lane[data-lane=done] .card", state="detached")
+    assert core.get_card(a)["archived"] is True and core.get_card(b)["archived"] is True
+    assert core.get_card(t)["archived"] is False
+    assert page.locator(ARCH_ALL).count() == 0, "an empty done lane has no archive all"
+    assert page.text_content(".lane[data-lane=done] h2 span") == "0"
+
+
+def test_archive_all_respects_the_project_filter(page):
+    core.create_project("P")
+    core.create_project("Q")
+    p, q = on_board(page, ("mine", "done", "P"), ("theirs", "done", "Q"))
+    page.evaluate("localStorage.setItem('project', 'P'); load()")
+    page.wait_for_selector(f'.card[data-id="{q}"]', state="detached")
+    page.click(ARCH_ALL)
+    page.wait_for_selector(f'.card[data-id="{p}"]', state="detached")
+    assert core.get_card(p)["archived"] is True
+    assert core.get_card(q)["archived"] is False, "a card off screen is left alone"
+
+
+def test_no_archive_buttons_on_an_empty_done_lane_or_in_the_archived_view(page):
+    cid, = on_board(page, ("elsewhere", "todo"))
+    assert page.locator(ARCH_ALL).count() == 0, "done is empty"
+    core.update_card(core.create_card("gone", actor="ce", project="Home", lane="done")["id"],
+                     "ce", archived=True)
+    page.check("#showArch")
+    page.wait_for_selector(".lane[data-lane=done] .card")
+    assert page.locator(".arch").count() == 0, "archived cards are already archived"
+
+
+def test_a_failed_board_archive_keeps_the_card_and_says_why(page):
+    cid, = on_board(page, ("stays put", "done"))
+    page.evaluate("""const original = window.fetch;
+        window.fetch = (path, opts) => opts && opts.method === "PATCH"   // the reload still works
+            ? Promise.resolve(new Response(JSON.stringify({error: "nope"}), {status: 400}))
+            : original(path, opts)""")
+    page.click(f'.card[data-id="{cid}"] .arch')
+    page.wait_for_selector("#err.on")
+    assert "could not archive: nope" in page.text_content("#err")
+    assert page.locator(f'.card[data-id="{cid}"]').count() == 1
+    assert core.get_card(cid)["archived"] is False
+
+
 def test_every_event_kind_reads_as_a_sentence(page):
     """eventLine() falls back to the raw kind for anything it does not know, which is
     how a new event kind (like `archived`) ships looking broken. Emit every kind core can
@@ -1443,8 +1517,10 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     cid = core.create_card("tipped", actor="ce", project="Home", lane="plan", labels=["ui"],
                            checklist=[{"text": "a", "done": False}], assignee="ce")["id"]
     core.update_card(cid, "claude-agent", plan="p", questions="q?", attention=True)
+    core.create_card("done", actor="ce", project="Home", lane="done")   # its archive buttons
     page.evaluate("load()")
     page.wait_for_selector(f'.card[data-id="{cid}"] .dot')
+    page.wait_for_selector(".lane[data-lane=done] h2 .arch")
     untitled = """sel => [...document.querySelectorAll(sel)]
         .filter(e => e.offsetParent !== null && !e.closest('[title]'))
         .map(e => e.outerHTML.slice(0, 80))"""
