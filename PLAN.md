@@ -55,7 +55,7 @@ example found online needs translating.
 users(id, name UNIQUE)
 cards(id, project, title, description, lane, assignee, created_by,
       created_at, updated_at, priority, labels, checklist, archived, auto_advance,
-      attention, plan, questions, answers)
+      attention, plan, questions, answers, merged, deployed)
 events(id, card_id, actor, kind, detail, at)     -- append-only
 links(from_id, to_id, kind)                      -- kind: 'parent' | 'blocks'
 projects(name PRIMARY KEY COLLATE NOCASE, path, instructions, color)
@@ -313,6 +313,17 @@ current `auto_advance`, so a card it hands back still halts for a person.
 auto advance is on, a faint ring when it is off (it replaced the "auto" pill, which only
 showed the on state). The red dot top right is attention, a different thing.
 
+**On master, deployed (#41).** After the auto dot come two more, on the board card and in
+the sheet header: blue when `merged` (the card's branch is on the base branch on origin),
+purple when `deployed` (on the local test backend or a device), rings when not. Not
+clickable. Only the agent's deploy step sets them, in the same write as `attention=True`:
+`merged` from `git merge-base --is-ancestor card/<id> origin/<base>` after the run,
+whatever its verdict; `deployed` only from `DEPLOY: OK` (`DEPLOY: SKIPPED`, nothing to
+deploy or no phone, comments `deploy skipped:` and is not a failure). A move from
+todo/verify/done back into plan, develop or test is rework and clears both, unless the
+same write sets them. A card merged or deployed by hand stays dark; MCP `update_card`
+takes both.
+
 **Hover help.** Every control has a `title`. Panel fields get theirs from `FIELD_TIPS` in
 `field()`, lane headings from `LANE_TIPS`; everything else from one `TIPS` list of
 `[selector, text]` that a `MutationObserver` applies to whatever is rendered, never over
@@ -421,6 +432,7 @@ no longer on the board.
 | 27 | one agent at a time (`agent.py` holds 127.0.0.1:8124); Tickets deploy instructions: merge the card into master, test, push, restart the backend 30 s later with `restart-backend.ps1 -Delay 30`; the deploy prompt allows what the instructions say | done |
 | 28 | the auto dot pulses on cards an agent is working on, on the board and in the sheet header | done |
 | 29 | ctrl/shift-click selects several cards; dragging one moves them all | done |
+| 30 | #41 merged and deployed dots, set by the agent's deploy step, cleared on rework | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

@@ -199,7 +199,8 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
                 project: str | None = None, archived: bool | None = None,
                 auto_advance: bool | None = None, attention: bool | None = None,
                 plan: str | None = None, questions: str | None = None,
-                answers: str | None = None) -> dict:
+                answers: str | None = None, merged: bool | None = None,
+                deployed: bool | None = None) -> dict:
     """Change a card: this is how you move it between lanes, assign it, and tick checklist items.
 
     `actor` is you — every change is logged under that name. Pass only the fields you are
@@ -220,6 +221,8 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     plan -> develop -> test -> verify run on or off.
     `attention=True` puts a dot on the card meaning "waiting for your input": set it when
     you hand the card back to a person. Any later change or comment clears it.
+    `merged` (the card's branch is on the base branch on origin) and `deployed` (deployed
+    to the local test backend or a device) are the board agent's to set after a deploy.
 
     Where text goes — each field REPLACES what is there: `description` is the request;
     leave it to the person who asked, do not put a plan in it. `plan` is the
@@ -233,7 +236,7 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
         title=title, description=description, lane=lane, assignee=assignee, priority=priority,
         labels=labels, checklist=checklist, project=project, archived=archived,
         auto_advance=auto_advance, attention=attention, plan=plan, questions=questions,
-        answers=answers).items()
+        answers=answers, merged=merged, deployed=deployed).items()
         if v is not None}
     if fields.get("assignee") == "":
         fields["assignee"] = None   # None already means "not passed", so "" is how you unassign

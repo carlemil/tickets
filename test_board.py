@@ -1088,8 +1088,9 @@ def test_the_auto_dot_leads_and_the_project_tag_sits_after_the_priority(page):
     page.evaluate("load()")
     page.wait_for_selector(f'.card[data-id="{auto}"]')
     chips = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').all_text_contents()
-    assert chips(plain) == ["", f"#{plain}", "bob", "high", "Home", "ui"], chips(plain)
-    assert chips(auto) == ["", f"#{auto}", "med", "Home"], chips(auto)
+    # the auto dot, then the merged and deployed dots
+    assert chips(plain) == ["", "", "", f"#{plain}", "bob", "high", "Home", "ui"], chips(plain)
+    assert chips(auto) == ["", "", "", f"#{auto}", "med", "Home"], chips(auto)
     first = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').first
     assert first(auto).get_attribute("class") == "auto on"
     assert first(plain).get_attribute("class") == "auto"
@@ -1679,3 +1680,28 @@ def test_esc_in_an_open_sheet_leaves_the_selection_alone(page):
     page.wait_for_selector("#panel.on")
     page.keyboard.press("Escape")
     assert page.evaluate("[...selected]") == [a]
+
+
+# ---------- the merged and deployed dots ----------
+
+def status(page, where):
+    return page.eval_on_selector_all(where + " .st", "ns => ns.map(n => [n.className, n.title])")
+
+
+def test_merged_and_deployed_dots_on_the_board_and_in_the_editor(page):
+    lit = core.create_card("lit", actor="ce", project="Home", lane="verify")["id"]
+    core.update_card(lit, "claude-agent", merged=True, deployed=True)
+    [dark] = cards_in(page, "dark")
+    on = [["st merged on", "on master: committed and pushed"],
+          ["st deployed on", "deployed to the local test backend or device"]]
+    assert status(page, f'.card[data-id="{lit}"]') == on
+    assert status(page, f'.card[data-id="{dark}"]') == [["st merged", "not on master yet"],
+                                                         ["st deployed", "not deployed"]]
+    page.click(f'.card[data-id="{lit}"] .st.merged')   # not a control: opens the card
+    page.wait_for_function(f"() => open && open.id === {lit}")
+    assert status(page, "#panel .head .id") == on
+    type_into(page, "#panel .head input", "renamed")   # a save leaves them alone
+    wait_saved(page, lit, "title", "renamed")
+    close_sheet(page)
+    c = core.get_card(lit)
+    assert (c["merged"], c["deployed"], c["auto_advance"]) == (True, True, False)

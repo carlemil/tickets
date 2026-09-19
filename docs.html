@@ -111,6 +111,11 @@ again.</p>
 <ul>
   <li><span class="dot" style="background:#36b37e"></span> <b>green dot</b>, left on the card:
     auto advance is on. A faint ring means it is off.</li>
+  <li><span class="dot" style="background:#0052cc"></span> <b>blue dot</b>, next to it:
+    the card is on master, committed and pushed.
+    <span class="dot" style="background:#6554c0"></span> <b>purple dot</b>: it is deployed to
+    the local test backend or a device. The agent's deploy sets them; moving the card back
+    to plan, develop or test clears them.</li>
   <li><span class="dot" style="background:var(--warn)"></span> <b>red dot</b>, top right:
     waiting for you. The agent sets it when it hands a card back. Any change to the card
     clears it; just opening the card does not.</li>
@@ -145,7 +150,8 @@ again.</p>
     <code>card/&lt;id&gt;</code> to <code>origin</code> and moves the card to verify.</dd>
   <dt>deploy</dt>
   <dd>Once a card reaches verify, the agent deploys it once, following the project's
-    instructions, and comments with the result. The card stays in verify.</dd>
+    instructions, and comments with the result (deployed, skipped or failed), and lights
+    the blue and purple dots. The card stays in verify.</dd>
 </dl>
 <h3>When things go wrong</h3>
 <ul>

@@ -1064,3 +1064,75 @@ def test_a_second_agent_process_exits_without_touching_the_board(tmp_path):
             held.close()
     assert r.returncode == 1 and "already running" in r.stderr
     assert "polling" not in r.stdout
+
+
+# ---------- the merged and deployed dots ----------
+
+def deploys(repo, monkeypatch, out, merge=False):
+    """A card in test whose deploy replies `out`, after merging it into main and pushing
+    that if `merge`."""
+    id = card("test", project="Repo")
+
+    def run(c, cwd, i):
+        if c["lane"] != "deploy":
+            (cwd / "t.txt").write_text("x")
+            return "fine\nRESULT: PASS"
+        if merge:
+            agent.git(repo, "merge", "-q", "--no-ff", f"card/{id}", "-m", "merge")
+            agent.git(repo, "push", "-q", "origin", "main")
+        if isinstance(out, Exception):
+            raise out
+        return out
+    monkeypatch.setattr(agent, "run_claude", run)
+    tick()
+    return core.get_card(id)
+
+
+def test_a_merged_and_deployed_card_lights_both(repo, monkeypatch):
+    c = deploys(repo, monkeypatch, "backend restarted\nDEPLOY: OK", merge=True)
+    assert (c["lane"], c["attention"], c["merged"], c["deployed"]) == ("verify", True, True, True)
+
+
+def test_a_deploy_without_a_merge_is_not_on_master(repo, monkeypatch):
+    c = deploys(repo, monkeypatch, "installed on the phone\nDEPLOY: OK")
+    assert (c["merged"], c["deployed"]) == (False, True)
+
+
+def test_a_skipped_deploy_is_not_a_failure(repo, monkeypatch):
+    c = deploys(repo, monkeypatch, "no phone connected\n**DEPLOY: SKIPPED**", merge=True)
+    assert (c["lane"], c["attention"], c["merged"], c["deployed"]) == ("verify", True, True, False)
+    assert comments(c["id"])[-1] == "deploy skipped: no phone connected\n**DEPLOY: SKIPPED**"
+
+
+def test_a_deploy_that_fails_after_the_merge_is_still_on_master(repo, monkeypatch):
+    c = deploys(repo, monkeypatch, "restart failed\nDEPLOY: FAILED", merge=True)
+    assert (c["merged"], c["deployed"]) == (True, False)
+    assert comments(c["id"])[-1].startswith("deploy failed: ")
+
+
+def test_a_deploy_that_crashes_lights_neither(repo, monkeypatch):
+    c = deploys(repo, monkeypatch, RuntimeError("claude exited 1"))
+    assert (c["merged"], c["deployed"]) == (False, False)
+    assert comments(c["id"])[-1] == "deploy failed: claude exited 1"
+
+
+def test_merged_only_once_the_merge_is_pushed(repo, monkeypatch):
+    id = card("test", project="Repo")
+
+    def run(c, cwd, i):
+        if c["lane"] == "deploy":   # merged locally, never pushed: not on origin
+            agent.git(repo, "merge", "-q", "--no-ff", f"card/{id}", "-m", "merge")
+            return "DEPLOY: OK"
+        (cwd / "t.txt").write_text("x")
+        return "fine\nRESULT: PASS"
+    monkeypatch.setattr(agent, "run_claude", run)
+    tick()
+    assert core.get_card(id)["merged"] is False
+
+
+def test_the_deploy_prompt_knows_the_skipped_verdict(monkeypatch, tmp_path):
+    got = {}
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: got.update(**k) or
+                        subprocess.CompletedProcess(cmd, 0, stdout="ok"))
+    agent.run_claude({"lane": "deploy", "id": 7}, tmp_path)
+    assert "DEPLOY: SKIPPED" in got["input"] and "DEPLOY: FAILED" in got["input"]
