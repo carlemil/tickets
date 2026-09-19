@@ -52,7 +52,7 @@ def wait_saved(page, cid, field, value):
 
 def close_sheet(page):
     """How a sheet is closed -- and a new card created. The sheet covers the whole window,
-    so its close button is the one way out; there is no separate save button."""
+    so its "save" button is the one way out."""
     page.click("#panel .shut")
 
 
@@ -421,7 +421,7 @@ def test_add_opens_an_empty_panel_and_writes_nothing(page):
     assert page.evaluate("document.activeElement.placeholder") == "what needs doing?", \
         "the title field has focus, ready to type"
     assert "new card" in page.text_content("#panel .sub")
-    for gone in ("save", "create", "archive"):
+    for gone in ("create", "archive"):
         assert page.locator(f"#panel button:text-is('{gone}')").count() == 0, gone
     heads = page.locator("#panel h3").all_text_contents()
     for shown in ("links", "activity", "say something"):   # all a saved card shows
@@ -470,7 +470,7 @@ def test_every_field_in_the_new_card_panel_is_created(page):
     assert page.locator("#panel.on").count() == 0, "create saves and closes the sheet"
     page.click(f'.card[data-id="{c["id"]}"]')                # reopened: nothing to press
     page.wait_for_selector("#panel button:text-is('archive')")
-    for gone in ("save", "create"):
+    for gone in ("create",):
         assert page.locator(f"#panel button:text-is('{gone}')").count() == 0, gone
 
 
@@ -674,7 +674,7 @@ def test_a_stale_filter_falls_back_to_the_first_project_for_new_cards(page):
 
 def test_a_human_click_on_close_after_typing_closes_the_panel(page):
     """Leaving the field fires its PATCH on mousedown; a re-render landing before mouseup
-    would replace the close button and eat the click. At human speed, it still closes."""
+    would replace the "save" button and eat the click. At human speed, it still closes."""
     cid = add_card(page, "human save")
     page.fill("#panel input[type=text] >> nth=0", "typed, then saved by a person")
     box = page.locator("#panel .shut").bounding_box()
@@ -683,7 +683,7 @@ def test_a_human_click_on_close_after_typing_closes_the_panel(page):
     page.wait_for_timeout(150)
     page.mouse.up()
     page.wait_for_function("() => window.__inflight === 0")
-    assert page.locator("#panel.on").count() == 0, "the click on close was lost"
+    assert page.locator("#panel.on").count() == 0, "the click on save was lost"
     assert core.get_card(cid)["title"] == "typed, then saved by a person"
 
 
@@ -1182,10 +1182,10 @@ def test_a_long_description_opens_at_its_full_height(page):
 def test_the_sheet_buttons_have_a_gap_between_them(page):
     add_card(page, "spaced")
     boxes = [page.locator(f"#panel button:text-is('{t}')").bounding_box()
-             for t in ("archive", "close")]
+             for t in ("archive", "save")]
     left, right = sorted(boxes, key=lambda b: b["x"])
     gap = right["x"] - (left["x"] + left["width"])
-    assert gap >= 8, f"archive and close are {gap:.1f}px apart"
+    assert gap >= 8, f"archive and save are {gap:.1f}px apart"
 
 
 def test_dragging_a_card_into_plan_ticks_auto_advance(page):

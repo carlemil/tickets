@@ -509,7 +509,7 @@ function renderPanel() {
 
   // closing saves: a card's pending edit and comment land, a draft is created
   const shut = Object.assign(document.createElement("button"),
-    { className: "close primary shut", textContent: "close" });
+    { className: "close primary shut", textContent: "save" });
   shut.onclick = () => closePanel();
   p.append(shut);
 
@@ -961,7 +961,7 @@ const TIPS = [
   [".card .pill.checks", "checklist items done / total"],
   [".card", "click to open, drag to another lane to move it"],
   ["#status", "what agents are doing right now"],
-  ["#panel .shut", "close; every field is already saved, and so is what you are still typing"],
+  ["#panel .shut", "save and close; every field is already saved, and so is what you are still typing"],
   ["#panel .project input[type=text]:first-of-type", "the project's name, as cards show it"],
   ["#panel .project input[type=text]:nth-of-type(2)", "the folder the agent works in for this project's cards"],
   ["#panel .project textarea", "put in front of every agent prompt for this project's cards"],
