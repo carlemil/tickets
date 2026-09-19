@@ -268,8 +268,8 @@ when the set of busy cards changes it reloads the board (skipped mid-drag), so a
 agent just moved shows up in its new lane. A killed agent's entry lingers until it
 restarts — the "started" age is what makes that visible.
 
-**Attention: "waiting for you".** `cards.attention` is a red dot top right of the board
-card. Only an explicit `attention=True` sets it, and the agent passes it whenever it
+**Attention: "waiting for you".** `cards.attention` turns the card's auto dot red on the
+board. Only an explicit `attention=True` sets it, and the agent passes it whenever it
 hands a card back to a person: open questions, a stage done on an assigned card, an auto
 card reaching `verify`, any failure. An auto card still moving on does not ask. Any
 other change to the card — an edit, a move, a comment, by anyone — clears it; opening
@@ -309,7 +309,13 @@ current `auto_advance`, so a card it hands back still halts for a person.
 
 **Auto advance at a glance.** Every board card leads with a small dot: lit green when
 auto advance is on, a faint ring when it is off (it replaced the "auto" pill, which only
-showed the on state). The red dot top right is attention, a different thing.
+showed the on state). Attention shares the dot (#46): red if `attention`, else green if
+`auto_advance`, else the ring; the pulse means an agent is working it. No state is lost:
+in the agent lanes a hand-back with attention always has auto off (failures and open
+questions switch it off, a stage is handed back only when it is already off). Only in
+`verify` can both be on, where the agent never picks the card up, so red wins and the
+tooltip still gives the auto state. Clicking a red dot toggles auto advance, and that
+write clears attention: on a failed card it means "go again".
 
 **On master, deployed (#41).** After the auto dot come two more, on the board card and in
 the sheet header: blue when `merged` (the card's branch is on the base branch on origin),
@@ -431,6 +437,7 @@ no longer on the board.
 | 28 | the auto dot pulses on cards an agent is working on, on the board and in the sheet header | done |
 | 29 | ctrl/shift-click selects several cards; dragging one moves them all | done |
 | 30 | #41 merged and deployed dots, set by the agent's deploy step, cleared on rework | done |
+| 31 | #46 one dot: the auto dot turns red for attention; the separate red dot top right is gone | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
