@@ -29,6 +29,7 @@
   button:hover { background: #ebecf0; }
   button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   .spacer { flex: 1; }
+  header a { color: var(--accent); }
 
   #err {   /* fixed above everything: the editor covers the whole window */
     display: none; padding: 8px 16px; background: #ffebe6; color: var(--warn);
@@ -139,6 +140,7 @@
   <label class="f">project</label> <select id="proj"></select>
   <button id="projects">projects…</button>
   <label class="f"><input type="checkbox" id="showArch"> show archived</label>
+  <a id="docs" href="/docs" target="_blank">docs</a>
   <span class="spacer"></span>
   <button class="primary" id="add">New Card</button>
 </header>
@@ -952,6 +954,7 @@ const TIPS = [
   ["#projects", "set up projects: name, folder the agent works in, agent instructions, color"],
   ["label:has(#showArch)", "show archived cards instead of the ones on the board"],
   ["#add", "create a new card"],
+  ["#docs", "how the board and the agent work, and how to use them"],
   ...LANES.map(l => [`.lane[data-lane="${l}"] h2`, LANE_TIPS[l]]),
   [".card .id", "the card's number"],
   [".card .pill.who", "assigned to"],

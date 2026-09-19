@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tickets: docs</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #fff; --line: #dcdfe4; --ink: #172b4d; --dim: #6b778c;
+    --accent: #0052cc; --warn: #bf2600;
+  }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main {
+    max-width: 760px; margin: 24px auto; padding: 8px 32px 32px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  }
+  a { color: var(--accent); }
+  h1 { font-size: 24px; } h2 { font-size: 19px; margin-top: 2em; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 15px; margin-bottom: .3em; }
+  code, pre { font: 13px ui-monospace, Consolas, monospace; background: var(--bg); border-radius: 3px; }
+  code { padding: 1px 4px; } pre { padding: 8px 12px; overflow-x: auto; }
+  .note { border-left: 3px solid var(--warn); padding: 4px 12px; background: #fff4f2; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: middle; }
+  dt { font-weight: 600; } dd { margin: 0 0 .5em 1.2em; }
+</style>
+</head>
+<body>
+<main>
+<p><a href="/">← board</a></p>
+<h1>Tickets</h1>
+<p>A lane board on your own machine, for you and your coding agents.</p>
+
+<nav>
+<ol>
+  <li><a href="#what">What Tickets is (and isn't)</a></li>
+  <li><a href="#run">Run it</a></li>
+  <li><a href="#board">The board</a></li>
+  <li><a href="#agent">The agent</a></li>
+  <li><a href="#workflow">How you work with it</a></li>
+  <li><a href="#mcp">Other agents over MCP</a></li>
+  <li><a href="#limits">Limits</a></li>
+</ol>
+</nav>
+
+<h2 id="what">1. What Tickets is (and isn't)</h2>
+<p>Tickets is a personal lane board. You drive it in the browser, and Claude drives it over
+MCP. Both share one SQLite file (<code>tickets.db</code>), and every card records who did
+what.</p>
+<p>It sits <em>next to</em> JIRA and similar trackers, not in place of them. Team work,
+planning with others and anything shared stays there. Tickets is for the local loop: you
+hand coding tasks to an agent on your machine and review what comes back.</p>
+<p class="note"><b>Local and single-person only.</b> It is one process, bound to
+<code>127.0.0.1</code>. It has no auth, no accounts and no sync: "you are" is a name, not a
+login. Never put it on a network, never host it online and never share it with a group.</p>
+
+<h2 id="run">2. Run it</h2>
+<p>Start the server (port 8000 is taken on this machine; any free port works if the MCP URL
+matches):</p>
+<pre>uv run uvicorn app:app --host 127.0.0.1 --port 8123</pre>
+<p>Start the agent, in a second terminal:</p>
+<pre>uv run python agent.py</pre>
+<p>Give Claude Code the board's tools:</p>
+<pre>claude mcp add --transport http tickets http://127.0.0.1:8123/mcp</pre>
+<p>Then open <a href="/">http://127.0.0.1:8123/</a> and create a project under
+"projects…". There is no default project, and a card needs one.</p>
+
+<h2 id="board">3. The board</h2>
+<h3>Lanes</h3>
+<p><code>todo → plan → develop → test → verify → done</code></p>
+<dl>
+  <dt>todo</dt><dd>Your backlog: not started. Move a card on to plan to start it.</dd>
+  <dt>plan</dt><dd>The agent writes a plan and any open questions.</dd>
+  <dt>develop</dt><dd>The agent builds it, following the plan and your answers.</dd>
+  <dt>test</dt><dd>The agent reviews the changes and runs the tests.</dd>
+  <dt>verify</dt><dd>The agent is done: you check the result.</dd>
+  <dt>done</dt><dd>Finished: nothing more happens to it.</dd>
+</dl>
+<p>So <code>todo</code> is yours, <code>plan</code>, <code>develop</code> and
+<code>test</code> are the agent's, and <code>verify</code> and <code>done</code> are yours
+again.</p>
+
+<h3>The header</h3>
+<ul>
+  <li><b>you are</b>: the name every change you make is logged under. "+ another name…" adds
+    one.</li>
+  <li><b>project</b>: shows one project's cards, or all of them.</li>
+  <li><b>projects…</b>: each project's name, path (the absolute folder of its git repo, where
+    the agent works), agent instructions (how to build, test and deploy, and how to install
+    dependencies in a fresh worktree) and color. "delete project…" moves its cards to
+    "No Project", where agents never work.</li>
+  <li><b>show archived</b>: shows the archived cards instead.</li>
+  <li><b>New Card</b>: opens a draft. Nothing is saved until you close it.</li>
+</ul>
+
+<h3>Cards</h3>
+<ul>
+  <li>Drag a card to another lane. Dropping anywhere on the page puts it in the nearest
+    column.</li>
+  <li>Moving a card forward (except into <code>done</code>), or back into
+    <code>plan</code>, switches its auto advance on.</li>
+  <li>Click a card to open its sheet. Every field saves as soon as you leave it, so there is
+    no save button; "close" closes the sheet. The sheet holds the description, the plan, the
+    open questions and your answers, the checklist, labels, links (parent and blocks), the
+    activity log, comments and "archive". Cards are never deleted, only archived.</li>
+</ul>
+
+<h3>Signals</h3>
+<ul>
+  <li><span class="dot" style="background:#36b37e"></span> <b>green dot</b>, left on the card:
+    auto advance is on. A faint ring means it is off.</li>
+  <li><span class="dot" style="background:var(--warn)"></span> <b>red dot</b>, top right:
+    waiting for you. The agent sets it when it hands a card back. Any change to the card
+    clears it; just opening the card does not.</li>
+  <li><b>status bar</b>, at the bottom: which agent is working on which card, doing what, and
+    since when. Click a card in it to open it.</li>
+</ul>
+
+<h2 id="agent">4. The agent</h2>
+<ul>
+  <li>It checks the board every 15 seconds.</li>
+  <li>It picks up a card in <code>plan</code>, <code>develop</code> or <code>test</code> that
+    has auto advance on or is assigned to <code>claude-agent</code>. It skips cards in "No
+    Project".</li>
+  <li>It works one card per project at a time. Different projects run side by side.</li>
+  <li>While it works a card, it assigns the card to itself. Afterwards it gives it back to
+    whoever had it.</li>
+</ul>
+<h3>Each stage</h3>
+<dl>
+  <dt>plan</dt>
+  <dd>Claude runs read-only (plan mode) in the project's repo. The plan goes to the card's
+    <code>plan</code> field, and a last <code>## Open questions</code> section goes to
+    <code>questions</code>. With open questions the card stays in plan and waits for your
+    answers. The description is yours: the agent never writes it.</dd>
+  <dt>develop</dt>
+  <dd>Claude builds it in auto mode, in the card's own git worktree at
+    <code>&lt;repo&gt;.worktrees/card-&lt;id&gt;</code> on branch <code>card/&lt;id&gt;</code>,
+    and commits there. The project's path must be a git repo.</dd>
+  <dt>test</dt>
+  <dd>Claude reviews the card's changes and runs the tests. Its reply must end in
+    <code>RESULT: PASS</code>. The agent then commits anything left, pushes
+    <code>card/&lt;id&gt;</code> to <code>origin</code> and moves the card to verify.</dd>
+  <dt>deploy</dt>
+  <dd>Once a card reaches verify, the agent deploys it once, following the project's
+    instructions, and comments with the result. The card stays in verify.</dd>
+</dl>
+<h3>When things go wrong</h3>
+<ul>
+  <li>A failed run comments <code>agent failed: …</code>, gives the card back, switches auto
+    advance off and sets the red dot. The card stays in its lane.</li>
+  <li>Your move wins: if you move a card during a run, the run's output becomes a comment and
+    the card stays where you put it.</li>
+</ul>
+
+<h2 id="workflow">5. How you work with it</h2>
+<ol>
+  <li>Create a project under "projects…". Point its path at a git repo and write its agent
+    instructions.</li>
+  <li>New Card in <code>todo</code>: a title and a clear description of what you want and
+    why.</li>
+  <li>Drag it to <code>plan</code>. Auto advance goes on and the agent plans it.</li>
+  <li>Red dot with open questions? Fill in "your answers". That reply restarts the agent,
+    and it replans with your answers.</li>
+  <li>No open questions: the card carries itself through develop and test to verify. Watch
+    the status bar and the comments.</li>
+  <li>In <code>verify</code>: read the comments, look at the branch, try the deployed build.
+    Then merge <code>card/&lt;id&gt;</code> yourself, run <code>git worktree remove</code> on
+    its worktree, and move the card to <code>done</code>.</li>
+</ol>
+<ul>
+  <li><b>A red dot means it's your turn.</b></li>
+  <li><b>To stop the agent:</b> switch auto advance off, or move the card to
+    <code>todo</code>. Without auto advance, assign a card to <code>claude-agent</code> to
+    have it do one stage and hand it back.</li>
+  <li><b>After a failure:</b> read the comment, then fix the description or add a comment.
+    That reply restarts the agent.</li>
+  <li>Keep one concern per card, keep project instructions current, use links for
+    dependencies, and archive what you no longer need.</li>
+</ul>
+
+<h2 id="mcp">6. Other agents over MCP</h2>
+<p>Any MCP client can use the board at <code>http://127.0.0.1:8123/mcp</code>. The tools:
+<code>list_cards</code>, <code>get_card</code>, <code>create_card</code>,
+<code>update_card</code>, <code>comment</code>, <code>link_cards</code>,
+<code>unlink_cards</code>, <code>create_user</code>, <code>list_projects</code> and
+<code>set_activity</code>.</p>
+<ul>
+  <li>Every write passes <code>actor</code>, the caller's name, so the log says who did
+    what.</li>
+  <li>An agent assigns a card to itself while it works on it, and gives it back after.</li>
+  <li>Plans go in <code>plan</code>, never over the person's <code>description</code>.</li>
+</ul>
+
+<h2 id="limits">7. Limits</h2>
+<ul>
+  <li>No auth, no multiple users, no remote access.</li>
+  <li>No live push: the board polls, so reload if in doubt.</li>
+  <li>No search and no attachments.</li>
+  <li>Cards are never deleted, only archived.</li>
+  <li>The one-run-per-project limit holds for one agent process, not for two started side by
+    side.</li>
+</ul>
+</main>
+</body>
+</html>
