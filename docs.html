@@ -109,16 +109,19 @@ again.</p>
 
 <h3>Signals</h3>
 <ul>
-  <li><span class="dot" style="background:#36b37e"></span> <b>green dot</b>, left on the card:
-    auto advance is on. A faint ring means it is off.</li>
+  <li><b>the dot</b>, left on the card:
+    <span class="dot" style="background:#36b37e"></span> green when auto advance is on, a
+    faint ring when it is off.
+    <span class="dot" style="background:var(--warn)"></span> Red when it is waiting for you:
+    the agent sets it when it hands a card back, and red wins over green. Any change to the
+    card clears it; just opening the card does not. It pulses while an agent is on the card.
+    A click toggles auto advance; on a red dot it also clears the red and restarts the
+    agent.</li>
   <li><span class="dot" style="background:#0052cc"></span> <b>blue dot</b>, next to it:
     the card is on master, committed and pushed.
     <span class="dot" style="background:#6554c0"></span> <b>purple dot</b>: it is deployed to
     the local test backend or a device. The agent's deploy sets them; moving the card back
     to plan, develop or test clears them.</li>
-  <li><span class="dot" style="background:var(--warn)"></span> <b>red dot</b>, top right:
-    waiting for you. The agent sets it when it hands a card back. Any change to the card
-    clears it; just opening the card does not.</li>
   <li><b>status bar</b>, at the bottom: which agent is working on which card, doing what, and
     since when. Click a card in it to open it.</li>
 </ul>
@@ -156,7 +159,7 @@ again.</p>
 <h3>When things go wrong</h3>
 <ul>
   <li>A failed run comments <code>agent failed: …</code>, gives the card back, switches auto
-    advance off and sets the red dot. The card stays in its lane.</li>
+    advance off and the dot turns red. The card stays in its lane.</li>
   <li>Your move wins: if you move a card during a run, the run's output becomes a comment and
     the card stays where you put it.</li>
 </ul>
@@ -168,7 +171,7 @@ again.</p>
   <li>New Card in <code>todo</code>: a title and a clear description of what you want and
     why.</li>
   <li>Drag it to <code>plan</code>. Auto advance goes on and the agent plans it.</li>
-  <li>Red dot with open questions? Fill in "your answers". That reply restarts the agent,
+  <li>The dot turned red with open questions? Fill in "your answers". That reply restarts the agent,
     and it replans with your answers.</li>
   <li>No open questions: the card carries itself through develop and test to verify. Watch
     the status bar and the comments.</li>
@@ -177,7 +180,7 @@ again.</p>
     its worktree, and move the card to <code>done</code>.</li>
 </ol>
 <ul>
-  <li><b>A red dot means it's your turn.</b></li>
+  <li><b>When the dot turns red, it's your turn.</b></li>
   <li><b>To stop the agent:</b> switch auto advance off, or move the card to
     <code>todo</code>. Without auto advance, assign a card to <code>claude-agent</code> to
     have it do one stage and hand it back.</li>

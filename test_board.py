@@ -1411,10 +1411,11 @@ def test_an_agent_hand_back_shows_a_dot_that_an_edit_clears(page):
     quiet = core.create_card("quiet", actor="ce", project="Home")["id"]
     core.update_card(cid, "claude-agent", attention=True)
     page.evaluate("load()")
-    dot = page.locator(f'.card[data-id="{cid}"] .dot')
+    dot = page.locator(f'.card[data-id="{cid}"] .auto.attn')
     dot.wait_for()
     assert dot.get_attribute("title").startswith("waiting for your input")
-    assert page.locator(f'.card[data-id="{quiet}"] .dot').count() == 0
+    assert page.locator(f'.card[data-id="{cid}"] .dot').count() == 0, "one dot, not two"
+    assert page.locator(f'.card[data-id="{quiet}"] .auto.attn').count() == 0
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
     assert core.get_card(cid)["attention"] is True, "opening alone does not clear it"
@@ -1423,7 +1424,29 @@ def test_an_agent_hand_back_shows_a_dot_that_an_edit_clears(page):
     assert core.get_card(cid)["attention"] is False
     close_sheet(page)
     page.wait_for_function(f"""() => document.querySelector('.card[data-id="{cid}"]')
-                                     && !document.querySelector('.card[data-id="{cid}"] .dot')""")
+                                     && !document.querySelector('.card[data-id="{cid}"] .auto.attn')""")
+
+
+def test_one_dot_shows_waiting_over_auto_and_a_click_restarts(page):
+    failed = core.create_card("failed", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(failed, "claude-agent", attention=True)
+    ver = core.create_card("ver", actor="ce", project="Home", lane="verify", auto_advance=True)["id"]
+    core.update_card(ver, "claude-agent", attention=True)
+    page.evaluate("load()")
+    dot = f'.card[data-id="{failed}"] .auto'
+    page.wait_for_selector(dot + ".attn")
+    assert page.locator(dot + ".on").count() == 0
+    assert page.locator(".card .dot").count() == 0, "no second dot anywhere"
+    tip = page.get_attribute(f'.card[data-id="{ver}"] .auto.attn', "title")
+    assert tip.startswith("waiting for your input") and "auto advance is on" in tip
+    page.click(dot)
+    page.wait_for_function(f"""() => {{ const d = document.querySelector('{dot}');
+        return d && d.matches('.on') && !d.matches('.attn'); }}""")
+    c = core.get_card(failed)
+    assert (c["auto_advance"], c["attention"]) == (True, False), "the click is a go-again"
+    page.click(f'.card[data-id="{ver}"]')
+    page.wait_for_function(f"() => open && open.id === {ver}")
+    assert page.locator("#panel .head .auto.attn").count() == 1, "the sheet's dot is red too"
 
 
 def test_plan_questions_and_answers_get_their_own_boxes_once_planned(page):
@@ -1512,7 +1535,7 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     core.update_card(cid, "claude-agent", plan="p", questions="q?", attention=True)
     core.create_card("done", actor="ce", project="Home", lane="done")   # its archive buttons
     page.evaluate("load()")
-    page.wait_for_selector(f'.card[data-id="{cid}"] .dot')
+    page.wait_for_selector(f'.card[data-id="{cid}"] .auto.attn')
     page.wait_for_selector(".lane[data-lane=done] h2 .arch")
     untitled = """sel => [...document.querySelectorAll(sel)]
         .filter(e => e.offsetParent !== null && !e.closest('[title]'))
@@ -1520,7 +1543,7 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     board = "header select, header button, header input, header a, .lane h2, .card, .card *, #status"
     assert page.evaluate(untitled, board) == []
     tip = page.get_attribute(f'.card[data-id="{cid}"] .auto', "title")
-    assert tip.startswith("auto advance is off")
+    assert tip.startswith("waiting for your input") and "auto advance is off" in tip
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
     assert page.evaluate(untitled, "#panel input, #panel select, #panel textarea, #panel button, #panel h3") == []

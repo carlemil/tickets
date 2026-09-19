@@ -57,9 +57,6 @@
   }
   .card:hover { background: #f7f8f9; }
   .card { position: relative; }
-  .card .dot { position: absolute; top: 6px; right: 6px; width: 10px; height: 10px;
-               border-radius: 50%; background: #de350b; }
-  .card:has(.dot) .t { padding-right: 14px; }
   .card.dragging { opacity: .4; }
   .card { user-select: none; }   /* shift-click selects cards, not text */
   .card.selected { outline: 2px solid var(--accent); }
@@ -84,6 +81,9 @@
   .card .auto::after { content: ""; position: absolute; inset: -5px; }
   .auto.on { background: #36b37e; border-color: #36b37e;
                    box-shadow: 0 0 4px 1px rgba(54,179,126,.7); }
+  /* waiting for your input: red wins over green */
+  .auto.attn { background: #de350b; border-color: #de350b;
+               box-shadow: 0 0 4px 1px rgba(222,53,11,.7); }
   /* an agent is working on the card right now */
   .auto.working { animation: pulse 1.2s infinite; }
   /* on master, deployed: set by the agent's deploy step, so not clickable */
@@ -296,12 +296,14 @@ function projectTag(name) {
   return tag;
 }
 
-// green when auto advance is on, a ring when off; pulses while an agent works the card
+// red when an agent handed the card back and waits for you, else green when auto advance
+// is on, a ring when off; pulses while an agent works the card
 // only the board's dot is clickable; in the sheet the auto advance switch is the control
 function autoDot(c, clickable) {
   const d = Object.assign(document.createElement("span"),
-    { className: "auto" + (c.auto_advance ? " on" : ""),
-      title: (c.auto_advance
+    { className: "auto" + (c.auto_advance ? " on" : "") + (c.attention ? " attn" : ""),
+      title: (c.attention ? "waiting for your input: an agent handed this card back. " +
+        "Any edit, move or comment clears it. " : "") + (c.auto_advance
         ? "auto advance is on: the agent carries this card on to verify by itself"
         : "auto advance is off: the agent works this card only when it is assigned to it") +
         (clickable ? (c.auto_advance ? ". Click to turn it off." : ". Click to turn it on.") : "") });
@@ -356,10 +358,6 @@ function cardNode(c) {
     meta.append(a);
   }
   n.append(t, meta);
-  // set by an agent handing the card back; any edit, move or comment clears it
-  if (c.attention) n.append(Object.assign(document.createElement("span"),
-    { className: "dot", title: "waiting for your input: an agent handed this card back. " +
-      "Any edit, move or comment clears it and sends the card back to the agent" }));
 
   n.ondragstart = ev => {
     ev.dataTransfer.setData("text/plain", String(c.id));
@@ -477,14 +475,16 @@ async function archive(ids) {
 async function toggleAuto(id) {
   const c = cards.find(x => x.id === id);
   if (!c) return;
-  const was = c.auto_advance;
+  const was = c.auto_advance, attn = c.attention;
   c.auto_advance = !was;         // optimistic, like move()
+  c.attention = false;           // the write is a reply, so the server clears it too
   renderBoard();
   try {
     replace(await api("PATCH", "/api/cards/" + id, { auto_advance: !was }));
     if (open && open.id === id) openCard(id);
   } catch (e) {
     c.auto_advance = was;
+    c.attention = attn;
     renderBoard();
     showErr("could not switch auto advance on #" + id + ": " + e.message);
   }
