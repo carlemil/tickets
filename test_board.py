@@ -1352,3 +1352,113 @@ def test_the_auto_dot_is_lit_only_when_auto_advance_is_on(page):
     assert page.locator(f'.card[data-id="{on}"] .auto.on').count() == 1
     assert page.locator(f'.card[data-id="{off}"] .auto').count() == 1
     assert page.locator(f'.card[data-id="{off}"] .auto.on').count() == 0
+
+
+# ---------- selecting several cards ----------
+
+def cards_in(page, *titles, project="Home"):
+    """Cards made straight in the database, then shown; returns their ids in order."""
+    if project != "Home":   # Home is there already
+        core.create_project(project)
+    ids = [core.create_card(t, actor="ce", project=project)["id"] for t in titles]
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{ids[-1]}"]')
+    return ids
+
+
+def picked(page):
+    return sorted(int(x) for x in page.eval_on_selector_all(
+        ".card.selected", "ns => ns.map(n => n.dataset.id)"))
+
+
+def ctrl(page, cid):
+    page.click(f'.card[data-id="{cid}"]', modifiers=["Control"])
+
+
+def test_ctrl_click_two_cards_and_drag_moves_both(page):
+    a, b, c = cards_in(page, "a", "b", "c")
+    ctrl(page, a)
+    ctrl(page, b)
+    assert picked(page) == [a, b]
+    assert page.locator("#panel.on").count() == 0, "a ctrl-click does not open the card"
+    drag(page, a, "develop")
+    for cid in (a, b):
+        page.wait_for_selector(f'.lane[data-lane="develop"] .card[data-id="{cid}"]')
+    page.wait_for_function("() => window.__inflight === 0")
+    assert [core.get_card(i)["lane"] for i in (a, b, c)] == ["develop", "develop", "todo"]
+    assert picked(page) == [], "the selection is spent on the move"
+
+
+def test_shift_click_selects_a_run_in_one_lane(page):
+    a, b, c, d = cards_in(page, "a", "b", "c", "d")
+    core.update_card(d, "ce", lane="test")
+    page.evaluate("load()")
+    page.wait_for_selector(f'.lane[data-lane="test"] .card[data-id="{d}"]')
+    ctrl(page, a)
+    page.click(f'.card[data-id="{c}"]', modifiers=["Shift"])
+    assert picked(page) == [a, b, c]
+    page.click(f'.card[data-id="{d}"]', modifiers=["Shift"])
+    assert picked(page) == [a, b, c, d], "another lane adds just that card"
+    assert page.locator("#panel.on").count() == 0
+
+
+def test_deselect_plain_click_and_esc(page):
+    a, b = cards_in(page, "a", "b")
+    ctrl(page, a)
+    ctrl(page, b)
+    ctrl(page, a)
+    assert picked(page) == [b], "ctrl-click on a selected card lets it go"
+    page.keyboard.press("Escape")
+    assert picked(page) == []
+    ctrl(page, a)
+    page.click(f'.card[data-id="{b}"]')
+    page.wait_for_selector("#panel.on")
+    assert picked(page) == [], "a plain click clears the selection and opens the card"
+
+
+def test_dragging_an_unselected_card_moves_it_alone(page):
+    a, b, c = cards_in(page, "a", "b", "c")
+    ctrl(page, a)
+    ctrl(page, b)
+    drag(page, c, "plan")
+    page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{c}"]')
+    page.wait_for_function("() => window.__inflight === 0")
+    assert [core.get_card(i)["lane"] for i in (a, b, c)] == ["todo", "todo", "plan"]
+    assert picked(page) == [a, b]
+
+
+def test_the_selection_outlives_a_reload_but_not_its_cards(page):
+    a, b = cards_in(page, "a", "b")
+    (o,) = cards_in(page, "o", project="Other")
+    page.evaluate("localStorage.setItem('project', 'Home')")
+    ctrl(page, a)
+    ctrl(page, b)
+    page.evaluate("renderBoard()")
+    page.evaluate("load()")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert picked(page) == [a, b]
+    page.select_option("#proj", "Other")
+    page.wait_for_selector(f'.card[data-id="{o}"]')
+    assert page.evaluate("[...selected]") == [], "hidden cards leave the selection"
+
+
+def test_a_rejected_bulk_move_puts_every_card_back(page):
+    a, b = cards_in(page, "a", "b")
+    ctrl(page, a)
+    ctrl(page, b)
+    page.evaluate("""window.fetch = () => Promise.resolve(
+        new Response(JSON.stringify({error: "nope"}), {status: 400}))""")
+    drag(page, b, "verify")
+    page.wait_for_selector("#err.on")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.locator('.lane[data-lane="todo"] .card').count() == 2
+    assert [core.get_card(i)["lane"] for i in (a, b)] == ["todo", "todo"]
+
+
+def test_esc_in_an_open_sheet_leaves_the_selection_alone(page):
+    a, b = cards_in(page, "a", "b")
+    ctrl(page, a)
+    page.evaluate(f"openCard({b})")
+    page.wait_for_selector("#panel.on")
+    page.keyboard.press("Escape")
+    assert page.evaluate("[...selected]") == [a]

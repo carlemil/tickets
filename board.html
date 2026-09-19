@@ -60,6 +60,9 @@
                border-radius: 50%; background: #de350b; }
   .card:has(.dot) .t { padding-right: 14px; }
   .card.dragging { opacity: .4; }
+  .card { user-select: none; }   /* shift-click selects cards, not text */
+  .card.selected { outline: 2px solid var(--accent); }
+  body:has(.card.dragging.selected) .card.selected { opacity: .4; }  /* all of them go */
   .card .t { font-weight: 500; }
   .card .meta { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
                 font-size: 11px; color: var(--dim); }
@@ -167,6 +170,8 @@ let users = [];
 let projects = [];   // configured projects: {name, path, instructions}
 const PROJECTS = "projects";   // `open` holds this while the panel shows project settings
 let open = null;     // full card (with events/links) shown in the panel
+const selected = new Set();   // card ids picked with ctrl/shift-click, moved together
+let anchor = null;            // the card a shift-click selects from
 
 // ---------- plumbing ----------
 function showErr(msg) {
@@ -272,7 +277,7 @@ function projectTag(name) {
 
 function cardNode(c) {
   const n = document.createElement("div");
-  n.className = "card p-" + c.priority;
+  n.className = "card p-" + c.priority + (selected.has(c.id) ? " selected" : "");
   n.draggable = true;
   n.dataset.id = c.id;
   const t = document.createElement("div");
@@ -308,13 +313,29 @@ function cardNode(c) {
     n.classList.add("dragging");
   };
   n.ondragend = () => n.classList.remove("dragging");
-  n.onclick = () => openCard(c.id);
+  n.onclick = ev => {
+    if (ev.ctrlKey || ev.metaKey) {
+      selected.has(c.id) ? selected.delete(c.id) : selected.add(c.id);
+      anchor = c.id;
+    } else if (ev.shiftKey) {
+      const mine = cards.filter(x => x.lane === c.lane);
+      const a = mine.findIndex(x => x.id === anchor), b = mine.indexOf(c);
+      if (a < 0) { selected.add(c.id); anchor = c.id; }
+      else mine.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(x => selected.add(x.id));
+    } else {
+      selected.clear();
+      anchor = c.id;
+      openCard(c.id);
+    }
+    renderBoard();
+  };
   return n;
 }
 
 function renderBoard() {
   const b = $("#board");
   b.textContent = "";
+  for (const id of selected) if (!cards.some(c => c.id === id)) selected.delete(id);
   for (const lane of LANES) {
     const col = document.createElement("div");
     col.className = "lane";
@@ -361,7 +382,14 @@ document.addEventListener("drop", ev => {
   markOver(null);
   if (!col) return;
   ev.preventDefault();
-  move(Number(ev.dataTransfer.getData("text/plain")), col.dataset.lane);
+  const id = Number(ev.dataTransfer.getData("text/plain"));
+  // a selected card takes the whole selection with it; any other card goes alone
+  const ids = selected.has(id) ? [...selected] : [id];
+  if (selected.has(id)) selected.clear();
+  ids.forEach(i => move(i, col.dataset.lane));
+});
+document.addEventListener("keydown", ev => {
+  if (ev.key === "Escape" && !open && selected.size) { selected.clear(); renderBoard(); }
 });
 
 async function move(id, lane) {
@@ -959,7 +987,7 @@ const TIPS = [
   [".card .pill.proj", "project"],
   [".card .pill.label", "label"],
   [".card .pill.checks", "checklist items done / total"],
-  [".card", "click to open, drag to another lane to move it"],
+  [".card", "click to open, drag to another lane to move it; ctrl/shift-click to select several, then drag one of them to move them all"],
   ["#status", "what agents are doing right now"],
   ["#panel .shut", "close; every field is already saved, and so is what you are still typing"],
   ["#panel .project input[type=text]:first-of-type", "the project's name, as cards show it"],

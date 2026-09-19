@@ -362,6 +362,15 @@ popup can swallow the pointerup and would stall every later render. `page.click(
 presses and releases at once, so it never saw this; `human_click()` in the tests holds
 the button for 150 ms.
 
+**Selecting several cards.** Ctrl- (or ⌘-) click toggles a card in the selection and
+makes it the anchor; shift-click adds the run from the anchor to the card in the same
+lane, or just the card when the anchor is in another lane. Neither opens the card; a
+plain click clears the selection and opens it, Esc (with no sheet open) clears it.
+Dragging a selected card moves the whole selection, one `move()` PATCH per card, so each
+one keeps the single-drag rules and rollback; dragging an unselected card moves it alone
+and keeps the selection. The selection survives re-renders and `load()`, but drops cards
+no longer on the board.
+
 ## Status
 
 | # | Task | State |
@@ -391,6 +400,7 @@ the button for 150 ms.
 | 22 | auto advance dot on every card; hover help on every control | done — 413 checks |
 | 23 | develop and test run in a git worktree per card (`<repo>.worktrees/card-<id>`, branch `card/<id>`) | done — 422 checks |
 | 24 | worktree only (no in-place runs); one run per project, projects side by side; commit and push before verify; deploy once in verify; open questions numbered from 1 | done |
+| 26 | ctrl/shift-click selects several cards; dragging one moves them all | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
