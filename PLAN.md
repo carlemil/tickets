@@ -164,7 +164,15 @@ still on, and commits its work on the card's own branch. The test stage runs wit
 `--dangerously-skip-permissions`, reviews the card's changes against the card
 and plan, runs the tests, and must end with a last line of `RESULT: PASS` (markdown
 `*`/`` ` `` around it tolerated) to move on; anything else is a failure.
-Cards are handled one at a time.
+
+**One run per project at a time.** Each project has at most one run going — plan,
+develop or test — so two cards never run a project's tests, ports or database at once;
+a card waits while another card of its project is worked, and is started by the first
+poll after that run ends (failed or not). Different projects run side by side: each poll
+starts a run for every waiting card whose project is free, and each run has its own MCP
+client, as it outlives the poll. The status bar keeps one entry per actor, so each run
+shows as `claude-agent (<project>)`. The limit is kept in the agent process (`running`),
+so it holds for one agent process, not for two started side by side.
 
 **A git worktree per card.** Develop and test run in a worktree of the card's own, next
 to the project's repo: `<repo>.worktrees/card-<id>` on branch `card/<id>`, made from the
@@ -173,9 +181,28 @@ test stage). No two cards, and no person working in the repo, share a folder, so
 never overwrite or mix. The prompt is told where it is: develop commits on its branch
 (never pushes, merges or switches), test reviews `git diff <base>...HEAD` plus anything
 uncommitted. The card's comment ends with the worktree's path and branch. Planning only
-reads and runs in the repo. A project folder that is not a git repository is worked in
-place, told not to commit; a card that reached test before worktrees existed is tested in
-the repo. A worktree that cannot be made fails the card. Merging `card/<id>` and removing
+reads and runs in the repo. Develop and test never run anywhere but the card's worktree:
+a project folder that is not a git repository fails the card (it can still be planned),
+and so does a card in test with no worktree (built before worktrees, or the worktree was
+removed): move it back to develop to build it in one. A worktree that cannot be made
+fails the card.
+
+**Commit and push before verify.** A test that ends in `RESULT: PASS` is not enough to
+move on: the agent first stages everything left in the worktree (`git add -A`, untracked
+files too), commits it if there is anything (message `#<id> <title>`), and pushes
+`card/<id>` to `origin` (`-u`, no prompt: `GIT_TERMINAL_PROMPT=0`). A comment names the
+commit pushed. If any git step fails — no `origin`, rejected, needs credentials — the card
+fails in test, with the git error, and is not moved. A failed test commits nothing.
+
+**Deploy once in verify.** Right after the agent moves a card to verify it runs one more
+`claude -p` in the worktree (`--dangerously-skip-permissions`, it runs deploy tools and
+`adb`): deploy the backend if the card changed it; install the mobile app on the phone if
+the card changed it and a phone is connected, and skip the phone otherwise; deploy
+nothing if neither changed. How to deploy comes from the project's instructions. The reply
+must end in `DEPLOY: OK`; it becomes a comment `deployed: …`, anything else (or a crash)
+`deploy failed: …`. Either way the card stays in verify, handed back with the dot: a
+deploy never moves a card. Only the agent's own move to verify deploys; a card moved off
+test during its run, or a failed test, is not deployed. Merging `card/<id>` and removing
 the worktree (`git worktree remove`) is a person's job, after verify; a fresh worktree has
 no build output or installed dependencies, so the project's instructions should say how to
 get them if the tests need them.
@@ -202,8 +229,10 @@ read-only). A card keeps its planning round in three text fields of its own, so 
 on its own: `description` is the person's request and the agent never writes it; `plan` is
 the plan; `questions` the plan's open questions; `answers` the person's reply. Nobody can
 answer questions mid-run, so the prompt has Claude put them in a last `## Open questions`
-section and end with a last line of `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
-`agent.split_plan` drops the verdict line and cuts that section off into `questions`.
+section, as a list numbered from 1, and end with a last line of `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
+`agent.split_plan` drops the verdict line and cuts that section off into `questions`,
+renumbering its top-level bullets or numbers `1.`, `2.`, … in order (`agent.number`;
+indented lines and other text kept), so the questions are numbered whatever Claude used.
 `NONE` → only `plan` is written (the last round's questions and answers stay, as the
 record of what was decided), the card moves to `develop` and, unless auto advance is on,
 halts there unassigned. Anything else, including no verdict line, → `plan` and `questions`
@@ -361,6 +390,7 @@ the button for 150 ms.
 | 21 | the agent assigns itself while it works and gives the card back; assigning registers a name; drop anywhere snaps to the column | done |
 | 22 | auto advance dot on every card; hover help on every control | done — 413 checks |
 | 23 | develop and test run in a git worktree per card (`<repo>.worktrees/card-<id>`, branch `card/<id>`) | done — 422 checks |
+| 24 | worktree only (no in-place runs); one run per project, projects side by side; commit and push before verify; deploy once in verify; open questions numbered from 1 | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

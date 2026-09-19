@@ -1,7 +1,11 @@
 """The board agent against the real MCP tools in-process. Claude itself is faked."""
 
 import asyncio
+import shutil
 import subprocess
+import threading
+
+from pathlib import Path
 
 import pytest
 from mcp import Client
@@ -11,12 +15,36 @@ import app
 import core
 
 
+def make_repo(r):
+    """A git repository with one commit on branch main, and a bare repo beside it as its
+    origin, so the agent can push."""
+    r.mkdir()
+    for args in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t"],
+                 ["config", "user.name", "t"]):
+        agent.git(r, *args)
+    (r / "a.txt").write_text("a")
+    agent.git(r, "add", ".")
+    agent.git(r, "commit", "-q", "-m", "one")
+    origin = r.parent / f"{r.name}.origin.git"
+    agent.git(r.parent, "init", "-q", "--bare", str(origin))
+    agent.git(r, "remote", "add", "origin", str(origin))
+    return r
+
+
+def pushed(repo, id):
+    """The commit origin has on the card's branch, or None."""
+    r = agent.git(repo.parent / f"{repo.name}.origin.git", "rev-parse", "--verify", "--quiet",
+                  f"refs/heads/card/{id}")
+    return r.stdout.strip() or None
+
+
 @pytest.fixture
 def ran(monkeypatch, tmp_path):
-    """Fake claude: records each card it was run on, answers with its lane (and a passing
-    verdict in test). "Proj" is a configured project whose path is a real folder;
+    """Fake claude: records each card it was run on (and the folder it ran in: the repo,
+    "Proj", for planning, the card's worktree for the rest), answers with its lane (and a
+    passing verdict in test). "Proj" is a configured project whose path is a git repo;
     "Pathless" has no path set."""
-    (tmp_path / "Proj").mkdir()
+    make_repo(tmp_path / "Proj")
     core.create_project("Proj", path=str(tmp_path / "Proj"), instructions="use uv")
     core.create_project("Pathless")
     calls = []
@@ -24,7 +52,8 @@ def ran(monkeypatch, tmp_path):
     def fake(card, cwd, instructions=""):
         calls.append((card["id"], card["lane"], cwd.name))
         return f"did {card['lane']}" + {"test": "\nRESULT: PASS",
-                                        "plan": "\nQUESTIONS: NONE"}.get(card["lane"], "")
+                                        "plan": "\nQUESTIONS: NONE",
+                                        "deploy": "\nDEPLOY: OK"}.get(card["lane"], "")
 
     monkeypatch.setattr(agent, "run_claude", fake)
     return calls
@@ -33,13 +62,22 @@ def ran(monkeypatch, tmp_path):
 def tick():
     async def go():
         async with Client(app.mcp) as c:
-            await agent.tick(c)
+            await asyncio.gather(*await agent.tick(c, lambda: Client(app.mcp)))
     asyncio.run(go())
 
 
 def card(lane, assignee=agent.AGENT, project="Proj", auto=False):
-    return core.create_card("t", "ce", lane=lane, assignee=assignee, project=project,
-                            auto_advance=auto)["id"]
+    id = core.create_card("t", "ce", lane=lane, assignee=assignee, project=project,
+                          auto_advance=auto)["id"]
+    path = core.get_project(project)["path"]
+    if lane == "test" and path and (Path(path) / ".git").exists():   # developed: has a worktree
+        agent.workspace({"id": id, "lane": "develop"}, Path(path))
+    return id
+
+
+def at(id, lane):
+    """Where the fake claude ran for this card's stage."""
+    return "Proj" if lane == "plan" else f"card-{id}"
 
 
 def comments(id):
@@ -54,7 +92,8 @@ def test_assigned_card_is_worked_moved_and_handed_back(ran, lane, nxt):
     c = core.get_card(id)
     assert (c["lane"], c["assignee"]) == (nxt, None)
     assert (c["plan"] if lane == "plan" else comments(id)[0]).startswith(f"did {lane}")
-    assert ran == [(id, lane, "Proj")]
+    assert ran == [(id, lane, at(id, lane))] + (
+        [(id, "deploy", f"card-{id}")] if lane == "test" else []), "verify: then deployed"
     assert all(e["actor"] == agent.AGENT for e in c["events"][1:])
 
 
@@ -105,7 +144,9 @@ def test_a_project_without_a_path_fails_without_moving(ran):
 
 
 def test_a_configured_path_that_has_since_gone_fails_without_moving(ran, tmp_path):
-    (tmp_path / "Proj").rmdir()
+    (tmp_path / "gone").mkdir()
+    core.update_project("Proj", path=str(tmp_path / "gone"))
+    (tmp_path / "gone").rmdir()
     id = card("plan")
     tick()
     assert core.get_card(id)["lane"] == "plan"
@@ -202,7 +243,8 @@ def test_auto_advance_runs_plan_to_verify_one_stage_per_tick(ran):
         assert core.get_card(id)["lane"] == lane
     tick()
     c = core.get_card(id)
-    assert ran == [(id, "plan", "Proj"), (id, "develop", "Proj"), (id, "test", "Proj")]
+    assert ran == [(id, "plan", "Proj"), (id, "develop", f"card-{id}"),
+                   (id, "test", f"card-{id}"), (id, "deploy", f"card-{id}")]
     assert (c["lane"], c["assignee"], c["auto_advance"]) == ("verify", None, True), \
         "stops at verify for a person, with the switch left as it was"
 
@@ -243,8 +285,9 @@ def test_the_test_stage_moves_on_only_on_a_final_pass(ran, monkeypatch, out):
     tick()
     c = core.get_card(id)
     assert (c["lane"], c["assignee"], c["auto_advance"]) == ("test", None, False)
-    assert comments(id) == [out or "(no output)",
-                            "agent failed: the test stage did not end in RESULT: PASS"]
+    said, failed = comments(id)
+    assert said.startswith(out or "(no output)") and said.endswith(f"branch card/{id})")
+    assert failed == "agent failed: the test stage did not end in RESULT: PASS"
     tick()
     assert len(comments(id)) == 2, "switched off, so it does not retry"
 
@@ -314,7 +357,7 @@ def test_open_questions_keep_the_card_in_plan_for_a_person(ran, monkeypatch, aut
     plan_with(monkeypatch, "## Steps\n1. x\n## Open questions\n- red or blue?\nQUESTIONS: OPEN")
     tick()
     c = core.get_card(id)
-    assert (c["plan"], c["questions"]) == ("## Steps\n1. x", "- red or blue?")
+    assert (c["plan"], c["questions"]) == ("## Steps\n1. x", "1. red or blue?")
     assert (c["lane"], c["assignee"], c["auto_advance"]) == ("plan", None, False)
     assert comments(id)[-1].startswith("the plan has open questions")
     n = len(c["events"])
@@ -382,7 +425,8 @@ def test_activity_is_shown_while_claude_runs_and_cleared_after(ran, monkeypatch,
     monkeypatch.setattr(agent, "run_claude", lambda c, cwd, instr:
                         seen.append(core.list_activity()) or "x\nQUESTIONS: NONE\nRESULT: PASS")
     tick()
-    assert [(r["actor"], r["card_id"], r["doing"]) for r in seen[0]] == [(agent.AGENT, id, doing)]
+    assert [(r["actor"], r["card_id"], r["doing"]) for r in seen[0]] == \
+        [(agent.doer("Proj"), id, doing)]
     assert core.list_activity() == []
 
 
@@ -398,9 +442,8 @@ def test_activity_is_cleared_even_when_handling_crashes(ran, monkeypatch):
     async def crash(client, card):
         raise ConnectionError("server went away")
     monkeypatch.setattr(agent, "handle", crash)
-    with pytest.raises(Exception, match="server went away|unhandled errors"):  # may arrive grouped
-        tick()
-    assert core.list_activity() == []
+    tick()   # logged, not raised: one run crashing leaves the others and the poll going
+    assert core.list_activity() == [] and agent.running == {}
 
 
 # ---------- deleted projects ----------
@@ -502,10 +545,10 @@ def test_a_card_moved_during_the_run_does_not_ask(ran, monkeypatch):
 # plan, questions and answers: split out of the reply, and the person's reply restarts it
 
 @pytest.mark.parametrize("out, plan, questions", [
-    ("steps\n## Open questions\n- a?\n- b?\nQUESTIONS: OPEN", "steps", "- a?\n- b?"),
-    ("steps\n### open questions:\n- a?\nQUESTIONS: OPEN", "steps", "- a?"),
+    ("steps\n## Open questions\n- a?\n- b?\nQUESTIONS: OPEN", "steps", "1. a?\n2. b?"),
+    ("steps\n### open questions:\n- a?\nQUESTIONS: OPEN", "steps", "1. a?"),
     ("steps\n## Open questions\nNone.\nQUESTIONS: NONE", "steps", ""),
-    ("steps\n## Open questions\n\n\n- a?\nQUESTIONS: OPEN", "steps", "- a?"),
+    ("steps\n## Open questions\n\n\n- a?\nQUESTIONS: OPEN", "steps", "1. a?"),
     ("## Open questions\n\n## Later\nx\nQUESTIONS: OPEN", "", "## Later\nx"),
     ("steps\n## Open questions in the text is not a heading\nQUESTIONS: OPEN",
      "steps\n## Open questions in the text is not a heading", ""),
@@ -521,7 +564,7 @@ def test_a_clean_replan_keeps_the_answered_questions_as_the_record(ran, monkeypa
     plan_with(monkeypatch, "paint it blue\nQUESTIONS: NONE")
     tick()
     c = core.get_card(id)
-    assert (c["plan"], c["questions"], c["answers"]) == ("paint it blue", "- red?", "blue")
+    assert (c["plan"], c["questions"], c["answers"]) == ("paint it blue", "1. red?", "blue")
 
 
 def test_the_prompt_tells_claude_where_each_part_goes(monkeypatch, tmp_path):
@@ -574,7 +617,8 @@ def test_a_person_moving_a_handed_back_card_on_starts_the_agent(ran):
     id = card("plan")
     tick()
     assert core.get_card(id)["lane"] == "develop"
-    core.update_card(id, "ce", lane="test")
+    agent.workspace({"id": id, "lane": "develop"}, Path(core.get_project("Proj")["path"]))
+    core.update_card(id, "ce", lane="test")   # built it by hand, in the card's worktree
     assert core.get_card(id)["auto_advance"] is True
     tick()
     assert core.get_card(id)["lane"] == "verify"
@@ -592,7 +636,7 @@ def test_the_agent_is_assigned_while_it_works(ran, monkeypatch, lane):
         return "x\nQUESTIONS: NONE\nRESULT: PASS"
     monkeypatch.setattr(agent, "run_claude", look)
     tick()
-    assert seen == [(agent.AGENT, agent.AGENT)]
+    assert seen[:1] == [(agent.AGENT, agent.AGENT)]
     took = [e for e in core.get_card(id)["events"] if e["kind"] == "assigned"]
     assert [(e["actor"], e["detail"]["to"]) for e in took][:1] == [(agent.AGENT, agent.AGENT)]
 
@@ -634,15 +678,8 @@ def test_the_agent_assigning_itself_registers_it(ran):
 
 @pytest.fixture
 def repo(tmp_path):
-    """A project that is a git repository with one commit, on branch main."""
-    r = tmp_path / "Repo"
-    r.mkdir()
-    for args in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t"],
-                 ["config", "user.name", "t"]):
-        agent.git(r, *args)
-    (r / "a.txt").write_text("a")
-    agent.git(r, "add", ".")
-    agent.git(r, "commit", "-q", "-m", "one")
+    """A project that is a git repository with one commit, on branch main, and an origin."""
+    r = make_repo(tmp_path / "Repo")
     core.create_project("Repo", path=str(r))
     return r
 
@@ -654,8 +691,10 @@ def where(monkeypatch):
 
     def fake(card, cwd, instructions=""):
         seen.append((card["lane"], cwd, instructions))
-        (cwd / f"{card['lane']}.txt").write_text("x")
-        return {"test": "ok\nRESULT: PASS", "plan": "p\nQUESTIONS: NONE"}.get(card["lane"], "built")
+        if card["lane"] != "deploy":   # a deploy edits nothing
+            (cwd / f"{card['lane']}.txt").write_text("x")
+        return {"test": "ok\nRESULT: PASS", "plan": "p\nQUESTIONS: NONE",
+                "deploy": "shipped\nDEPLOY: OK"}.get(card["lane"], "built")
     monkeypatch.setattr(agent, "run_claude", fake)
     return seen
 
@@ -675,6 +714,7 @@ def test_develop_runs_in_a_worktree_of_its_own_on_a_card_branch(repo, where):
 def test_two_cards_never_share_a_worktree(repo, where):
     a, b = card("develop", project="Repo"), card("develop", project="Repo")
     tick()
+    tick()
     assert {cwd.name for _, cwd, _ in where} == {f"card-{a}", f"card-{b}"}
 
 
@@ -682,7 +722,7 @@ def test_test_runs_in_the_cards_worktree_and_is_told_what_to_review(repo, where)
     id = card("develop", project="Repo", auto=True)
     tick()
     tick()
-    (_, dev, _), (lane, cwd, told) = where
+    (_, dev, _), (lane, cwd, told) = where[:2]
     assert (lane, cwd) == ("test", dev)
     assert f"git diff main...HEAD" in told
     assert core.get_card(id)["lane"] == "verify"
@@ -704,11 +744,14 @@ def test_a_branch_left_without_its_worktree_is_picked_up_again(repo, where):
     assert comments(id)[-1].startswith("built")
 
 
-def test_a_card_built_before_worktrees_is_tested_in_the_repo(repo, where):
-    card("test", project="Repo")
+def test_a_card_in_test_with_no_worktree_fails_and_the_repo_is_untouched(repo, where):
+    id = core.create_card("t", "ce", lane="test", assignee=agent.AGENT, project="Repo",
+                          auto_advance=True)["id"]   # built before worktrees, or removed
     tick()
-    [(lane, cwd, told)] = where
-    assert (lane, cwd) == ("test", repo) and "before cards got a worktree" in told
+    c = core.get_card(id)
+    assert (c["lane"], c["auto_advance"]) == ("test", False)
+    assert comments(id)[-1].startswith("agent failed: there is no worktree at")
+    assert where == [] and pushed(repo, id) is None
 
 
 def test_planning_stays_in_the_repo(repo, where):
@@ -718,11 +761,24 @@ def test_planning_stays_in_the_repo(repo, where):
     assert (lane, cwd, told) == ("plan", repo, "")
 
 
-def test_a_folder_that_is_not_a_repo_is_worked_in_place(ran, where, tmp_path):
-    card("develop")
+@pytest.mark.parametrize("lane", ["develop", "test"])
+def test_a_folder_that_is_not_a_repo_is_never_developed_or_tested(ran, where, tmp_path, lane):
+    (tmp_path / "Plain").mkdir()
+    core.create_project("Plain", path=str(tmp_path / "Plain"))
+    id = card(lane, project="Plain")
     tick()
-    [(lane, cwd, told)] = where
-    assert cwd == tmp_path / "Proj" and "not a git repository. Do not commit." in told
+    assert comments(id) == [f"agent failed: {tmp_path / 'Plain'} is not a git repository: "
+                            "develop and test only run in a git worktree"]
+    assert where == [] and core.get_card(id)["lane"] == lane
+    assert list((tmp_path / "Plain").iterdir()) == []
+
+
+def test_a_folder_that_is_not_a_repo_can_still_be_planned(ran, where, tmp_path):
+    (tmp_path / "Plain").mkdir()
+    core.create_project("Plain", path=str(tmp_path / "Plain"))
+    id = card("plan", project="Plain")
+    tick()
+    assert core.get_card(id)["lane"] == "develop"
 
 
 def test_a_worktree_that_cannot_be_made_fails_the_card(repo, where):
@@ -731,3 +787,236 @@ def test_a_worktree_that_cannot_be_made_fails_the_card(repo, where):
     tick()
     assert comments(id)[-1].startswith("agent failed: could not make a worktree")
     assert where == []
+
+
+# ---------- commit and push before verify ----------
+
+def test_a_pass_commits_everything_and_pushes_before_verify(repo, where):
+    id = card("develop", project="Repo", auto=True)
+    tick()                                        # develop: writes develop.txt, no commit
+    tree = where[0][1]
+    (tree / "a.txt").write_text("changed")        # a modified file, uncommitted
+    tick()                                        # test: writes test.txt, then PASS
+    c = core.get_card(id)
+    assert c["lane"] == "verify"
+    head = agent.git(tree, "rev-parse", "HEAD").stdout.strip()
+    assert pushed(repo, id) == head, "origin has the card's branch at the new commit"
+    assert agent.git(tree, "status", "--porcelain").stdout == "", "nothing left out"
+    files = agent.git(tree, "show", "--name-only", "--format=%s", "HEAD").stdout.split()
+    assert files[:2] == [f"#{id}", "t"] and {"a.txt", "develop.txt", "test.txt"} <= set(files)
+    assert comments(id)[-2].startswith(f"committed and pushed card/{id} to origin (")
+    assert not (repo / "develop.txt").exists(), "the repo itself is untouched"
+
+
+def test_commits_the_develop_stage_made_are_pushed_too(repo, where, monkeypatch):
+    id = card("test", project="Repo")
+    tree = repo.parent / "Repo.worktrees" / f"card-{id}"
+    (tree / "b.txt").write_text("b")
+    agent.git(tree, "add", ".")
+    agent.git(tree, "commit", "-q", "-m", "developed")
+    monkeypatch.setattr(agent, "run_claude", lambda c, cwd, i: "fine\nRESULT: PASS")
+    tick()                                        # nothing left to commit: only a push
+    assert pushed(repo, id) == agent.git(tree, "rev-parse", "HEAD").stdout.strip()
+    assert agent.git(tree, "log", "-1", "--format=%s").stdout.strip() == "developed"
+    assert core.get_card(id)["lane"] == "verify"
+
+
+def test_a_failed_test_is_neither_committed_nor_pushed(repo, monkeypatch):
+    id = card("test", project="Repo")
+    tree = repo.parent / "Repo.worktrees" / f"card-{id}"
+
+    def fails(c, cwd, i):
+        (cwd / "half.txt").write_text("x")
+        return "broken\nRESULT: FAIL"
+    monkeypatch.setattr(agent, "run_claude", fails)
+    tick()
+    assert core.get_card(id)["lane"] == "test"
+    assert pushed(repo, id) is None
+    assert "half.txt" in agent.git(tree, "status", "--porcelain").stdout
+
+
+def test_a_push_that_fails_keeps_the_card_out_of_verify(repo, where):
+    agent.git(repo, "remote", "remove", "origin")
+    id = card("test", project="Repo", auto=True)
+    tick()
+    c = core.get_card(id)
+    assert (c["lane"], c["auto_advance"], c["attention"]) == ("test", False, True)
+    assert comments(id)[-1].startswith("agent failed: git push failed:")
+
+
+# ---------- one run per project at a time ----------
+
+def test_a_project_runs_one_card_at_a_time_in_order(ran):
+    a, b = card("develop"), card("test")
+    worked = lambda: sorted(r for r in ran if r[1] != "deploy")
+    tick()
+    assert len(worked()) == 1, "one waits for the other"
+    tick()
+    assert worked() == [(a, "develop", f"card-{a}"), (b, "test", f"card-{b}")]
+
+
+def test_a_card_waits_while_its_project_is_busy(ran):
+    id = card("develop")
+    agent.running["proj"] = "a run started by an earlier poll"
+    try:
+        tick()
+    finally:
+        del agent.running["proj"]
+    assert ran == [] and core.get_card(id)["lane"] == "develop"
+    tick()
+    assert core.get_card(id)["lane"] == "test"
+
+
+def test_a_busy_project_is_matched_ignoring_case(ran, db):
+    import sqlite3
+    id = card("develop")
+    raw = sqlite3.connect(db)
+    raw.execute("UPDATE cards SET project='PROJ' WHERE id=?", (id,))
+    raw.commit()
+    raw.close()
+    agent.running["proj"] = "busy"
+    try:
+        tick()
+    finally:
+        del agent.running["proj"]
+    assert ran == []
+
+
+def test_different_projects_run_side_by_side(ran, repo, monkeypatch):
+    both = threading.Barrier(2, timeout=10)   # passes only if both runs are going at once
+
+    def meet(c, cwd, i):
+        both.wait()
+        return "built"
+    monkeypatch.setattr(agent, "run_claude", meet)
+    a, b = card("develop"), card("develop", project="Repo")
+    tick()
+    assert [core.get_card(x)["lane"] for x in (a, b)] == ["test", "test"]
+    assert agent.running == {}
+
+
+def test_a_project_is_free_again_after_a_failure(ran, monkeypatch):
+    bad, good = card("develop"), card("develop")
+
+    def once(c, cwd, i):
+        if c["id"] == bad:
+            raise RuntimeError("boom")
+        return "built"
+    monkeypatch.setattr(agent, "run_claude", once)
+    tick()
+    tick()
+    assert comments(bad)[-1] == "agent failed: boom"
+    assert core.get_card(good)["lane"] == "test" and agent.running == {}
+
+
+# ---------- deploy once in verify ----------
+
+def test_a_card_moved_to_verify_is_deployed_from_its_worktree(repo, where, monkeypatch):
+    id = card("test", project="Repo")
+    during = []
+    fake = agent.run_claude
+
+    def look(c, cwd, i):
+        if c["lane"] == "deploy":
+            got = core.get_card(id)
+            during.append((got["lane"], pushed(repo, id), core.list_activity()[0]["doing"]))
+        return fake(c, cwd, i)
+    monkeypatch.setattr(agent, "run_claude", look)
+    tick()
+    tree = repo.parent / "Repo.worktrees" / f"card-{id}"
+    assert [(lane, cwd) for lane, cwd, _ in where] == [("test", tree), ("deploy", tree)]
+    assert f"branch card/{id}" in where[1][2], "told where the changes are"
+    [(lane, sha, doing)] = during
+    assert (lane, doing) == ("verify", "deploying") and sha, "in verify, pushed, then deployed"
+    c = core.get_card(id)
+    assert (c["lane"], c["attention"]) == ("verify", True)
+    assert comments(id)[-1] == "deployed: shipped\nDEPLOY: OK"
+    assert core.list_activity() == [] and agent.running == {}
+
+
+@pytest.mark.parametrize("out", ["no phone, backend failed\nDEPLOY: FAILED", "", "DEPLOY: OK\nmore"])
+def test_a_failed_deploy_leaves_the_card_in_verify_and_says_so(repo, monkeypatch, out):
+    id = card("test", project="Repo", auto=True)
+    monkeypatch.setattr(agent, "run_claude", lambda c, cwd, i:
+                        out if c["lane"] == "deploy" else "fine\nRESULT: PASS")
+    tick()
+    c = core.get_card(id)
+    assert (c["lane"], c["attention"], c["auto_advance"]) == ("verify", True, True)
+    assert comments(id)[-1] == "deploy failed: " + (out or "(no output)")
+    tick()
+    assert len([x for x in comments(id) if x.startswith("deploy")]) == 1, "deployed once"
+
+
+def test_a_deploy_that_crashes_leaves_the_card_in_verify(repo, monkeypatch):
+    id = card("test", project="Repo")
+
+    def run(c, cwd, i):
+        if c["lane"] == "deploy":
+            raise RuntimeError("claude exited 1: adb not found")
+        return "fine\nRESULT: PASS"
+    monkeypatch.setattr(agent, "run_claude", run)
+    tick()
+    assert core.get_card(id)["lane"] == "verify"
+    assert comments(id)[-1] == "deploy failed: claude exited 1: adb not found"
+
+
+@pytest.mark.parametrize("lane", ["plan", "develop"])
+def test_only_a_move_to_verify_deploys(ran, lane):
+    card(lane)
+    tick()
+    assert [r[1] for r in ran] == [lane]
+
+
+def test_a_failed_test_is_not_deployed(ran, monkeypatch):
+    card("test")
+    lanes = []
+    monkeypatch.setattr(agent, "run_claude", lambda c, cwd, i: lanes.append(c["lane"]) or "RESULT: FAIL")
+    tick()
+    assert lanes == ["test"]
+
+
+def test_a_card_moved_off_test_during_the_run_is_not_deployed(ran, monkeypatch):
+    id = card("test", auto=True)
+    lanes = []
+
+    def slow(c, cwd, i):
+        lanes.append(c["lane"])
+        core.update_card(id, "ce", lane="develop")
+        return "fine\nRESULT: PASS"
+    monkeypatch.setattr(agent, "run_claude", slow)
+    tick()
+    assert lanes == ["test"] and core.get_card(id)["lane"] == "develop"
+
+
+def test_run_claude_deploys_with_rights_and_skips_a_missing_phone(monkeypatch, tmp_path):
+    got = {}
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: got.update(cmd=cmd, **k) or
+                        subprocess.CompletedProcess(cmd, 0, stdout="ok"))
+    agent.run_claude({"lane": "deploy", "id": 7}, tmp_path, "deploy with ./ship.sh")
+    assert got["cmd"][2:] == ["--dangerously-skip-permissions"]
+    p = got["input"]
+    assert "backend" in p and "phone is connected" in p and "skip the phone" in p
+    assert "DEPLOY: OK" in p and "deploy with ./ship.sh" in p
+
+
+# ---------- open questions are numbered from 1 ----------
+
+@pytest.mark.parametrize("given, numbered", [
+    ("- a?\n- b?", "1. a?\n2. b?"),
+    ("* a?\n+ b?\n3) c?", "1. a?\n2. b?\n3. c?"),
+    ("4. a?\n9. b?", "1. a?\n2. b?"),                               # renumbered from 1
+    ("1. a?\n   - detail\n2. b?", "1. a?\n   - detail\n2. b?"),  # sub-bullets kept
+    ("Decide:\n- a?", "Decide:\n1. a?"),                            # text kept
+    ("", ""),
+    ("-not a bullet", "-not a bullet"),
+])
+def test_questions_are_numbered_from_1(given, numbered):
+    assert agent.number(given) == numbered
+
+
+def test_the_plan_prompt_asks_for_numbered_questions(monkeypatch, tmp_path):
+    got = {}
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: got.update(**k) or
+                        subprocess.CompletedProcess(cmd, 0, stdout="ok"))
+    agent.run_claude({"lane": "plan", "id": 7}, tmp_path)
+    assert "numbered list starting at 1 (1. 2. 3.)" in got["input"]

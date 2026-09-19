@@ -1011,3 +1011,11 @@ def test_a_card_already_in_plan_is_not_switched_back_on():
 
 def test_creating_a_card_in_plan_does_not_switch_it_on():
     assert card(lane="plan")["auto_advance"] is False, "a move turns it on, not a create"
+
+
+def test_questions_are_stored_numbered_from_1_whoever_writes_them():
+    id = core.create_card("t", "ce", project="Home")["id"]
+    assert core.update_card(id, "bot", questions="- red?\n  - which red\n* blue?")["questions"] \
+        == "1. red?\n  - which red\n2. blue?"
+    assert core.update_card(id, "ce", questions="3. only one?")["questions"] == "1. only one?"
+    assert core.update_card(id, "ce", questions="")["questions"] == ""

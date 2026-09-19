@@ -412,6 +412,19 @@ def list_cards(lane=None, assignee=None, label=None, project=None, archived=Fals
     return [c for c in cards if label is None or label in c["labels"]]
 
 
+def number(questions):
+    """Questions for a person, as a list numbered from 1 whoever wrote them: top-level
+    bullets and numbers are renumbered in order; indented lines and other text are kept."""
+    n, out = 0, []
+    for ln in questions.splitlines():
+        m = re.match(r"(?:[-*+]|\d+[.)])\s+(.*)", ln)
+        if m:
+            n += 1
+            ln = f"{n}. {m[1]}"
+        out.append(ln)
+    return "\n".join(out)
+
+
 def update_card(id, actor, **fields):
     """The single write path for card mutations: diff, write, one event per changed field."""
     unknown = set(fields) - set(CARD_FIELDS)
@@ -422,6 +435,8 @@ def update_card(id, actor, **fields):
         old = _load(db, id)
         if "project" in fields:
             fields["project"] = _project(db, fields["project"])
+        if isinstance(fields.get("questions"), str):   # every writer's questions: 1. 2. 3.
+            fields["questions"] = number(fields["questions"])
         # moving a card forward, or back into plan to replan it, is the go signal: it
         # switches auto advance on, unless the same write says otherwise (the agent's own
         # moves do). Into done is the end, so no; nor another move back, nor a card already

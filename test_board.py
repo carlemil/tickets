@@ -1258,7 +1258,7 @@ def test_plan_questions_and_answers_get_their_own_boxes_once_planned(page):
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
     assert page.locator("#panel textarea.desc >> nth=0").input_value() == "the ask"
-    assert page.locator("#panel textarea.questions").input_value() == "- red?"
+    assert page.locator("#panel textarea.questions").input_value() == "1. red?", "numbered from 1"
     type_into(page, "#panel textarea.answers", "blue")
     wait_saved(page, cid, "answers", "blue")
     c = core.get_card(cid)

@@ -218,7 +218,8 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     Where text goes — each field REPLACES what is there: `description` is the request;
     leave it to the person who asked, do not put a plan in it. `plan` is the
     implementation plan (markdown), the planning agent's to write. `questions` holds only
-    what a person must decide before the work can go on, one per line or bullet; pass ""
+    what a person must decide before the work can go on, as a list numbered from 1
+    (1. 2. 3.; bullets are renumbered so); pass ""
     once none are open. `answers` is the person's reply to `questions`: read it, do not
     write it. Results of development or testing go in a comment, not in these fields.
     """
