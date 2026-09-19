@@ -458,7 +458,8 @@ def test_archived_cannot_be_set_at_creation():
 # ---------- more updating corner cases ----------
 
 def test_one_update_with_several_fields_writes_one_event_each():
-    c = core.update_card(card()["id"], "bob", lane="develop", assignee="cat", title="New")
+    # a move back, so the forward-move auto advance rule adds no event of its own
+    c = core.update_card(card(lane="test")["id"], "bob", lane="develop", assignee="cat", title="New")
     kinds = sorted(e["kind"] for e in c["events"][1:])
     assert kinds == ["assigned", "edited", "moved"], c["events"]
 
@@ -649,6 +650,145 @@ def test_a_database_with_archived_but_not_auto_advance_gains_it(db):
     assert core.update_card(c["id"], "ann", auto_advance=True)["auto_advance"] is True
 
 
+# ---------- attention ----------
+
+def flagged():
+    return core.update_card(card()["id"], "agent", attention=True)
+
+
+def test_attention_is_off_by_default_and_set_without_a_log_entry():
+    c = card()
+    assert c["attention"] is False
+    c = core.update_card(c["id"], "agent", attention=True)
+    assert c["attention"] is True
+    assert [e["kind"] for e in c["events"]] == ["created"], "a notification, not history"
+
+
+@pytest.mark.parametrize("change", [dict(lane="plan"), dict(title="new"), dict(assignee="bob"),
+                                    dict(description="answer"), dict(auto_advance=True)])
+def test_any_other_change_clears_attention(change):
+    c = core.update_card(flagged()["id"], "ce", **change)
+    assert c["attention"] is False
+    assert not any(e["detail"].get("field") == "attention" for e in c["events"])
+
+
+def test_a_comment_clears_attention():
+    c = flagged()
+    core.comment(c["id"], "ce", "red")
+    assert core.get_card(c["id"])["attention"] is False
+
+
+def test_an_unchanged_write_leaves_attention_on():
+    c = flagged()
+    assert core.update_card(c["id"], "ce", title=c["title"])["attention"] is True
+
+
+def test_attention_set_with_other_changes_stays_on():
+    c = core.update_card(card()["id"], "agent", lane="verify", assignee="", attention=True)
+    assert (c["lane"], c["attention"]) == ("verify", True)
+
+
+def test_attention_can_be_cleared_explicitly():
+    assert core.update_card(flagged()["id"], "ce", attention=False)["attention"] is False
+
+
+@pytest.mark.parametrize("bad", ["yes", 1, None])
+def test_attention_rejects_everything_but_a_bool(bad):
+    c = card()
+    with pytest.raises(ValueError, match="attention must be true or false"):
+        core.update_card(c["id"], "bob", attention=bad)
+
+
+def test_a_reply_to_a_waiting_card_turns_auto_advance_on_and_logs_it():
+    c = core.update_card(card(lane="plan")["id"], "agent", attention=True)
+    c = core.update_card(c["id"], "ce", answers="blue")
+    assert (c["attention"], c["auto_advance"]) == (False, True)
+    assert [e["detail"] for e in c["events"] if e["detail"].get("field") == "auto_advance"] == [
+        {"field": "auto_advance", "from": False, "to": True}]
+    assert c["events"][-1]["actor"] == "ce"
+
+
+def test_a_comment_is_a_reply_too():
+    c = core.update_card(card(lane="develop")["id"], "agent", attention=True)
+    core.comment(c["id"], "ce", "try red")
+    c = core.get_card(c["id"])
+    assert (c["attention"], c["auto_advance"]) == (False, True)
+    assert [e["kind"] for e in c["events"]][-2:] == ["comment", "edited"]
+
+
+def test_a_reply_can_keep_auto_advance_off():
+    c = core.update_card(card(lane="plan")["id"], "agent", attention=True)
+    c = core.update_card(c["id"], "ce", answers="blue", auto_advance=False)
+    assert (c["attention"], c["auto_advance"]) == (False, False)
+
+
+@pytest.mark.parametrize("lane", ["todo", "done"])   # verify: a forward move, which does switch it on
+def test_a_reply_outside_the_agent_lanes_leaves_auto_advance_off(lane):
+    c = core.update_card(card(lane="develop")["id"], "agent", attention=True)
+    c = core.update_card(c["id"], "ce", lane=lane)
+    assert (c["attention"], c["auto_advance"]) == (False, False)
+    c = core.update_card(core.update_card(c["id"], "agent", attention=True)["id"], "ce", title="x")
+    assert c["auto_advance"] is False
+    core.update_card(c["id"], "agent", attention=True)
+    core.comment(c["id"], "ce", "done")
+    assert core.get_card(c["id"])["auto_advance"] is False
+
+
+def test_an_edit_to_a_card_not_waiting_leaves_auto_advance_alone():
+    c = core.update_card(card(lane="develop")["id"], "ce", title="x")
+    core.comment(c["id"], "ce", "hi")
+    assert core.get_card(c["id"])["auto_advance"] is False
+
+
+def test_a_reply_to_an_auto_card_logs_no_change():
+    c = core.update_card(card(lane="test", auto_advance=True)["id"], "agent", attention=True)
+    c = core.update_card(c["id"], "ce", title="x")
+    assert not any(e["detail"].get("field") == "auto_advance" for e in c["events"])
+
+
+# ---------- plan, questions, answers ----------
+
+def test_plan_questions_and_answers_start_empty_and_log_edits():
+    c = card()
+    assert (c["plan"], c["questions"], c["answers"]) == ("", "", "")
+    c = core.update_card(c["id"], "agent", plan="p", questions="q?")
+    c = core.update_card(c["id"], "ce", answers="a")
+    assert (c["plan"], c["questions"], c["answers"], c["description"]) == ("p", "q?", "a", "")
+    assert [e["detail"]["field"] for e in c["events"] if e["kind"] == "edited"] == [
+        "plan", "questions", "answers"]
+
+
+@pytest.mark.parametrize("bad", [None, 1, ["x"]])
+def test_plan_fields_reject_anything_but_text(bad):
+    c = card()
+    for f in ("plan", "questions", "answers"):
+        with pytest.raises(ValueError, match=f"{f} must be text"):
+            core.update_card(c["id"], "ann", **{f: bad})
+
+
+def test_a_database_without_the_plan_fields_gains_them(db):
+    import sqlite3
+    core.list_cards()
+    old = sqlite3.connect(core.DB_PATH)
+    for col in ("plan", "questions", "answers"):
+        old.execute(f"ALTER TABLE cards DROP COLUMN {col}")
+    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at, updated_at,"
+                " priority) VALUES ('inbox','old','todo','ann','t','t','med')")
+    old.commit()
+    old.close()
+    [c] = core.list_cards()
+    assert (c["plan"], c["questions"], c["answers"]) == ("", "", "")
+
+
+
+def test_assigning_a_new_name_registers_it():
+    c = core.update_card(card()["id"], "ann", assignee="helper-bot")
+    assert "helper-bot" in core.list_users()
+    card(assignee="other-bot")
+    assert "other-bot" in core.list_users()
+    core.update_card(c["id"], "ann", assignee=None)
+    assert core.list_users().count("helper-bot") == 1
+
 # ---------- project colors ----------
 
 def test_new_projects_take_the_least_used_palette_color():
@@ -830,10 +970,35 @@ def test_a_move_into_plan_can_say_no_auto_advance():
     assert core.update_card(c, "ann", lane="plan", auto_advance=False)["auto_advance"] is False
 
 
-@pytest.mark.parametrize("lane", ["todo", "develop", "test", "verify", "done"])
-def test_moving_anywhere_else_leaves_auto_advance_alone(lane):
-    c = card(lane="plan" if lane == "todo" else "todo")["id"]
-    assert core.update_card(c, "ann", lane=lane)["auto_advance"] is False
+@pytest.mark.parametrize("frm, to", [("todo", "develop"), ("todo", "verify"), ("plan", "develop"),
+                                     ("develop", "test"), ("test", "verify")])
+def test_moving_forward_turns_auto_advance_on(frm, to):
+    c = core.update_card(card(lane=frm)["id"], "ann", lane=to)
+    assert c["auto_advance"] is True
+    assert [e["detail"] for e in c["events"] if e["detail"].get("field") == "auto_advance"] == [
+        {"field": "auto_advance", "from": False, "to": True}]
+
+
+@pytest.mark.parametrize("frm", ["todo", "plan", "test", "verify"])
+def test_moving_to_done_leaves_auto_advance_off(frm):
+    assert core.update_card(card(lane=frm)["id"], "ann", lane="done")["auto_advance"] is False
+
+
+@pytest.mark.parametrize("frm, to", [("develop", "todo"), ("verify", "develop"),
+                                     ("test", "develop"), ("done", "verify"), ("plan", "todo")])
+def test_moving_back_leaves_auto_advance_alone(frm, to):
+    assert core.update_card(card(lane=frm)["id"], "ann", lane=to)["auto_advance"] is False
+
+
+def test_a_forward_move_can_say_no_auto_advance():
+    c = core.update_card(card(lane="develop")["id"], "agent", lane="test", auto_advance=False)
+    assert c["auto_advance"] is False
+    assert not any(e["detail"].get("field") == "auto_advance" for e in c["events"])
+
+
+def test_moving_to_done_does_not_switch_an_auto_card_off():
+    c = core.update_card(card(lane="verify", auto_advance=True)["id"], "ann", lane="done")
+    assert c["auto_advance"] is True, "left as it was: the agent never works done anyway"
 
 
 def test_a_card_already_in_plan_is_not_switched_back_on():

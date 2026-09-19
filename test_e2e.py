@@ -27,6 +27,7 @@ def test_a_human_and_an_agent_share_one_attributed_card(page):
     assert [(e["actor"], e["kind"]) for e in core.get_card(cid)["events"]] == [
         ("ce", "created"),
         ("ce", "moved"),             # the mouse
+        ("ce", "edited"),            # a forward move switches auto advance on
         ("claude-agent", "moved"),   # the agent
         ("claude-agent", "assigned"),
         ("claude-agent", "comment"),

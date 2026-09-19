@@ -390,6 +390,21 @@ def test_auto_advance_over_rest_and_the_tools(client):
     assert app.create_card(title="u", actor="bot", project="Home")["auto_advance"] is False
 
 
+def test_attention_set_by_the_tool_cleared_by_other_changes():
+    c = core.create_card("a", actor="ann", project="Home")
+    assert app.update_card(c["id"], "bot", attention=True)["attention"] is True
+    assert app.update_card(c["id"], "bot", priority="high")["attention"] is False
+
+
+def test_plan_fields_over_the_tool_and_what_it_tells_agents():
+    c = core.create_card("a", actor="ann", project="Home", description="the ask")
+    c = app.update_card(c["id"], "bot", plan="p", questions="q?", answers="")
+    assert (c["description"], c["plan"], c["questions"]) == ("the ask", "p", "q?")
+    doc = app.update_card.__doc__
+    for said in ("`description` is the request", "`plan` is the", "`answers` is the person"):
+        assert said in doc
+
+
 def test_project_colors_over_rest(client):
     r = client.post("/api/projects", json={"name": "Red", "color": "#FF0000"})
     assert r.status_code == 201 and r.json()["color"] == "#ff0000", r.text

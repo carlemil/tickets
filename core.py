@@ -14,9 +14,12 @@ LINK_KINDS = ["parent", "blocks"]
 DB_PATH = "tickets.db"  # reassign core.DB_PATH to point elsewhere (tests, alt board)
 
 CARD_FIELDS = ("project", "title", "description", "lane", "assignee", "priority", "labels", "checklist",
-               "archived", "auto_advance")
-BOOL_FIELDS = ("archived", "auto_advance")   # stored as 0/1, surfaced as true/false
+               "archived", "auto_advance", "attention", "plan", "questions", "answers")
+BOOL_FIELDS = ("archived", "auto_advance", "attention")   # stored as 0/1, surfaced as true/false
 JSON_FIELDS = ("labels", "checklist")
+# the planning round, kept apart from the request in `description`: the agent's plan, its
+# open questions, a person's answers
+PLAN_FIELDS = ("plan", "questions", "answers")
 PROJECT_FIELDS = ("name", "path", "instructions", "color")
 # Where a deleted project's cards go. Agents never work a card in it; matched ignoring case.
 NO_PROJECT = "No Project"
@@ -26,6 +29,9 @@ PALETTE = ["#0052cc", "#00875a", "#ff991f", "#6554c0", "#de350b", "#00a3bf", "#c
            "#5e4db2", "#b65c02", "#216e4e"]
 # lane/assignee get their own event kind; everything else is an `edited`
 EVENT_KIND = {"lane": "moved", "assignee": "assigned", "archived": "archived"}
+# the lanes the board agent works: a person's reply to a card waiting there hands it back
+AGENT_LANES = ("plan", "develop", "test")
+REPLIED = {"field": "auto_advance", "from": False, "to": True}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -46,7 +52,11 @@ CREATE TABLE IF NOT EXISTS cards (
     labels TEXT NOT NULL DEFAULT '[]',
     checklist TEXT NOT NULL DEFAULT '[]',
     archived INTEGER NOT NULL DEFAULT 0,
-    auto_advance INTEGER NOT NULL DEFAULT 0
+    auto_advance INTEGER NOT NULL DEFAULT 0,
+    attention INTEGER NOT NULL DEFAULT 0,
+    plan TEXT NOT NULL DEFAULT '',
+    questions TEXT NOT NULL DEFAULT '',
+    answers TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY,
@@ -93,6 +103,9 @@ def connect():
     for col in BOOL_FIELDS:
         if col not in have:
             db.execute(f"ALTER TABLE cards ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+    for col in PLAN_FIELDS:
+        if col not in have:
+            db.execute(f"ALTER TABLE cards ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
     # Every card names a configured project. A database from before projects has cards
     # naming projects that were only strings, so give each one a row. A fresh database has
     # no projects at all: a card cannot be made until someone configures one. Checked
@@ -158,6 +171,9 @@ def _validate(fields):
     for f in BOOL_FIELDS:
         if f in fields and not isinstance(fields[f], bool):
             raise ValueError(f"{f} must be true or false")
+    for f in PLAN_FIELDS:
+        if f in fields and not isinstance(fields[f], str):
+            raise ValueError(f"{f} must be text")
 
 
 def _checklist_events(old, new):
@@ -357,6 +373,8 @@ def create_card(
             ),
         ).lastrowid
         _event(db, id, actor, "created", {"title": title, "lane": lane})
+        if assignee:
+            db.execute("INSERT OR IGNORE INTO users (name) VALUES (?)", (assignee,))
     return get_card(id)
 
 
@@ -404,10 +422,12 @@ def update_card(id, actor, **fields):
         old = _load(db, id)
         if "project" in fields:
             fields["project"] = _project(db, fields["project"])
-        # moving a card into plan is the go signal: it switches auto advance on, unless the
-        # same write says otherwise. A move, not a card already there, so a card the agent
-        # stopped in plan (open questions) stays stopped until someone hands it back.
-        if fields.get("lane") == "plan" and old["lane"] != "plan":
+        # moving a card forward, or back into plan to replan it, is the go signal: it
+        # switches auto advance on, unless the same write says otherwise (the agent's own
+        # moves do). Into done is the end, so no; nor another move back, nor a card already
+        # in its lane, so one the agent stopped stays stopped.
+        frm, to = LANES.index(old["lane"]), LANES.index(fields.get("lane", old["lane"]))
+        if to != frm and (to > frm or LANES[to] == "plan") and LANES[to] != "done":
             fields.setdefault("auto_advance", True)
         sets, args, evs = [], [], []
         for f, new in fields.items():
@@ -415,23 +435,40 @@ def update_card(id, actor, **fields):
                 continue
             sets.append(f"{f}=?")
             args.append(json.dumps(new) if f in JSON_FIELDS else new)
+            if f == "attention":
+                continue   # a notification, not history: not logged
             if f == "checklist":
                 evs += _checklist_events(old[f], new)
             else:
                 evs.append((EVENT_KIND.get(f, "edited"), {"field": f, "from": old[f], "to": new}))
+        # attention is "waiting for you": any other change to the card is the reply. It
+        # clears the dot and, unless the same write says otherwise, gets the agent back on it
+        if sets and "attention" not in fields and old["attention"]:
+            sets.append("attention=0")
+            if ("auto_advance" not in fields and not old["auto_advance"]
+                    and fields.get("lane", old["lane"]) in AGENT_LANES):
+                sets.append("auto_advance=1")
+                evs.append(("edited", REPLIED))
         if sets:
             db.execute(
                 f"UPDATE cards SET {', '.join(sets)}, updated_at=? WHERE id=?", args + [_now(), id]
             )
             for kind, detail in evs:
                 _event(db, id, actor, kind, detail)
+            if fields.get("assignee"):   # an agent assigning itself needs no create_user first
+                db.execute("INSERT OR IGNORE INTO users (name) VALUES (?)", (fields["assignee"],))
     return get_card(id)
 
 
 def comment(id, actor, text):
     with closing(connect()) as db, db:
-        _load(db, id)
+        old = _load(db, id)
         _event(db, id, actor, "comment", {"text": text})
+        if old["attention"]:   # a reply, as in update_card
+            db.execute("UPDATE cards SET attention=0 WHERE id=?", (id,))
+            if not old["auto_advance"] and old["lane"] in AGENT_LANES:
+                db.execute("UPDATE cards SET auto_advance=1 WHERE id=?", (id,))
+                _event(db, id, actor, "edited", REPLIED)
     return get_card(id)
 
 

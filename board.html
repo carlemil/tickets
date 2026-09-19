@@ -37,7 +37,10 @@
   }
   #err.on { display: block; }
 
-  #board { display: flex; gap: 12px; padding: 16px; align-items: flex-start; overflow-x: auto; }
+  /* the board fills the window below the header, and every lane runs to its bottom */
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+  #board { display: flex; gap: 12px; padding: 16px; align-items: stretch; overflow-x: auto;
+           flex: 1; }
   .lane {
     flex: 1 1 0; min-width: 150px; background: #ebecf0; border-radius: 6px;
     padding: 8px; display: flex; flex-direction: column; gap: 8px; min-height: 120px;
@@ -52,6 +55,10 @@
     box-shadow: 0 1px 1px rgba(9,30,66,.25); border-left: 3px solid transparent;
   }
   .card:hover { background: #f7f8f9; }
+  .card { position: relative; }
+  .card .dot { position: absolute; top: 6px; right: 6px; width: 10px; height: 10px;
+               border-radius: 50%; background: #de350b; }
+  .card:has(.dot) .t { padding-right: 14px; }
   .card.dragging { opacity: .4; }
   .card .t { font-weight: 500; }
   .card .meta { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
@@ -61,7 +68,11 @@
   .card.p-low  { border-left-color: #36b37e; }
   .pill { background: #dfe1e6; border-radius: 10px; padding: 1px 7px; font-size: 11px; color: #42526e; }
   .pill.who { background: #deebff; color: #0747a6; }
-  .pill.auto { background: #e3fcef; color: #006644; }
+  /* auto advance at a glance: lit green when on, a faint ring when off */
+  .card .auto { width: 8px; height: 8px; border-radius: 50%; flex: none;
+                box-sizing: border-box; border: 1.5px solid #c1c7d0; }
+  .card .auto.on { background: #36b37e; border-color: #36b37e;
+                   box-shadow: 0 0 4px 1px rgba(54,179,126,.7); }
   .pill.proj { font-weight: 600; }
   #panel .project input[type=color] { width: 60px; height: 28px; padding: 2px; }
   .id { color: #a5adba; }
@@ -81,6 +92,8 @@
   /* grows with its text, natively: 3 lines at least, 50 at most, then it scrolls */
   #panel textarea.desc { field-sizing: content; box-sizing: content-box;
                          min-height: 3lh; max-height: 50lh; width: calc(100% - 14px); }
+  /* the plan is long: a fixed 10 lines that scrolls, not sized by its text */
+  #panel textarea.plan { height: 10lh; }
   #panel .project { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
   #panel .project button { align-self: flex-start; }
   .close { float: right; margin-left: 10px; }   /* the gap between neighbouring buttons */
@@ -203,7 +216,8 @@ function eventLine(e) {
     case "assigned": return d.to ? `assigned it to ${val(d.to)}`
                                  : `unassigned it (was ${val(d.from)})`;
     case "edited":
-      if (d.field === "description") return "edited the description";
+      if (["description", "plan", "questions", "answers"].includes(d.field))
+        return `edited the ${d.field}`;
       if (d.field === "checklist")   return `changed the checklist to ${val(d.to)}`;
       if (d.field === "labels")      return `changed the labels from ${val(d.from)} to ${val(d.to)}`;
       if (d.field === "auto_advance") return `turned auto advance ${d.to ? "on" : "off"}`;
@@ -270,16 +284,23 @@ function cardNode(c) {
   if (c.assignee) meta.append(Object.assign(document.createElement("span"),
     { className: "pill who", textContent: c.assignee }));
   meta.append(Object.assign(document.createElement("span"),
-    { className: "pill", textContent: c.priority }));
-  if (c.auto_advance) meta.append(Object.assign(document.createElement("span"),
-    { className: "pill auto", textContent: "auto", title: "auto advance is on" }));
+    { className: "pill pri", textContent: c.priority }));
+  meta.prepend(Object.assign(document.createElement("span"),
+    { className: "auto" + (c.auto_advance ? " on" : ""),
+      title: c.auto_advance
+        ? "auto advance is on: the agent carries this card on to verify by itself"
+        : "auto advance is off: the agent works this card only when it is assigned to it" }));
   meta.append(projectTag(c.project));
   for (const l of c.labels) meta.append(Object.assign(document.createElement("span"),
-    { className: "pill", textContent: l }));
+    { className: "pill label", textContent: l }));
   if (c.checklist.length) meta.append(Object.assign(document.createElement("span"),
-    { className: "pill",
+    { className: "pill checks",
       textContent: `☑ ${c.checklist.filter(i => i.done).length}/${c.checklist.length}` }));
   n.append(t, meta);
+  // set by an agent handing the card back; any edit, move or comment clears it
+  if (c.attention) n.append(Object.assign(document.createElement("span"),
+    { className: "dot", title: "waiting for your input: an agent handed this card back. " +
+      "Any edit, move or comment clears it and sends the card back to the agent" }));
 
   n.ondragstart = ev => {
     ev.dataTransfer.setData("text/plain", String(c.id));
@@ -305,16 +326,43 @@ function renderBoard() {
     col.append(h);
     mine.forEach(c => col.append(cardNode(c)));
 
-    col.ondragover = ev => { ev.preventDefault(); col.classList.add("over"); };
-    col.ondragleave = () => col.classList.remove("over");
-    col.ondrop = ev => {
-      ev.preventDefault();
-      col.classList.remove("over");
-      move(Number(ev.dataTransfer.getData("text/plain")), lane);
-    };
     b.append(col);
   }
 }
+
+// A card drops into the column under the pointer, wherever on the page: below a lane's
+// end, in the gap between lanes or on the status bar too. A lane is as tall as the tallest
+// one, which leaves no room under the last card of a full lane, and the status bar covers
+// the bottom of the window.
+function laneAt(ev) {
+  const hit = ev.target.closest && ev.target.closest(".lane");
+  if (hit) return hit;
+  let best = null, dist = Infinity;
+  for (const col of document.querySelectorAll(".lane")) {
+    const r = col.getBoundingClientRect();
+    const d = Math.max(r.left - ev.clientX, ev.clientX - r.right, 0);
+    if (d < dist) { dist = d; best = col; }
+  }
+  return best;
+}
+function markOver(col) {
+  for (const x of document.querySelectorAll(".lane.over")) if (x !== col) x.classList.remove("over");
+  if (col) col.classList.add("over");
+}
+document.addEventListener("dragover", ev => {
+  if (!$(".card.dragging")) return;   // a card's drag only, not text or files
+  ev.preventDefault();
+  markOver(laneAt(ev));
+});
+document.addEventListener("dragleave", ev => { if (!ev.relatedTarget) markOver(null); });
+document.addEventListener("dragend", () => markOver(null));
+document.addEventListener("drop", ev => {
+  const col = $(".card.dragging") && laneAt(ev);
+  markOver(null);
+  if (!col) return;
+  ev.preventDefault();
+  move(Number(ev.dataTransfer.getData("text/plain")), col.dataset.lane);
+});
 
 async function move(id, lane) {
   const c = cards.find(x => x.id === id);
@@ -355,6 +403,7 @@ const stale = card => open && open.id === card.id && lastEvent(card) < lastEvent
 
 function field(label, node) {
   const w = document.createElement("div");
+  w.title = FIELD_TIPS[label] || "";
   w.append(Object.assign(document.createElement("h3"), { textContent: label }), node);
   return w;
 }
@@ -467,7 +516,9 @@ function renderPanel() {
   if (c.id) {
     // archiving takes the card out of the current view (active or archived), so reload and close
     const arch = Object.assign(document.createElement("button"),
-      { className: "close", textContent: c.archived ? "unarchive" : "archive" });
+      { className: "close", textContent: c.archived ? "unarchive" : "archive",
+        title: c.archived ? "put the card back on the board"
+                          : "take the card off the board, without deleting it" });
     arch.onclick = async () => {
       try {
         await api("PATCH", "/api/cards/" + c.id, { archived: !c.archived });
@@ -480,7 +531,7 @@ function renderPanel() {
       { className: "sub", textContent: `#${c.id} · ${c.project} · ${c.lane} · created by ${c.created_by} ${ago(c.created_at)}` }));
   } else {
     const cancel = Object.assign(document.createElement("button"),
-      { className: "close", textContent: "cancel" });
+      { className: "close", textContent: "cancel", title: "throw this new card away" });
     cancel.onclick = dismiss;
     p.append(cancel, Object.assign(document.createElement("div"),
       { className: "sub", textContent: `new card · ${c.project} · created when you close it` }));
@@ -502,6 +553,16 @@ function renderPanel() {
     { value: c.description, className: "desc" });
   desc.onchange = () => patch({ description: desc.value });
   p.append(field("description", desc));
+
+  // the planning round, each in its own box: shown once the agent has planned
+  if (c.plan || c.questions || c.answers)
+    for (const [f, label] of [["plan", "plan"], ["questions", "open questions"],
+                              ["answers", "your answers"]]) {
+      const box = Object.assign(document.createElement("textarea"),
+        { value: c[f], className: f === "plan" ? f : "desc " + f });
+      box.onchange = () => patch({ [f]: box.value });
+      p.append(field(label, box));
+    }
 
 
   const row = document.createElement("div");
@@ -839,7 +900,7 @@ async function loadStatus() {
   for (const j of jobs) {
     const n = document.createElement("span");
     n.className = "job";
-    n.title = j.project + " · " + j.lane;
+    n.title = `${j.project} · ${j.lane}: click to open the card`;
     n.append(Object.assign(document.createElement("span"), { className: "dot" }),
              Object.assign(document.createElement("span"), { className: "who", textContent: j.actor }),
              " " + j.doing + " ",
@@ -855,6 +916,66 @@ async function loadStatus() {
   if (busy !== null && now !== busy && !$(".card.dragging")) load();
   busy = now;
 }
+
+// ---------- hover help: every control says what it is ----------
+const FIELD_TIPS = {
+  "title": "what needs doing, in a line",
+  "project": "the project this card belongs to: the agent works in that project's folder",
+  "description": "the request: what you want done and why. The agent reads it, never rewrites it",
+  "plan": "the implementation plan the planning agent wrote. Edit it if you want it done differently",
+  "open questions": "what the plan needs a person to decide before the work can go on",
+  "your answers": "your answers to the open questions: saving them sends the card back to the agent to replan",
+  "priority": "how urgent: low, med or high (the colored bar on the card's left)",
+  "assignee": "who is working on it: a person, or an agent while it works. Assigning claude-agent starts it",
+  "lane": "the stage it is in: todo → plan → develop → test → verify → done",
+  "auto advance": "on: the agent works the card by itself, stage after stage, until it reaches verify",
+  "labels": "free tags, comma separated",
+  "checklist": "steps to tick off; the card shows done/total",
+  "links": "relate this card to another: a parent, or a card this one blocks",
+  "activity": "everything that happened to the card, and who did it",
+  "say something": "a comment on the card, logged with your name; ctrl+enter sends it",
+};
+const LANE_TIPS = {
+  todo: "backlog: not started. Move a card on to plan to start it",
+  plan: "the agent writes a plan and any open questions",
+  develop: "the agent builds it, following the plan and your answers",
+  test: "the agent reviews the changes and runs the tests",
+  verify: "the agent is done: a person checks the result",
+  done: "finished: nothing more happens to it",
+};
+// [selector, tip]: applied to whatever is on the page, including everything rendered
+// later, and never over a title an element already has (those are more specific)
+const TIPS = [
+  ["header h1", "the board: cards move left to right through the lanes"],
+  ["#who", "who you are: everything you change is logged under this name"],
+  ["#proj", "show only this project's cards"],
+  ["#projects", "set up projects: name, folder the agent works in, agent instructions, color"],
+  ["label:has(#showArch)", "show archived cards instead of the ones on the board"],
+  ["#add", "create a new card"],
+  ...LANES.map(l => [`.lane[data-lane="${l}"] h2`, LANE_TIPS[l]]),
+  [".card .id", "the card's number"],
+  [".card .pill.who", "assigned to"],
+  [".card .pill.pri", "priority"],
+  [".card .pill.proj", "project"],
+  [".card .pill.label", "label"],
+  [".card .pill.checks", "checklist items done / total"],
+  [".card", "click to open, drag to another lane to move it"],
+  ["#status", "what agents are doing right now"],
+  ["#panel .shut", "close; every field is already saved, and so is what you are still typing"],
+  ["#panel .project input[type=text]:first-of-type", "the project's name, as cards show it"],
+  ["#panel .project input[type=text]:nth-of-type(2)", "the folder the agent works in for this project's cards"],
+  ["#panel .project textarea", "put in front of every agent prompt for this project's cards"],
+  ["#panel .project .danger", "delete the project: its cards move to No Project, where agents leave them alone"],
+  ["#panel .project .primary", "create the project"],
+  ["#delProject button[value=cancel]", "keep the project"],
+  ["#delProject button[value=delete]", "delete the project for good"],
+];
+function applyTips() {
+  for (const [sel, tip] of TIPS)
+    for (const el of document.querySelectorAll(sel)) if (!el.title) el.title = tip;
+}
+new MutationObserver(applyTips).observe(document.body, { childList: true, subtree: true });
+applyTips();
 
 load();
 loadStatus();

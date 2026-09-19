@@ -53,7 +53,8 @@ example found online needs translating.
 ```sql
 users(id, name UNIQUE)
 cards(id, project, title, description, lane, assignee, created_by,
-      created_at, updated_at, priority, labels, checklist, archived, auto_advance)
+      created_at, updated_at, priority, labels, checklist, archived, auto_advance,
+      attention, plan, questions, answers)
 events(id, card_id, actor, kind, detail, at)     -- append-only
 links(from_id, to_id, kind)                      -- kind: 'parent' | 'blocks'
 projects(name PRIMARY KEY COLLATE NOCASE, path, instructions, color)
@@ -159,11 +160,35 @@ output becomes a comment, and the card moves on
 write, no state file). On any failure it comments `agent failed: …` and unassigns, lane
 unchanged. Development is a normal agent in auto mode (`--permission-mode auto`, never
 plan mode): it edits and runs the tests on its own, with Claude Code's auto-mode checks
-still on, and leaves changes uncommitted for review in `test`. The test stage runs with
-`--dangerously-skip-permissions`, reviews the uncommitted diff against the card
+still on, and commits its work on the card's own branch. The test stage runs with
+`--dangerously-skip-permissions`, reviews the card's changes against the card
 and plan, runs the tests, and must end with a last line of `RESULT: PASS` (markdown
 `*`/`` ` `` around it tolerated) to move on; anything else is a failure.
 Cards are handled one at a time.
+
+**A git worktree per card.** Develop and test run in a worktree of the card's own, next
+to the project's repo: `<repo>.worktrees/card-<id>` on branch `card/<id>`, made from the
+repo's current branch on the card's first develop run and reused after that (rework, the
+test stage). No two cards, and no person working in the repo, share a folder, so changes
+never overwrite or mix. The prompt is told where it is: develop commits on its branch
+(never pushes, merges or switches), test reviews `git diff <base>...HEAD` plus anything
+uncommitted. The card's comment ends with the worktree's path and branch. Planning only
+reads and runs in the repo. A project folder that is not a git repository is worked in
+place, told not to commit; a card that reached test before worktrees existed is tested in
+the repo. A worktree that cannot be made fails the card. Merging `card/<id>` and removing
+the worktree (`git worktree remove`) is a person's job, after verify; a fresh worktree has
+no build output or installed dependencies, so the project's instructions should say how to
+get them if the tests need them.
+
+**The agent is assigned while it works.** Before a run it assigns the card to itself
+(the board shows `claude-agent` on it, next to the status bar's entry), and every way out
+— next stage, hand-back, open questions, failure — gives it back to whoever had it: a
+person keeps their card, and a card that was unassigned or assigned to the agent ends up
+unassigned. So an auto card is unassigned between stages and taken again by the next
+poll. If a person reassigned the card during the run, it stays theirs. Assigning a card
+to a name registers that name as a user (`create_card`/`update_card`), so any agent can
+put itself on a card without `create_user` first; the `update_card` tool's docs ask every
+agent to follow the same take-it, give-it-back convention.
 
 **A person's move wins.** A run takes minutes, and the card can be moved meanwhile — card
 #3 was: its auto advance was switched back on in `test`, the agent started a test run,
@@ -173,15 +198,21 @@ if it changed, the output is kept as a comment noting the move, and the card is 
 on, unassigned or switched off.
 
 **The plan stage** runs `claude -p --permission-mode plan` (what `/plan` switches on, so it is
-read-only) and the plan **replaces the card's description** — the old text survives as the
-`from` of the `edited` event. Nobody can answer questions mid-run, so the prompt has Claude
-list them under `## Open questions` and end with a last line of `QUESTIONS: NONE` or
-`QUESTIONS: OPEN`; that line is stripped from the description. `NONE` → the card moves to
-`develop` and, unless auto advance is on, halts there unassigned. Anything else, including
-no verdict line, → the card stays in `plan`, unassigned, with a comment asking for the
-answers in the description; auto advance is switched off so it is not replanned every
-poll. Answer, reassign, and it replans. An empty reply is a failure, so a description is
-never blanked. Verified with one real headless run: full markdown plan, verdict last.
+read-only). A card keeps its planning round in three text fields of its own, so each reads
+on its own: `description` is the person's request and the agent never writes it; `plan` is
+the plan; `questions` the plan's open questions; `answers` the person's reply. Nobody can
+answer questions mid-run, so the prompt has Claude put them in a last `## Open questions`
+section and end with a last line of `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
+`agent.split_plan` drops the verdict line and cuts that section off into `questions`.
+`NONE` → only `plan` is written (the last round's questions and answers stay, as the
+record of what was decided), the card moves to `develop` and, unless auto advance is on,
+halts there unassigned. Anything else, including no verdict line, → `plan` and `questions`
+are written, the card stays in `plan` unassigned, auto advance is switched off so it is not
+replanned every poll, and a comment asks for the answers. Filling them in is a reply (see
+attention), which switches auto advance back on: the agent replans with the answers in the
+prompt, told not to ask them again. An empty plan is a failure, so a plan is never blanked.
+The develop and test prompts name the fields too, and the MCP tools' docs say what goes in
+each, so any agent writes the plan to `plan`, not over the request.
 
 **Auto advance.** `cards.auto_advance` is a switch on the card. With it on, the agent
 works the card in `plan`, `develop` and `test` whoever it is assigned to (or nobody) and
@@ -201,6 +232,20 @@ when the set of busy cards changes it reloads the board (skipped mid-drag), so a
 agent just moved shows up in its new lane. A killed agent's entry lingers until it
 restarts — the "started" age is what makes that visible.
 
+**Attention: "waiting for you".** `cards.attention` is a red dot top right of the board
+card. Only an explicit `attention=True` sets it, and the agent passes it whenever it
+hands a card back to a person: open questions, a stage done on an assigned card, an auto
+card reaching `verify`, any failure. An auto card still moving on does not ask. Any
+other change to the card — an edit, a move, a comment, by anyone — clears it; opening
+the card does not. It is a notification, not history, so setting and clearing it write
+no event. **The reply restarts the agent:** a change or comment that clears the dot on a
+card in `plan`, `develop` or `test` also switches auto advance on (logged as an ordinary
+`edited` event, under the person), so the agent takes the card up again with the new
+input — answers, a comment on a failure, a fixed description. A write that sets
+`auto_advance` itself wins, and a reply that moves the card to `todo`, `verify` or `done`
+leaves it off. Edits to a card with no dot never start the agent. Each field saves on
+`change`, so an answers box is one reply however many questions it answers.
+
 ## Board (`board.html`)
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
@@ -211,6 +256,36 @@ persisted in `localStorage` supplies `actor` on every write — its "+ another n
 prompts and `POST`s to `/api/users`, so a new person or agent is registered and assignable
 without writing a card first — and a project `<select>`
 (also persisted) filters the board — an agent and a human both scope to one project.
+
+Once a card has a plan, questions or answers, the sheet shows each in its own box under
+the description: "plan" is a fixed 10 lines and scrolls, "open questions" and "your
+answers" grow like the description. The description box grows with its text, from 3 lines
+up to 50, then scrolls
+(CSS `field-sizing: content`). Lanes run to the bottom of the window even when empty,
+and all grow together with the tallest. Moving a card forward — drag, sheet or MCP — or
+back into `plan` to replan it turns its auto advance on in `core.update_card`, unless the
+same write says `auto_advance=False`. Into `done` it does not: nothing more is to be done.
+Other moves back leave it alone, and so does a write to a card already in its lane, so
+one the agent stopped stays stopped. The agent's own forward moves pass the card's
+current `auto_advance`, so a card it hands back still halts for a person.
+
+**Auto advance at a glance.** Every board card leads with a small dot: lit green when
+auto advance is on, a faint ring when it is off (it replaced the "auto" pill, which only
+showed the on state). The red dot top right is attention, a different thing.
+
+**Hover help.** Every control has a `title`. Panel fields get theirs from `FIELD_TIPS` in
+`field()`, lane headings from `LANE_TIPS`; everything else from one `TIPS` list of
+`[selector, text]` that a `MutationObserver` applies to whatever is rendered, never over
+a title an element already has (the auto dot, the attention dot and status jobs set
+their own, more specific ones). `test_every_control_on_the_board_and_sheet_has_hover_help`
+fails on any visible control left without one.
+
+**Dropping a card.** One set of `dragover`/`drop` listeners on the document, not one per
+lane: a card drops into the lane it is over, or, anywhere else on the page (below a lane's
+end, between lanes, on the status bar), into the column nearest the pointer. Lanes are as
+tall as the tallest one, so a full lane had no room left under its last card, and the
+fixed status bar covered the bottom of the window: a drop there used to land on nothing.
+Only a card's drag counts (`.card.dragging`), not text or files dragged in.
 
 **The sheet covers the whole window; "close" closes it.** Every field saves on
 `change`, so there is no save button. The sheet is full width, so there is no outside to
@@ -279,6 +354,13 @@ the button for 150 ms.
 | 14 | project colors: cards tagged with their project's name and color, after the priority/auto chips | done — 283 checks |
 | 15 | agent status bar: `set_activity` tool, `GET /api/activity`, bar polls and reloads the board | done — 297 checks |
 | 16 | delete a project (confirm dialog; cards move to "No Project", off limits to agents); full-width sheet with a close button | done — 307 checks |
+| 17 | description grows to 50 lines; moving into plan turns auto advance on; lanes reach the window bottom | done |
+| 18 | attention dot: the agent flags a card it hands back, any other change clears it | done — 353 checks |
+| 19 | plan, questions and answers in fields of their own; a reply to a waiting card restarts the agent | done — 380 checks |
+| 20 | a forward move (not into done) switches auto advance on; plan-lane cards migrated to the new fields | done |
+| 21 | the agent assigns itself while it works and gives the card back; assigning registers a name; drop anywhere snaps to the column | done |
+| 22 | auto advance dot on every card; hover help on every control | done — 413 checks |
+| 23 | develop and test run in a git worktree per card (`<repo>.worktrees/card-<id>`, branch `card/<id>`) | done — 422 checks |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

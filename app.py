@@ -153,7 +153,13 @@ def list_cards(project: str | None = None, lane: str | None = None,
 
 @tool
 def get_card(id: int) -> dict:
-    """Get one card with its full `events` activity log (chronological) and its `links`."""
+    """Get one card with its full `events` activity log (chronological) and its `links`.
+
+    What a card's text fields hold: `description` is the request, what a person wants done.
+    `plan` is the implementation plan, `questions` the plan's open questions for a person,
+    `answers` that person's answers to them. Build from `plan` and `answers`, not from
+    questions a person has already answered.
+    """
     return core.get_card(id)
 
 
@@ -169,6 +175,8 @@ def create_card(title: str, actor: str, project: str, description: str = "",
     belongs to. It must be a configured project (list_projects); an unknown name is an
     error, not a new project, and if there are none, ask a person to create one on the
     board — agents do not configure projects.
+    `description` is the request: what needs doing and why. A plan, its open questions and
+    their answers have fields of their own, set later with update_card.
     `checklist` items are {"text": str, "done": bool}. `assignee` is a person's name.
     `auto_advance=True` lets the board agent carry the card plan -> develop -> test ->
     verify on its own once it reaches plan.
@@ -183,26 +191,42 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
                 lane: str | None = None, assignee: str | None = None, priority: str | None = None,
                 labels: list[str] | None = None, checklist: list[dict] | None = None,
                 project: str | None = None, archived: bool | None = None,
-                auto_advance: bool | None = None) -> dict:
+                auto_advance: bool | None = None, attention: bool | None = None,
+                plan: str | None = None, questions: str | None = None,
+                answers: str | None = None) -> dict:
     """Change a card: this is how you move it between lanes, assign it, and tick checklist items.
 
     `actor` is you — every change is logged under that name. Pass only the fields you are
     changing; omitted fields are left alone, and a field passed unchanged records nothing.
 
     `lane` moves the card, in order todo -> plan -> develop -> test -> verify -> done.
-    Moving a card into plan also turns auto_advance on, so the board agent starts on it;
-    pass auto_advance=False in the same call to move it without that.
-    `assignee` assigns it to a person; pass "" to unassign. `priority` is low, med or high.
+    Moving a card forward (except into done), or back into plan, also turns auto_advance
+    on, so the board agent takes it up; pass auto_advance=False (or its current value) in
+    the same call to move it without that.
+    `assignee` assigns it to a person or an agent, by name; pass "" to unassign. A name
+    not yet on the board is registered as a user by assigning it. When you start work on a
+    card, assign it to yourself so the board shows who is on it; when you are done, give it
+    back to whoever had it before (or "" if nobody did). `priority` is low, med or high.
     `checklist` REPLACES the whole list, so send every item back, not just the one you
     ticked: get_card first, flip the `done` you want, send the full list. `labels` likewise
     replaces the whole list. `archived=True` takes the card off the board without deleting
     it; `archived=False` puts it back. `auto_advance` switches the board agent's hands-off
     plan -> develop -> test -> verify run on or off.
+    `attention=True` puts a dot on the card meaning "waiting for your input": set it when
+    you hand the card back to a person. Any later change or comment clears it.
+
+    Where text goes — each field REPLACES what is there: `description` is the request;
+    leave it to the person who asked, do not put a plan in it. `plan` is the
+    implementation plan (markdown), the planning agent's to write. `questions` holds only
+    what a person must decide before the work can go on, one per line or bullet; pass ""
+    once none are open. `answers` is the person's reply to `questions`: read it, do not
+    write it. Results of development or testing go in a comment, not in these fields.
     """
     fields = {k: v for k, v in dict(
         title=title, description=description, lane=lane, assignee=assignee, priority=priority,
         labels=labels, checklist=checklist, project=project, archived=archived,
-        auto_advance=auto_advance).items()
+        auto_advance=auto_advance, attention=attention, plan=plan, questions=questions,
+        answers=answers).items()
         if v is not None}
     if fields.get("assignee") == "":
         fields["assignee"] = None   # None already means "not passed", so "" is how you unassign
@@ -230,6 +254,7 @@ def create_user(name: str) -> str:
     You do not need this to work: any `actor` you pass to another tool registers itself on
     its first write. Use it to put a name on the board ahead of time — your own agent name
     so a human can assign you work, or a teammate you are about to assign a card to.
+    Assigning a card to a new name (update_card) registers it too.
     Registering a name that already exists does nothing. Returns the name as stored.
     """
     return core.ensure_user(name)

@@ -726,12 +726,12 @@ def test_auto_advance_switch_saves_shows_a_pill_and_logs(page):
     assert page.locator(AUTO).is_checked() is False
     page.check(AUTO)
     wait_saved(page, cid, "auto_advance", True)
-    assert page.locator(f'.card[data-id="{cid}"] .pill.auto').count() == 1
+    assert page.locator(f'.card[data-id="{cid}"] .auto.on').count() == 1
     assert "turned auto advance on" in page.text_content("#panel .log")
     assert page.locator(AUTO).is_checked(), "the re-render keeps it ticked"
     page.uncheck(AUTO)
     wait_saved(page, cid, "auto_advance", False)
-    assert page.locator(f'.card[data-id="{cid}"] .pill.auto').count() == 0
+    assert page.locator(f'.card[data-id="{cid}"] .auto.on').count() == 0
     assert "turned auto advance off" in page.text_content("#panel .log")
 
 
@@ -759,7 +759,7 @@ def test_the_switch_shows_what_the_agent_left(page):
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_selector(AUTO)
     assert page.locator(AUTO).is_checked() is False
-    assert page.locator(f'.card[data-id="{cid}"] .pill.auto').count() == 0
+    assert page.locator(f'.card[data-id="{cid}"] .auto.on').count() == 0
     assert "claude-agent turned auto advance off" in page.text_content("#panel .log")
 
 
@@ -1041,15 +1041,18 @@ def test_the_tag_follows_a_card_moved_to_another_project(page):
     assert tag(page, cid).evaluate("e => getComputedStyle(e).backgroundColor") == rgb(core.PALETTE[1])
 
 
-def test_the_project_tag_sits_after_the_priority_and_auto_chips(page):
+def test_the_auto_dot_leads_and_the_project_tag_sits_after_the_priority(page):
     plain = core.create_card("a", actor="ce", project="Home", priority="high",
                              assignee="bob", labels=["ui"])["id"]
     auto = core.create_card("b", actor="ce", project="Home", auto_advance=True)["id"]
     page.evaluate("load()")
     page.wait_for_selector(f'.card[data-id="{auto}"]')
     chips = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').all_text_contents()
-    assert chips(plain) == [f"#{plain}", "bob", "high", "Home", "ui"], chips(plain)
-    assert chips(auto) == [f"#{auto}", "med", "auto", "Home"], chips(auto)
+    assert chips(plain) == ["", f"#{plain}", "bob", "high", "Home", "ui"], chips(plain)
+    assert chips(auto) == ["", f"#{auto}", "med", "Home"], chips(auto)
+    first = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').first
+    assert first(auto).get_attribute("class") == "auto on"
+    assert first(plain).get_attribute("class") == "auto"
 
 
 # ---------- status bar ----------
@@ -1190,7 +1193,162 @@ def test_dragging_a_card_into_plan_ticks_auto_advance(page):
     page.evaluate("load()")
     page.wait_for_selector(f'.card[data-id="{cid}"]')
     drag(page, cid, "plan")
-    page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{cid}"] .pill.auto')
+    page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{cid}"] .auto.on')
     assert core.get_card(cid)["auto_advance"] is True
     page.click(f'.card[data-id="{cid}"]')
     assert page.locator("#panel .auto-sw input[type=checkbox]").is_checked()
+
+
+def test_lanes_run_to_the_bottom_of_the_window_even_when_empty(page):
+    core.create_card("one", actor="ce", project="Home")
+    page.evaluate("load()")
+    page.wait_for_selector(".lane .card")
+    bar = page.locator("#status").bounding_box()
+    for lane in page.locator(".lane").all():
+        box = lane.bounding_box()
+        gap = bar["y"] - (box["y"] + box["height"])
+        # the board's own 16px padding, plus the room kept for the bar: a few px, not a half-empty lane
+        assert 0 <= gap <= 30, f"{lane.get_attribute('data-lane')} ends {gap}px above the status bar"
+
+
+def test_a_tall_lane_still_grows_past_the_window(page):
+    for i in range(30):
+        core.create_card(f"card {i}", actor="ce", project="Home")
+    page.evaluate("load()")
+    page.wait_for_selector(".lane .card >> nth=29")
+    todo = page.locator('.lane[data-lane="todo"]').bounding_box()
+    assert todo["height"] > page.viewport_size["height"], "the page scrolls, cards are not clipped"
+    plan = page.locator('.lane[data-lane="plan"]').bounding_box()
+    assert plan["height"] == todo["height"], "and the empty lanes match it"
+
+
+def test_an_agent_hand_back_shows_a_dot_that_an_edit_clears(page):
+    cid = core.create_card("asks", actor="ce", project="Home")["id"]
+    quiet = core.create_card("quiet", actor="ce", project="Home")["id"]
+    core.update_card(cid, "claude-agent", attention=True)
+    page.evaluate("load()")
+    dot = page.locator(f'.card[data-id="{cid}"] .dot')
+    dot.wait_for()
+    assert dot.get_attribute("title").startswith("waiting for your input")
+    assert page.locator(f'.card[data-id="{quiet}"] .dot').count() == 0
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    assert core.get_card(cid)["attention"] is True, "opening alone does not clear it"
+    type_into(page, "#panel input[type=text] >> nth=0", "answered")
+    wait_saved(page, cid, "title", "answered")
+    assert core.get_card(cid)["attention"] is False
+    close_sheet(page)
+    page.wait_for_function(f"""() => document.querySelector('.card[data-id="{cid}"]')
+                                     && !document.querySelector('.card[data-id="{cid}"] .dot')""")
+
+
+def test_plan_questions_and_answers_get_their_own_boxes_once_planned(page):
+    fresh = core.create_card("fresh", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{fresh}"]')
+    page.wait_for_function(f"() => open && open.id === {fresh}")
+    assert page.locator("#panel textarea.plan").count() == 0, "an unplanned card has none"
+    close_sheet(page)
+
+    cid = core.create_card("asks", actor="ce", project="Home", lane="plan",
+                           description="the ask")["id"]
+    core.update_card(cid, "claude-agent", plan="step\n" * 30, questions="- red?")
+    core.update_card(cid, "claude-agent", attention=True)
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    assert page.locator("#panel textarea.desc >> nth=0").input_value() == "the ask"
+    assert page.locator("#panel textarea.questions").input_value() == "- red?"
+    type_into(page, "#panel textarea.answers", "blue")
+    wait_saved(page, cid, "answers", "blue")
+    c = core.get_card(cid)
+    assert (c["attention"], c["auto_advance"]) == (False, True), "the reply restarts the agent"
+
+
+def test_the_plan_box_is_ten_lines_whatever_its_text(page):
+    cid = core.create_card("p", actor="ce", project="Home")["id"]
+    core.update_card(cid, "claude-agent", plan="one line")
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    box = page.locator("#panel textarea.plan")
+    lh = box.evaluate("e => parseFloat(getComputedStyle(e).lineHeight)")
+    short = box.evaluate("e => e.clientHeight")
+    assert abs(short - 10 * lh) <= lh, (short, lh)
+    type_into(page, "#panel textarea.plan", "line\n" * 40)
+    wait_saved(page, cid, "plan", "line\n" * 40)
+    box = page.locator("#panel textarea.plan")
+    assert box.evaluate("e => e.clientHeight") == short, "long text scrolls, the box stays"
+    assert box.evaluate("e => e.scrollHeight > e.clientHeight")
+
+
+def drop_at(page, card_id, selector, lane):
+    """Drag a card and drop it on `selector` (not a lane), level with `lane`'s column."""
+    page.evaluate("""([id, sel, lane]) => {
+        const card = document.querySelector(`.card[data-id="${id}"]`);
+        const r = document.querySelector(`.lane[data-lane="${lane}"]`).getBoundingClientRect();
+        const target = document.querySelector(sel);
+        const dt = new DataTransfer();
+        const fire = (el, type) => el.dispatchEvent(new DragEvent(type,
+            {bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + r.width / 2}));
+        fire(card, "dragstart"); fire(target, "dragover"); fire(target, "drop");
+    }""", [card_id, selector, lane])
+
+
+@pytest.mark.parametrize("where", ["#status", "#board", "body"])
+def test_a_card_dropped_outside_any_lane_snaps_to_the_column_under_it(page, where):
+    ids = [core.create_card(f"card {i}", actor="ce", project="Home", lane="plan")["id"]
+           for i in range(15)]
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{ids[-1]}"]')
+    drop_at(page, ids[0], where, "develop")
+    page.wait_for_selector(f'.lane[data-lane="develop"] .card[data-id="{ids[0]}"]')
+    assert core.get_card(ids[0])["lane"] == "develop"
+    assert not page.locator(".lane.over").count(), "no lane left highlighted"
+
+
+def test_only_a_card_drag_is_dropped(page):
+    cid = core.create_card("stay", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{cid}"]')
+    page.evaluate("""() => {   // text dragged in from elsewhere: no card is being dragged
+        const dt = new DataTransfer(); dt.setData("text/plain", "1");
+        const r = document.querySelector('.lane[data-lane="done"]').getBoundingClientRect();
+        for (const type of ["dragover", "drop"])
+            document.querySelector("#status").dispatchEvent(new DragEvent(type,
+                {bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 5}));
+    }""")
+    page.wait_for_timeout(300)
+    assert core.get_card(cid)["lane"] == "todo"
+
+
+def test_every_control_on_the_board_and_sheet_has_hover_help(page):
+    cid = core.create_card("tipped", actor="ce", project="Home", lane="plan", labels=["ui"],
+                           checklist=[{"text": "a", "done": False}], assignee="ce")["id"]
+    core.update_card(cid, "claude-agent", plan="p", questions="q?", attention=True)
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{cid}"] .dot')
+    untitled = """sel => [...document.querySelectorAll(sel)]
+        .filter(e => e.offsetParent !== null && !e.closest('[title]'))
+        .map(e => e.outerHTML.slice(0, 80))"""
+    board = "header select, header button, header input, .lane h2, .card, .card *, #status"
+    assert page.evaluate(untitled, board) == []
+    tip = page.get_attribute(f'.card[data-id="{cid}"] .auto', "title")
+    assert tip.startswith("auto advance is off")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    assert page.evaluate(untitled, "#panel input, #panel select, #panel textarea, #panel button, #panel h3") == []
+    close_sheet(page)
+    page.click("#projects")
+    page.wait_for_selector("#panel .project")
+    assert page.evaluate(untitled, "#panel input, #panel textarea, #panel button") == []
+
+
+def test_the_auto_dot_is_lit_only_when_auto_advance_is_on(page):
+    on = core.create_card("on", actor="ce", project="Home", auto_advance=True)["id"]
+    off = core.create_card("off", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{off}"]')
+    assert page.locator(f'.card[data-id="{on}"] .auto.on').count() == 1
+    assert page.locator(f'.card[data-id="{off}"] .auto').count() == 1
+    assert page.locator(f'.card[data-id="{off}"] .auto.on').count() == 0
