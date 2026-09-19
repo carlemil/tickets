@@ -89,14 +89,21 @@
   #panel .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   #panel input[type=text], #panel textarea, #panel select { width: 100%; }
   #panel textarea { min-height: 70px; resize: vertical; }
-  /* grows with its text, natively: 3 lines at least, 50 at most, then it scrolls */
+  /* grows with its text, natively: 10 lines at least, 50 at most, then it scrolls */
   #panel textarea.desc { field-sizing: content; box-sizing: content-box;
-                         min-height: 3lh; max-height: 50lh; width: calc(100% - 14px); }
+                         min-height: 10lh; max-height: 50lh; width: calc(100% - 14px); }
   /* the plan is long: a fixed 10 lines that scrolls, not sized by its text */
   #panel textarea.plan { height: 10lh; }
   #panel .project { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
   #panel .project button { align-self: flex-start; }
   .close { float: right; margin-left: 10px; }   /* the gap between neighbouring buttons */
+  /* the card's header row stays put while the sheet scrolls under it: number, title,
+     created, archive, close. The negative margin cancels the sheet's padding */
+  #panel .head { position: sticky; top: -16px; z-index: 1; display: flex; gap: 10px;
+                 align-items: center; margin: -16px -20px 8px; padding: 12px 20px;
+                 background: var(--panel); border-bottom: 1px solid var(--line); }
+  #panel .head input { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; }
+  #panel .head .when { color: var(--dim); font-size: 12px; white-space: nowrap; }
   .sub { color: var(--dim); font-size: 12px; }
 
   .log { list-style: none; margin: 0; padding: 0; }
@@ -511,7 +518,12 @@ function renderPanel() {
   const shut = Object.assign(document.createElement("button"),
     { className: "close primary shut", textContent: "close" });
   shut.onclick = () => closePanel();
-  p.append(shut);
+  const title = Object.assign(document.createElement("input"),
+    { type: "text", value: c.title, placeholder: "what needs doing?", title: FIELD_TIPS.title });
+  title.onchange = () => patch({ title: title.value });
+  title.onkeydown = ev => { if (!c.id && ev.key === "Enter") closePanel(); };
+  const head = Object.assign(document.createElement("div"), { className: "head" });
+  p.append(head);
 
   if (c.id) {
     // archiving takes the card out of the current view (active or archived), so reload and close
@@ -526,22 +538,23 @@ function renderPanel() {
         load();
       } catch (e) { showErr(e.message); }
     };
-    p.append(arch);
+    head.append(Object.assign(document.createElement("span"), { className: "id", textContent: "#" + c.id }),
+                title,
+                Object.assign(document.createElement("span"),
+                  { className: "when", textContent: "created " + ago(c.created_at),
+                    title: new Date(c.created_at).toLocaleString() }),
+                arch, shut);
     p.append(Object.assign(document.createElement("div"),
-      { className: "sub", textContent: `#${c.id} · ${c.project} · ${c.lane} · created by ${c.created_by} ${ago(c.created_at)}` }));
+      { className: "sub", textContent: `${c.project} · ${c.lane} · created by ${c.created_by}` }));
   } else {
     const cancel = Object.assign(document.createElement("button"),
       { className: "close", textContent: "cancel", title: "throw this new card away" });
     cancel.onclick = dismiss;
-    p.append(cancel, Object.assign(document.createElement("div"),
+    head.append(Object.assign(document.createElement("span"), { className: "id", textContent: "new" }),
+                title, cancel, shut);
+    p.append(Object.assign(document.createElement("div"),
       { className: "sub", textContent: `new card · ${c.project} · created when you close it` }));
   }
-
-  const title = Object.assign(document.createElement("input"),
-    { type: "text", value: c.title, placeholder: "what needs doing?" });
-  title.onchange = () => patch({ title: title.value });
-  title.onkeydown = ev => { if (!c.id && ev.key === "Enter") closePanel(); };
-  p.append(field("title", title));
 
   const pj = document.createElement("select");
   for (const x of projects)   // a card from before projects may spell its project differently

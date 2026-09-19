@@ -794,7 +794,7 @@ def test_the_project_is_chosen_right_under_the_title(page):
     page.evaluate("load()")
     page.click("#add")
     heads = page.locator("#panel h3").all_text_contents()
-    assert heads[:2] == ["title", "project"], heads
+    assert heads[0] == "project", "first under the header row, which holds the title"
     assert page.locator("#panel select >> nth=0 >> option").all_text_contents() == [
         "Home", "Other"]
 
@@ -1157,12 +1157,12 @@ def desc_lines(page):
     }""")
 
 
-def test_the_description_grows_from_3_to_at_most_50_lines(page):
+def test_the_description_is_10_lines_tall_and_grows_to_at_most_50(page):
     add_card(page, "tall")
     box = "#panel textarea.desc"
-    assert desc_lines(page) == 3, "empty: three lines"
+    assert desc_lines(page) == 10, "empty: ten lines"
     page.fill(box, "one\ntwo")
-    assert desc_lines(page) == 3, "short text keeps the floor"
+    assert desc_lines(page) == 10, "short text keeps the floor"
     page.fill(box, "\n".join(f"line {i}" for i in range(12)))
     assert desc_lines(page) == 12, "grows as you type"
     page.fill(box, "\n".join(f"line {i}" for i in range(80)))
@@ -1352,3 +1352,51 @@ def test_the_auto_dot_is_lit_only_when_auto_advance_is_on(page):
     assert page.locator(f'.card[data-id="{on}"] .auto.on').count() == 1
     assert page.locator(f'.card[data-id="{off}"] .auto').count() == 1
     assert page.locator(f'.card[data-id="{off}"] .auto.on').count() == 0
+
+
+# ---------- the sheet's sticky header row ----------
+
+def head_parts(page):
+    return page.evaluate("""() => [...document.querySelector('#panel .head').children].map(n =>
+        n.tagName === 'INPUT' ? 'input:' + n.value : n.textContent)""")
+
+
+def test_the_header_row_holds_number_title_created_archive_and_close(page):
+    cid = add_card(page, "headed")
+    num, title, when, arch, close = head_parts(page)
+    assert (num, title, arch, close) == (f"#{cid}", "input:headed", "archive", "close")
+    assert when.startswith("created ")
+    tops = [b["y"] for b in (page.locator(f"#panel .head > *").nth(i).bounding_box()
+                             for i in range(5))]
+    assert max(tops) - min(tops) < 20, "one row"
+
+
+def test_a_draft_header_row_holds_the_title_cancel_and_close(page):
+    page.click("#add")
+    assert head_parts(page) == ["new", "input:", "cancel", "close"]
+
+
+def test_the_header_row_stays_at_the_top_while_the_sheet_scrolls(page):
+    cid = core.create_card("long one", actor="ce", project="Home",
+                           description="\n".join(f"line {i}" for i in range(60)))["id"]
+    page.evaluate(f"load().then(() => openCard({cid}))")
+    page.wait_for_selector("#panel.on .head")
+    page.evaluate("document.querySelector('#panel').scrollTop = 1e6")
+    page.wait_for_function("document.querySelector('#panel').scrollTop > 500")
+    head = page.locator("#panel .head").bounding_box()
+    assert head["y"] == 0, "pinned to the top of the sheet"
+    assert page.locator("#panel .head input").is_visible()
+    title = page.locator("#panel .head input").bounding_box()
+    hit = page.evaluate(f"document.elementFromPoint({title['x'] + 5}, {title['y'] + title['height'] / 2})"
+                        " === document.querySelector('#panel .head input')")
+    assert hit, "nothing scrolls over the header"
+    assert page.evaluate("getComputedStyle(document.querySelector('#panel .head')).backgroundColor")\
+        not in ("transparent", "rgba(0, 0, 0, 0)"), "opaque: the text under it does not show through"
+    page.click("#panel .head .shut")
+    page.wait_for_function("!document.querySelector('#panel').classList.contains('on')")
+
+
+def test_the_title_in_the_header_still_saves(page):
+    cid = add_card(page, "before")
+    type_into(page, "#panel .head input", "after")
+    wait_saved(page, cid, "title", "after")

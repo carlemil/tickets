@@ -288,7 +288,7 @@ without writing a card first — and a project `<select>`
 
 Once a card has a plan, questions or answers, the sheet shows each in its own box under
 the description: "plan" is a fixed 10 lines and scrolls, "open questions" and "your
-answers" grow like the description. The description box grows with its text, from 3 lines
+answers" grow like the description. The description box grows with its text, from 10 lines
 up to 50, then scrolls
 (CSS `field-sizing: content`). Lanes run to the bottom of the window even when empty,
 and all grow together with the tallest. Moving a card forward — drag, sheet or MCP — or
@@ -319,6 +319,10 @@ Only a card's drag counts (`.card.dragging`), not text or files dragged in.
 **The sheet covers the whole window; "close" closes it.** Every field saves on
 `change`, so there is no save button. The sheet is full width, so there is no outside to
 click: the "close" button top right is the way out (the projects sheet's is "done").
+The top of a card's sheet is one sticky header row that stays put while the sheet
+scrolls: the card number, the title (edited in place), "created <when>" (the full date on
+hover), "archive" and "close". A new card's row is "new", the title, "cancel", "close".
+Project, lane and creator sit on the line under it.
 Closing blurs the focused field, so the edit still in progress saves too, and text left
 in the comment box is posted rather than dropped. The error bar is fixed above the sheet
 so its messages stay visible. The sheet keeps "archive".
@@ -391,6 +395,7 @@ the button for 150 ms.
 | 22 | auto advance dot on every card; hover help on every control | done — 413 checks |
 | 23 | develop and test run in a git worktree per card (`<repo>.worktrees/card-<id>`, branch `card/<id>`) | done — 422 checks |
 | 24 | worktree only (no in-place runs); one run per project, projects side by side; commit and push before verify; deploy once in verify; open questions numbered from 1 | done |
+| 25 | Markera deploy instructions; description box 10 lines tall (grows to 50); sticky header row on the card sheet | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
