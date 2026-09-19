@@ -627,6 +627,18 @@ function renderPanel() {
     { type: "text", value: c.title, placeholder: "what needs doing?", title: FIELD_TIPS.title });
   title.onchange = () => patch({ title: title.value });
   title.onkeydown = ev => { if (!c.id && ev.key === "Enter") closePanel(); };
+  // closing without saving: the edit still being typed and the comment box are dropped,
+  // edits already saved stay
+  const cancel = Object.assign(document.createElement("button"),
+    { className: "close", textContent: "cancel",
+      title: c.id ? "close without saving what you are typing" : "throw this new card away" });
+  // keep focus in the field: a mousedown here would blur it, and the blur's change saves it
+  cancel.onmousedown = e => e.preventDefault();
+  cancel.onclick = () => {
+    const a = document.activeElement;
+    if (a && p.contains(a)) a.onchange = null;   // hiding the sheet blurs it: that must not save
+    dismiss();
+  };
   const head = Object.assign(document.createElement("div"), { className: "head" });
   p.append(head);
 
@@ -650,13 +662,10 @@ function renderPanel() {
                 Object.assign(document.createElement("span"),
                   { className: "when", textContent: "created " + ago(c.created_at),
                     title: new Date(c.created_at).toLocaleString() }),
-                arch, shut);
+                arch, cancel, shut);
     p.append(Object.assign(document.createElement("div"),
       { className: "sub", textContent: `${c.project} · ${c.lane} · created by ${c.created_by}` }));
   } else {
-    const cancel = Object.assign(document.createElement("button"),
-      { className: "close", textContent: "cancel", title: "throw this new card away" });
-    cancel.onclick = dismiss;
     head.append(Object.assign(document.createElement("span"), { className: "id", textContent: "new" }),
                 title, cancel, shut);
     p.append(Object.assign(document.createElement("div"),

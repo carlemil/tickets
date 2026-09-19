@@ -343,11 +343,12 @@ Only a card's drag counts (`.card.dragging`), not text or files dragged in.
 click: the "save" button top right is the way out (the projects sheet's is "done").
 The top of a card's sheet is one sticky header row that stays put while the sheet
 scrolls: the card number, the title (edited in place), "created <when>" (the full date on
-hover), "archive" and "save". A new card's row is "new", the title, "cancel", "save".
+hover), "archive", "cancel" and "save". A new card's row is "new", the title, "cancel", "save".
 The card number carries the auto dot, which pulses while an agent works the card.
 Project, lane and creator sit on the line under it.
 Closing blurs the focused field, so the edit still in progress saves too, and text left
-in the comment box is posted rather than dropped. The error bar is fixed above the sheet
+in the comment box is posted rather than dropped. "cancel" closes a card without saving the field
+being edited or posting the comment box; edits already saved stay. The error bar is fixed above the sheet
 so its messages stay visible. The sheet keeps "archive".
 
 "New Card" opens the same panel on an unsaved draft (title focused, project from the

@@ -1039,6 +1039,46 @@ def test_a_comment_left_in_the_box_is_posted_on_close(page):
             if e["kind"] == "comment"] == ["unsent, but not lost"]
 
 
+def cancel_sheet(page):
+    page.click("#panel button:text-is('cancel')")
+    page.wait_for_function("() => !open")
+    page.wait_for_timeout(300)   # a save the cancel let through would have landed by now
+
+
+def test_cancel_on_a_card_drops_the_edit_in_progress(page):
+    cid = add_card(page, "keep my text")
+    before = len(core.get_card(cid)["events"])
+    page.fill("#panel textarea >> nth=0", "typed, then cancelled")   # still focused
+    cancel_sheet(page)
+    c = core.get_card(cid)
+    assert c["description"] == "" and len(c["events"]) == before, c["events"]
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    assert page.input_value("#panel textarea >> nth=0") == "", "reopened, the old text is back"
+
+
+def test_cancel_on_a_card_drops_the_unsent_comment(page):
+    cid = add_card(page, "hush")
+    page.fill("#panel .say-box", "never sent")
+    cancel_sheet(page)
+    assert [e for e in core.get_card(cid)["events"] if e["kind"] == "comment"] == []
+
+
+def test_cancel_keeps_edits_already_saved(page):
+    cid = add_card(page, "keep the priority")
+    page.select_option("#panel .row select >> nth=0", "high")
+    wait_saved(page, cid, "priority", "high")
+    cancel_sheet(page)
+    assert core.get_card(cid)["priority"] == "high"
+
+
+def test_save_still_saves_the_edit_in_progress(page):
+    cid = add_card(page, "save my text")
+    page.fill("#panel textarea >> nth=0", "typed, then saved")   # still focused
+    close_sheet(page)
+    wait_saved(page, cid, "description", "typed, then saved")
+
+
 def test_an_empty_draft_just_closes(page):
     page.click("#add")
     page.select_option("#panel select >> nth=1", "high")   # a default changed: still empty
@@ -1578,13 +1618,14 @@ def head_parts(page):
         n.tagName === 'INPUT' ? 'input:' + n.value : n.textContent)""")
 
 
-def test_the_header_row_holds_number_title_created_archive_and_save(page):
+def test_the_header_row_holds_number_title_created_archive_cancel_and_save(page):
     cid = add_card(page, "headed")
-    num, title, when, arch, save = head_parts(page)
-    assert (num, title, arch, save) == (f"#{cid}", "input:headed", "archive", "save")
+    num, title, when, arch, cancel, save = head_parts(page)
+    assert (num, title, arch, cancel, save) == (f"#{cid}", "input:headed", "archive",
+                                                "cancel", "save")
     assert when.startswith("created ")
     tops = [b["y"] for b in (page.locator(f"#panel .head > *").nth(i).bounding_box()
-                             for i in range(5))]
+                             for i in range(6))]
     assert max(tops) - min(tops) < 20, "one row"
 
 
