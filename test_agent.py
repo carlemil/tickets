@@ -67,9 +67,9 @@ def tick():
     asyncio.run(go())
 
 
-def card(lane, assignee=agent.AGENT, project="Proj", auto=False):
+def card(lane, assignee=agent.AGENT, project="Proj", auto=False, priority="med"):
     id = core.create_card("t", "ce", lane=lane, assignee=assignee, project=project,
-                          auto_advance=auto)["id"]
+                          auto_advance=auto, priority=priority)["id"]
     path = core.get_project(project)["path"]
     if lane == "test" and path and (Path(path) / ".git").exists():   # developed: has a worktree
         agent.workspace({"id": id, "lane": "develop"}, Path(path))
@@ -854,6 +854,31 @@ def test_a_project_runs_one_card_at_a_time_in_order(ran):
     assert len(worked()) == 1, "one waits for the other"
     tick()
     assert worked() == [(a, "develop", f"card-{a}"), (b, "test", f"card-{b}")]
+
+
+def test_the_highest_priority_card_goes_first(ran):
+    low, high, med = card("develop", priority="low"), card("develop", priority="high"),         card("develop", priority="med")   # high in the middle: neither creation nor update order
+    for n, want in enumerate([high, med, low], 1):
+        tick()
+        assert len(ran) == n and ran[-1][0] == want
+
+
+def test_a_high_card_that_cannot_run_does_not_block(ran):
+    card("develop", assignee=None, priority="high")
+    low = card("develop", priority="low")
+    tick()
+    assert [r[0] for r in ran] == [low]
+
+
+def test_a_busy_projects_high_card_does_not_block_another_project(ran, repo):
+    card("develop", priority="high")
+    other = card("develop", project="Repo", priority="low")
+    agent.running["proj"] = "busy"
+    try:
+        tick()
+    finally:
+        del agent.running["proj"]
+    assert [r[0] for r in ran] == [other]
 
 
 def test_a_card_waits_while_its_project_is_busy(ran):
