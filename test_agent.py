@@ -2,6 +2,7 @@
 
 import asyncio
 import shutil
+import socket
 import subprocess
 import threading
 
@@ -997,6 +998,8 @@ def test_run_claude_deploys_with_rights_and_skips_a_missing_phone(monkeypatch, t
     p = got["input"]
     assert "backend" in p and "phone is connected" in p and "skip the phone" in p
     assert "DEPLOY: OK" in p and "deploy with ./ship.sh" in p
+    assert "may merge, push or restart services" in p, "a deploy that merges is not refused"
+    assert "Do not push, merge" not in p, "develop's rule is not the deploy's"
 
 
 # ---------- open questions are numbered from 1 ----------
@@ -1020,3 +1023,44 @@ def test_the_plan_prompt_asks_for_numbered_questions(monkeypatch, tmp_path):
                         subprocess.CompletedProcess(cmd, 0, stdout="ok"))
     agent.run_claude({"lane": "plan", "id": 7}, tmp_path)
     assert "numbered list starting at 1 (1. 2. 3.)" in got["input"]
+
+
+# ---------- only one agent runs ----------
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()
+
+
+def test_a_second_agent_refuses_to_start_while_one_runs():
+    addr = free_port()
+    first = agent.only_one(addr)
+    try:
+        with pytest.raises(SystemExit, match="already running"):
+            agent.only_one(addr)
+    finally:
+        first.close()
+
+
+def test_the_lock_is_free_again_once_the_agent_is_gone():
+    addr = free_port()
+    agent.only_one(addr).close()
+    agent.only_one(addr).close()
+
+
+def test_a_second_agent_process_exits_without_touching_the_board(tmp_path):
+    """The real thing: agent.py started twice. The second exits at once, before main()."""
+    import sys
+    try:
+        held = agent.only_one()   # stands in for the running agent
+    except SystemExit:
+        held = None               # the live agent holds it already: just as good
+    try:
+        r = subprocess.run([sys.executable, "agent.py"], capture_output=True, text=True,
+                           timeout=60, cwd=Path(agent.__file__).parent)
+    finally:
+        if held:
+            held.close()
+    assert r.returncode == 1 and "already running" in r.stderr
+    assert "polling" not in r.stdout

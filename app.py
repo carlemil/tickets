@@ -11,6 +11,7 @@ import core
 
 mcp = MCPServer("tickets")
 BOARD = Path(__file__).parent / "board.html"
+DOCS = Path(__file__).parent / "docs.html"
 
 
 def route(path, methods):
@@ -57,6 +58,11 @@ async def body(request):
 @route("/", methods=["GET"])
 async def index(request):
     return FileResponse(BOARD) if BOARD.exists() else PlainTextResponse("board.html not built yet")
+
+
+@route("/docs", methods=["GET"])
+async def docs(request):
+    return FileResponse(DOCS)
 
 
 @route("/api/cards", methods=["GET"])

@@ -35,6 +35,13 @@ def test_root_serves_the_board(client):
     assert 'id="board"' in r.text, "the board itself, not a placeholder"
 
 
+def test_docs_page_is_served_and_covers_the_essentials(client):
+    r = client.get("/docs")
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+    for text in ["127.0.0.1", "claude-agent", "RESULT: PASS", "worktree", *core.LANES]:
+        assert text in r.text, text
+
+
 def test_create_card_returns_201_and_the_full_card(client):
     r = client.post("/api/cards", json={"title": "from http", "actor": "ann", "project": "Home"})
     assert r.status_code == 201, r.text

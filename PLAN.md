@@ -21,6 +21,7 @@ Tests add two more, dev-only: `pytest` and `playwright`.
 core.py        schema + every operation (the only file that touches SQL)
 app.py         MCPServer: MCP tools + HTTP routes, both thin wrappers over core
 board.html     the board, vanilla JS
+docs.html      the user docs: what Tickets is, the board, the agent, the workflow
 conftest.py    fixtures: temp DB, TestClient, uvicorn thread, Chrome page
 test_core.py   core operations, rejections and no-ops
 test_app.py    status codes, the actor rule, both error mappings, ToolError, the MCP wire
@@ -115,7 +116,7 @@ name is a `ValueError`.
 
 ## HTTP routes (`app.py`)
 
-`GET /` → board.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
+`GET /` → board.html · `GET /docs` → docs.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
 `POST /api/cards` · `POST /api/cards/{id}/comment` · `POST|DELETE /api/links` ·
 `GET|POST /api/users` · `GET /api/activity` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}`. Every
 write body carries `actor` — except `POST /api/users` (`{"name"}` → 201), the one write
@@ -172,7 +173,10 @@ poll after that run ends (failed or not). Different projects run side by side: e
 starts a run for every waiting card whose project is free, and each run has its own MCP
 client, as it outlives the poll. The status bar keeps one entry per actor, so each run
 shows as `claude-agent (<project>)`. The limit is kept in the agent process (`running`),
-so it holds for one agent process, not for two started side by side.
+so it needs one agent process: `agent.py` holds 127.0.0.1:8124 while it runs (exclusive
+on Windows) and a second one exits at once with "already running", before it touches the
+board. Two agents did run side by side once (two sessions each started one): both
+worked card #32 at the same moment — double test runs, a worktree edited under a run.
 
 **A git worktree per card.** Develop and test run in a worktree of the card's own, next
 to the project's repo: `<repo>.worktrees/card-<id>` on branch `card/<id>`, made from the
@@ -202,7 +206,10 @@ nothing if neither changed. How to deploy comes from the project's instructions.
 must end in `DEPLOY: OK`; it becomes a comment `deployed: …`, anything else (or a crash)
 `deploy failed: …`. Either way the card stays in verify, handed back with the dot: a
 deploy never moves a card. Only the agent's own move to verify deploys; a card moved off
-test during its run, or a failed test, is not deployed. Merging `card/<id>` and removing
+test during its run, or a failed test, is not deployed. The deploy prompt lets the
+project's instructions merge, push or restart services (develop's "never merge" rule is
+not the deploy's), and forbids anything beyond them. Unless a project's deploy merges,
+merging `card/<id>` and removing
 the worktree (`git worktree remove`) is a person's job, after verify; a fresh worktree has
 no build output or installed dependencies, so the project's instructions should say how to
 get them if the tests need them.
@@ -275,6 +282,10 @@ input — answers, a comment on a failure, a fixed description. A write that set
 leaves it off. Edits to a card with no dot never start the agent. Each field saves on
 `change`, so an answers box is one reply however many questions it answers.
 
+**Docs.** `docs.html` is the user's manual, written by hand from this file and
+`agent.py`: a change to how the board or the agent behaves updates it too.
+`test_docs_page_is_served_and_covers_the_essentials` checks the lanes and key terms.
+
 ## Board (`board.html`)
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
@@ -288,7 +299,7 @@ without writing a card first — and a project `<select>`
 
 Once a card has a plan, questions or answers, the sheet shows each in its own box under
 the description: "plan" is a fixed 10 lines and scrolls, "open questions" and "your
-answers" grow like the description. The description box grows with its text, from 3 lines
+answers" grow like the description. The description box grows with its text, from 10 lines
 up to 50, then scrolls
 (CSS `field-sizing: content`). Lanes run to the bottom of the window even when empty,
 and all grow together with the tallest. Moving a card forward — drag, sheet or MCP — or
@@ -319,6 +330,11 @@ Only a card's drag counts (`.card.dragging`), not text or files dragged in.
 **The sheet covers the whole window; "close" closes it.** Every field saves on
 `change`, so there is no save button. The sheet is full width, so there is no outside to
 click: the "close" button top right is the way out (the projects sheet's is "done").
+The top of a card's sheet is one sticky header row that stays put while the sheet
+scrolls: the card number, the title (edited in place), "created <when>" (the full date on
+hover), "archive" and "close". A new card's row is "new", the title, "cancel", "close".
+The card number carries the auto dot, which pulses while an agent works the card.
+Project, lane and creator sit on the line under it.
 Closing blurs the focused field, so the edit still in progress saves too, and text left
 in the comment box is posted rather than dropped. The error bar is fixed above the sheet
 so its messages stay visible. The sheet keeps "archive".
@@ -391,6 +407,10 @@ the button for 150 ms.
 | 22 | auto advance dot on every card; hover help on every control | done — 413 checks |
 | 23 | develop and test run in a git worktree per card (`<repo>.worktrees/card-<id>`, branch `card/<id>`) | done — 422 checks |
 | 24 | worktree only (no in-place runs); one run per project, projects side by side; commit and push before verify; deploy once in verify; open questions numbered from 1 | done |
+| 25 | Markera deploy instructions; description box 10 lines tall (grows to 50); sticky header row on the card sheet | done |
+| 26 | docs page at `/docs`, linked from the header | done |
+| 27 | one agent at a time (`agent.py` holds 127.0.0.1:8124); Tickets deploy instructions: merge the card into master, test, push, restart the backend 30 s later with `restart-backend.ps1 -Delay 30`; the deploy prompt allows what the instructions say | done |
+| 28 | the auto dot pulses on cards an agent is working on, on the board and in the sheet header | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

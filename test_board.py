@@ -794,7 +794,7 @@ def test_the_project_is_chosen_right_under_the_title(page):
     page.evaluate("load()")
     page.click("#add")
     heads = page.locator("#panel h3").all_text_contents()
-    assert heads[:2] == ["title", "project"], heads
+    assert heads[0] == "project", "first under the header row, which holds the title"
     assert page.locator("#panel select >> nth=0 >> option").all_text_contents() == [
         "Home", "Other"]
 
@@ -1130,12 +1130,12 @@ def test_the_editor_shows_the_auto_dot_and_it_pulses_without_a_rerender(page):
     assert page.locator("#panel .auto").count() == 0, "a card not yet created has no dot"
     close_sheet(page)
     cid = add_card(page, "watch me")
-    dot = page.locator("#panel .sub .auto")
+    dot = page.locator("#panel .head .auto")
     assert dot.get_attribute("class") == "auto", "a ring while auto advance is off"
     page.fill("#panel input[type=text] >> nth=0", "half typed")   # not committed yet
     core.set_activity("claude-agent", cid, "developing")
     page.evaluate("loadStatus()")
-    page.wait_for_selector("#panel .sub .auto.working")
+    page.wait_for_selector("#panel .head .auto.working")
     assert page.input_value("#panel input[type=text] >> nth=0") == "half typed", "no re-render"
     core.set_activity("claude-agent")
     page.evaluate("loadStatus()")
@@ -1143,14 +1143,14 @@ def test_the_editor_shows_the_auto_dot_and_it_pulses_without_a_rerender(page):
     page.fill("#panel input[type=text] >> nth=0", "watch me")
     page.check(AUTO)
     wait_saved(page, cid, "auto_advance", True)
-    assert page.locator("#panel .sub .auto.on").count() == 1, "ticking the switch lights it"
+    assert page.locator("#panel .head .auto.on").count() == 1, "ticking the switch lights it"
 
 
 def test_the_editor_dot_is_lit_for_an_auto_advance_card(page):
     cid = core.create_card("auto", actor="ce", project="Home", auto_advance=True)["id"]
     page.evaluate("load()")
     page.click(f'.card[data-id="{cid}"]')
-    page.wait_for_selector("#panel .sub .auto.on")
+    page.wait_for_selector("#panel .head .auto.on")
 
 
 def test_work_on_a_card_off_the_board_pulses_nothing(page):
@@ -1234,12 +1234,12 @@ def desc_lines(page):
     }""")
 
 
-def test_the_description_grows_from_3_to_at_most_50_lines(page):
+def test_the_description_is_10_lines_tall_and_grows_to_at_most_50(page):
     add_card(page, "tall")
     box = "#panel textarea.desc"
-    assert desc_lines(page) == 3, "empty: three lines"
+    assert desc_lines(page) == 10, "empty: ten lines"
     page.fill(box, "one\ntwo")
-    assert desc_lines(page) == 3, "short text keeps the floor"
+    assert desc_lines(page) == 10, "short text keeps the floor"
     page.fill(box, "\n".join(f"line {i}" for i in range(12)))
     assert desc_lines(page) == 12, "grows as you type"
     page.fill(box, "\n".join(f"line {i}" for i in range(80)))
@@ -1408,7 +1408,7 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     untitled = """sel => [...document.querySelectorAll(sel)]
         .filter(e => e.offsetParent !== null && !e.closest('[title]'))
         .map(e => e.outerHTML.slice(0, 80))"""
-    board = "header select, header button, header input, .lane h2, .card, .card *, #status"
+    board = "header select, header button, header input, header a, .lane h2, .card, .card *, #status"
     assert page.evaluate(untitled, board) == []
     tip = page.get_attribute(f'.card[data-id="{cid}"] .auto', "title")
     assert tip.startswith("auto advance is off")
@@ -1421,6 +1421,13 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     assert page.evaluate(untitled, "#panel input, #panel textarea, #panel button") == []
 
 
+def test_the_header_links_to_the_docs_in_a_new_tab(page):
+    link = page.locator("header a#docs")
+    assert link.get_attribute("href").endswith("/docs")
+    assert link.get_attribute("target") == "_blank"
+    assert link.get_attribute("title")
+
+
 def test_the_auto_dot_is_lit_only_when_auto_advance_is_on(page):
     on = core.create_card("on", actor="ce", project="Home", auto_advance=True)["id"]
     off = core.create_card("off", actor="ce", project="Home")["id"]
@@ -1429,3 +1436,96 @@ def test_the_auto_dot_is_lit_only_when_auto_advance_is_on(page):
     assert page.locator(f'.card[data-id="{on}"] .auto.on').count() == 1
     assert page.locator(f'.card[data-id="{off}"] .auto').count() == 1
     assert page.locator(f'.card[data-id="{off}"] .auto.on').count() == 0
+
+
+def test_clicking_the_card_dot_toggles_auto_advance_without_opening_it(page):
+    cid = core.create_card("dot", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
+    dot = f'.card[data-id="{cid}"] .auto'
+    page.click(dot)
+    wait_saved(page, cid, "auto_advance", True)
+    page.wait_for_selector(dot + ".on")
+    assert page.locator("#panel.on").count() == 0, "the sheet stayed shut"
+    assert page.evaluate("open") is None
+    assert core.get_card(cid)["lane"] == "todo"
+    page.click(dot)
+    wait_saved(page, cid, "auto_advance", False)
+    page.wait_for_selector(dot + ":not(.on)")
+    assert page.locator("#panel.on").count() == 0
+
+
+# ---------- the sheet's sticky header row ----------
+
+def head_parts(page):
+    return page.evaluate("""() => [...document.querySelector('#panel .head').children].map(n =>
+        n.tagName === 'INPUT' ? 'input:' + n.value : n.textContent)""")
+
+
+def test_the_header_row_holds_number_title_created_archive_and_close(page):
+    cid = add_card(page, "headed")
+    num, title, when, arch, close = head_parts(page)
+    assert (num, title, arch, close) == (f"#{cid}", "input:headed", "archive", "close")
+    assert when.startswith("created ")
+    tops = [b["y"] for b in (page.locator(f"#panel .head > *").nth(i).bounding_box()
+                             for i in range(5))]
+    assert max(tops) - min(tops) < 20, "one row"
+
+
+def test_a_draft_header_row_holds_the_title_cancel_and_close(page):
+    page.click("#add")
+    assert head_parts(page) == ["new", "input:", "cancel", "close"]
+
+
+def test_the_header_row_stays_at_the_top_while_the_sheet_scrolls(page):
+    cid = core.create_card("long one", actor="ce", project="Home",
+                           description="\n".join(f"line {i}" for i in range(60)))["id"]
+    page.evaluate(f"load().then(() => openCard({cid}))")
+    page.wait_for_selector("#panel.on .head")
+    page.evaluate("document.querySelector('#panel').scrollTop = 1e6")
+    page.wait_for_function("document.querySelector('#panel').scrollTop > 500")
+    head = page.locator("#panel .head").bounding_box()
+    assert head["y"] == 0, "pinned to the top of the sheet"
+    assert page.locator("#panel .head input").is_visible()
+    title = page.locator("#panel .head input").bounding_box()
+    hit = page.evaluate(f"document.elementFromPoint({title['x'] + 5}, {title['y'] + title['height'] / 2})"
+                        " === document.querySelector('#panel .head input')")
+    assert hit, "nothing scrolls over the header"
+    assert page.evaluate("getComputedStyle(document.querySelector('#panel .head')).backgroundColor")\
+        not in ("transparent", "rgba(0, 0, 0, 0)"), "opaque: the text under it does not show through"
+    page.click("#panel .head .shut")
+    page.wait_for_function("!document.querySelector('#panel').classList.contains('on')")
+
+
+def test_the_title_in_the_header_still_saves(page):
+    cid = add_card(page, "before")
+    type_into(page, "#panel .head input", "after")
+    wait_saved(page, cid, "title", "after")
+
+
+# ---------- the auto dot in the sheet header, and a busy board dot ----------
+
+def test_the_editor_dot_sits_in_the_header_number_and_clicking_it_does_nothing(page):
+    cid = add_card(page, "dotted")
+    assert page.locator("#panel .head .id .auto").count() == 1
+    assert page.locator("#panel .sub .auto").count() == 0
+    assert page.text_content("#panel .head .id") == f"#{cid}"
+    page.click("#panel .head .auto")
+    page.wait_for_timeout(300)
+    assert core.get_card(cid)["auto_advance"] is False, "only the switch changes it in the sheet"
+    assert page.locator("#panel.on").count() == 1, "the sheet stays open"
+
+
+def test_a_busy_board_dot_says_click_and_working_and_still_toggles(page):
+    cid = core.create_card("busy", actor="ce", project="Home")["id"]
+    core.set_activity("claude-agent", cid, "developing")
+    page.evaluate("load()")
+    page.evaluate("loadStatus()")
+    dot = f'.card[data-id="{cid}"] .auto'
+    page.wait_for_selector(dot + ".working")
+    tip = page.get_attribute(dot, "title")
+    assert "Click to turn it on." in tip and tip.endswith(" · an agent is working on it now")
+    page.click(dot)
+    wait_saved(page, cid, "auto_advance", True)
+    page.wait_for_selector(dot + ".on.working")
+    assert page.locator("#panel.on").count() == 0
+    core.set_activity("claude-agent")
