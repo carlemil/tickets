@@ -1122,7 +1122,7 @@ def test_the_pulse_survives_a_board_reload(page):
     page.evaluate("loadStatus()")
     page.wait_for_selector(f'.card[data-id="{cid}"] .auto.working')
     page.evaluate("load()")   # rebuilt cards pulse without waiting for the next poll
-    page.wait_for_selector(f'.card[data-id="{cid}"] .auto.working')
+    assert pulsing(page, f'.card[data-id="{cid}"]') == 1
 
 
 def test_the_editor_shows_the_auto_dot_and_it_pulses_without_a_rerender(page):
