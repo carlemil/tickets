@@ -28,7 +28,9 @@ Projects run side by side, but each project has one run at a time: a card waits 
 another card of its project is worked, and the highest-priority waiting card goes next.
 
 Any failure comments why, unassigns and turns auto advance off, so the card sits in its
-lane until a person looks: no retry loop.
+lane until a person looks: no retry loop. Running out of quota is not a failure: the
+agent comments when it will resume, pauses all runs until the limit resets, then picks the
+card up again where it was.
 """
 
 import asyncio
@@ -39,6 +41,7 @@ import shutil
 import socket
 import subprocess
 import traceback
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from mcp import Client
@@ -55,6 +58,8 @@ NO_QUESTIONS = "QUESTIONS: NONE"
 DEPLOYED = "DEPLOY: OK"
 SKIPPED = "DEPLOY: SKIPPED"
 DOING = {"plan": "planning", "develop": "developing", "test": "testing"}   # the status bar
+# claude -p's "You've hit your session limit · resets 10:30pm (Europe/Stockholm)"
+LIMIT = re.compile(r"hit your [^\n]*?limit(?:[^\n]*?resets ([^(\n]*))?", re.I)
 QUESTIONS_HEAD = re.compile(r"^#+[ \t]*open questions[ \t]*:?[ \t]*$", re.I | re.M)
 
 PROMPTS = {
@@ -112,6 +117,39 @@ async def call(client, tool, **args):
     return json.loads(r.content[0].text)
 
 
+class OutOfQuota(RuntimeError):
+    """claude hit the account's usage limit: `at` is when to try again."""
+    def __init__(self, text, at):
+        super().__init__(text.strip().splitlines()[0])
+        self.at = at
+
+
+def resume_at(text, now):
+    """The reset time in claude's limit message ("10:30pm", "10pm", "Sep 21, 10am") -> when
+    to resume, 1 minute after it. Unreadable: in 30 minutes, and a still-empty quota just
+    pauses again then.
+    ponytail: ignores the "(Europe/Stockholm)" zone and reads the time as this machine's
+    local time, which is the account's here; zoneinfo needs tzdata on Windows, add it if
+    the two ever differ."""
+    m = re.search(r"(?:([a-z]{3}) (\d{1,2}),?\s*)?(\d{1,2})(?::(\d\d))?\s*([ap]m)",
+                  text or "", re.I)
+    try:
+        mon, day, h, mi, ap = m.groups()
+        at = now.replace(hour=int(h) % 12 + 12 * (ap.lower() == "pm"), minute=int(mi or 0),
+                         second=0, microsecond=0)
+        if mon:
+            d = datetime.strptime(f"{mon} {day}", "%b %d")
+            at = at.replace(month=d.month, day=d.day)
+            if at < now - timedelta(days=1):
+                at = at.replace(year=at.year + 1)   # Jan 2 read on Dec 30
+        elif at < now - timedelta(hours=1):
+            at += timedelta(days=1)                 # 1am read at 11pm
+    except (AttributeError, ValueError):
+        return now + timedelta(minutes=30)
+    # a reset just passed (clocks differ): wait a little, not a day, nor a busy loop
+    return max(at, now + timedelta(minutes=4)) + timedelta(minutes=1)
+
+
 def run_claude(card, cwd, instructions=""):
     lane = card["lane"]
     project = f"Project instructions (follow them):\n{instructions}\n\n" if instructions else ""
@@ -123,6 +161,9 @@ def run_claude(card, cwd, instructions=""):
             capture_output=True, text=True, encoding="utf-8", timeout=3600, check=True,
         ).stdout.strip()
     except subprocess.CalledProcessError as e:
+        text = e.stderr or e.stdout or ""
+        if m := LIMIT.search(text):
+            raise OutOfQuota(text, resume_at(m[1], datetime.now())) from e
         raise RuntimeError(f"claude exited {e.returncode}: {(e.stderr or e.stdout)[-2000:]}") from e
 
 
@@ -262,6 +303,15 @@ async def handle(client, card, back=""):
                        attention=True, auto_advance=card["auto_advance"])
         if nxt == "verify":
             await deploy(client, card, cwd, notes, base)
+    except OutOfQuota as e:   # not a failure: pause, and the card is taken again after
+        pause(e.at)
+        await call(client, "set_activity", actor=AGENT, card_id=id,
+                   doing=f"out of quota until {e.at:%H:%M}")
+        await call(client, "comment", id=id, actor=AGENT,
+                   text=f"out of quota: resuming at {e.at:%H:%M} ({e})")
+        # as it was: an auto card is still auto, a card assigned to the agent still is
+        await call(client, "update_card", id=id, actor=AGENT,
+                   assignee=back if card["auto_advance"] else AGENT)
     except Exception as e:  # any failure: say why, hand the card back, no retry loop
         await call(client, "comment", id=id, actor=AGENT, text=f"agent failed: {e}")
         await call(client, "update_card", id=id, actor=AGENT, assignee=back, auto_advance=False,
@@ -272,6 +322,14 @@ async def handle(client, card, back=""):
 # two runs never share its tests, ports or database; different projects run side by side.
 # ponytail: per process; two agent processes would each keep their own.
 running = {}
+# quota is the account's, not a project's: while it is out, no run starts anywhere
+paused_until = None
+
+
+def pause(at):
+    global paused_until
+    paused_until = max(paused_until or at, at)
+    print(f"out of quota until {paused_until:%Y-%m-%d %H:%M}", flush=True)
 
 
 def doer(project):
@@ -289,6 +347,13 @@ async def deploy(client, card, cwd, notes, base):
     try:
         out = await asyncio.to_thread(run_claude, {**card, "lane": "deploy"}, cwd, notes)
         verdict = [ln.strip(" *`") for ln in out.splitlines()[-1:]]
+    except OutOfQuota as e:
+        # not retried: verify cards are not polled, so a person runs the deploy again
+        pause(e.at)
+        await call(client, "comment", id=id, actor=AGENT, text=f"deploy postponed: out of "
+                   f"quota, resuming at {e.at:%H:%M}; redeploy by hand ({e})")
+        await call(client, "update_card", id=id, actor=AGENT, attention=True)
+        return
     except Exception as e:
         out, verdict = f"{e}", []
     head = {(DEPLOYED,): "deployed: ", (SKIPPED,): "deploy skipped: "}.get(tuple(verdict),
@@ -305,6 +370,13 @@ async def tick(client, connect):
     """Start a run for each card waiting on the agent whose project has none going. Each
     run opens its own client with `connect`, as it outlives this poll. Returns the runs
     started: main leaves them going, the tests wait for them."""
+    global paused_until
+    if paused_until:
+        if datetime.now() < paused_until:
+            return []
+        paused_until = None
+        print("quota back, resuming", flush=True)
+        await call(client, "set_activity", actor=AGENT)
     started = []
     # highest priority first: it takes its project's one slot. Ties keep list_cards' order.
     cards = sorted(await call(client, "list_cards"), key=lambda c: -PRIORITIES.index(c["priority"]))

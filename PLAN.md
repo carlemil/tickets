@@ -159,7 +159,9 @@ output becomes a comment, and the card moves on
 (`plan → develop`, `develop → test`, `test → verify`) and is unassigned. Unassigning is both the human gate
 (read the plan, reassign to have it built) and the loop guard (no re-trigger on its own
 write, no state file). On any failure it comments `agent failed: …` and unassigns, lane
-unchanged. Development is a normal agent in auto mode (`--permission-mode auto`, never
+unchanged. Running out of quota is not a failure: it comments `out of quota: resuming
+at HH:MM`, pauses all runs until the limit resets, and leaves the card as it was, so the
+next poll after the pause takes it again. Development is a normal agent in auto mode (`--permission-mode auto`, never
 plan mode): it edits and runs the tests on its own, with Claude Code's auto-mode checks
 still on, and commits its work on the card's own branch. The test stage runs with
 `--dangerously-skip-permissions`, reviews the card's changes against the card

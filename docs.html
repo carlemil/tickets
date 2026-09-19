@@ -160,6 +160,8 @@ again.</p>
 <ul>
   <li>A failed run comments <code>agent failed: …</code>, gives the card back, switches auto
     advance off and the dot turns red. The card stays in its lane.</li>
+  <li>Running out of quota is not a failure: the agent comments when it will resume, pauses
+    all runs until the limit resets, then picks the card up again where it was.</li>
   <li>Your move wins: if you move a card during a run, the run's output becomes a comment and
     the card stays where you put it.</li>
 </ul>
