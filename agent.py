@@ -36,6 +36,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import traceback
 from pathlib import Path
@@ -47,6 +48,7 @@ from core import NO_PROJECT, number   # pure helpers only: the board is reached 
 AGENT = "claude-agent"
 URL = "http://127.0.0.1:8123/mcp"
 POLL = 15
+LOCK = ("127.0.0.1", 8124)   # held while an agent runs: a second one cannot start
 NEXT = {"plan": "develop", "develop": "test", "test": "verify"}
 PASS = "RESULT: PASS"
 NO_QUESTIONS = "QUESTIONS: NONE"
@@ -83,7 +85,9 @@ PROMPTS = {
               "mobile app, install it on the phone, but only if a phone is connected (check, "
               "e.g. adb devices): with no phone connected, skip the phone and say so. If it "
               "changed neither, deploy nothing. Follow the project instructions on how to "
-              "deploy. Do not edit files or make commits. Reply with what you deployed and "
+              "deploy. Change nothing beyond what those instructions say: they may merge, "
+              "push or restart services, and then you do exactly that; edit no files and "
+              "make no other commits. Reply with what you deployed and "
               f"what you skipped, and end with a last line of exactly {DEPLOYED}, or "
               "DEPLOY: FAILED if a deploy failed.",
 }
@@ -324,6 +328,23 @@ async def work(connect, c, key):
         del running[key]
 
 
+def only_one(addr=LOCK):
+    """Hold a port for as long as this process lives, so only one agent runs. Two agents
+    would each work the same card (the one-run-per-project limit is per process); the
+    port is freed by the OS however the agent ends, crash included."""
+    s = socket.socket()
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):   # Windows: no one may share the port
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    try:
+        s.bind(addr)
+    except OSError:
+        s.close()
+        raise SystemExit(f"another {AGENT} is already running (it holds {addr[0]}:{addr[1]}); "
+                         "stop it first, or leave it running")
+    s.listen()
+    return s
+
+
 async def main():
     async with Client(URL) as client:
         await call(client, "create_user", name=AGENT)
@@ -341,4 +362,5 @@ async def main():
 
 
 if __name__ == "__main__":
+    lock = only_one()   # kept referenced for the process's life
     asyncio.run(main())
