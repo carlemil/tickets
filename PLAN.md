@@ -294,6 +294,7 @@ priority, labels, checklist, an "auto advance" checkbox (an `auto` pill on the
 board card), links, activity log, comment box. The board writes as `User`, a fixed
 name, and agents write under their own names. A project `<select>`
 (also persisted) filters the board — an agent and a human both scope to one project.
+A card shows its priority only by its colored left bar; the priority chip went in #48.
 
 Once a card has a plan, questions or answers, the sheet shows each in its own box under
 the description: "plan" is a fixed 10 lines and scrolls, "open questions" and "your
