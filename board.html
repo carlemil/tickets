@@ -70,7 +70,10 @@
   .pill.who { background: #deebff; color: #0747a6; }
   /* auto advance at a glance: lit green when on, a faint ring when off */
   .card .auto { width: 8px; height: 8px; border-radius: 50%; flex: none;
-                box-sizing: border-box; border: 1.5px solid #c1c7d0; }
+                box-sizing: border-box; border: 1.5px solid #c1c7d0;
+                position: relative; cursor: pointer; }
+  /* a bigger click target than the 8px dot */
+  .card .auto::after { content: ""; position: absolute; inset: -5px; }
   .card .auto.on { background: #36b37e; border-color: #36b37e;
                    box-shadow: 0 0 4px 1px rgba(54,179,126,.7); }
   .pill.proj { font-weight: 600; }
@@ -285,11 +288,13 @@ function cardNode(c) {
     { className: "pill who", textContent: c.assignee }));
   meta.append(Object.assign(document.createElement("span"),
     { className: "pill pri", textContent: c.priority }));
-  meta.prepend(Object.assign(document.createElement("span"),
+  const dot = Object.assign(document.createElement("span"),
     { className: "auto" + (c.auto_advance ? " on" : ""),
       title: c.auto_advance
-        ? "auto advance is on: the agent carries this card on to verify by itself"
-        : "auto advance is off: the agent works this card only when it is assigned to it" }));
+        ? "auto advance is on: the agent carries this card on to verify by itself. Click to turn it off."
+        : "auto advance is off: the agent works this card only when it is assigned to it. Click to turn it on." });
+  dot.onclick = ev => { ev.stopPropagation(); toggleAuto(c.id); };   // not the card's sheet
+  meta.prepend(dot);
   meta.append(projectTag(c.project));
   for (const l of c.labels) meta.append(Object.assign(document.createElement("span"),
     { className: "pill label", textContent: l }));
@@ -377,6 +382,22 @@ async function move(id, lane) {
     c.lane = was;                // put it back where it came from
     renderBoard();
     showErr("could not move #" + id + ": " + e.message);
+  }
+}
+
+async function toggleAuto(id) {
+  const c = cards.find(x => x.id === id);
+  if (!c) return;
+  const was = c.auto_advance;
+  c.auto_advance = !was;         // optimistic, like move()
+  renderBoard();
+  try {
+    replace(await api("PATCH", "/api/cards/" + id, { auto_advance: !was }));
+    if (open && open.id === id) openCard(id);
+  } catch (e) {
+    c.auto_advance = was;
+    renderBoard();
+    showErr("could not switch auto advance on #" + id + ": " + e.message);
   }
 }
 

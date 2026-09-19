@@ -1352,3 +1352,19 @@ def test_the_auto_dot_is_lit_only_when_auto_advance_is_on(page):
     assert page.locator(f'.card[data-id="{on}"] .auto.on').count() == 1
     assert page.locator(f'.card[data-id="{off}"] .auto').count() == 1
     assert page.locator(f'.card[data-id="{off}"] .auto.on').count() == 0
+
+
+def test_clicking_the_card_dot_toggles_auto_advance_without_opening_it(page):
+    cid = core.create_card("dot", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
+    dot = f'.card[data-id="{cid}"] .auto'
+    page.click(dot)
+    wait_saved(page, cid, "auto_advance", True)
+    page.wait_for_selector(dot + ".on")
+    assert page.locator("#panel.on").count() == 0, "the sheet stayed shut"
+    assert page.evaluate("open") is None
+    assert core.get_card(cid)["lane"] == "todo"
+    page.click(dot)
+    wait_saved(page, cid, "auto_advance", False)
+    page.wait_for_selector(dot + ":not(.on)")
+    assert page.locator("#panel.on").count() == 0
