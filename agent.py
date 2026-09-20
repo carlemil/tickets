@@ -428,6 +428,8 @@ def restart(lock):
     as 'already running'."""
     print("agent.py changed on disk: restarting", flush=True)
     lock.close()
+    # ponytail: same interpreter, so a deploy that also changes pyproject.toml/uv.lock
+    # restarts into an unsynced venv; switch to `uv run` if deps start moving with the agent
     subprocess.Popen([sys.executable, "-u", str(SOURCE)], cwd=str(SOURCE.parent))
     raise SystemExit(0)
 
