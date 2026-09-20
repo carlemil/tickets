@@ -180,6 +180,15 @@ on Windows) and a second one exits at once with "already running", before it tou
 board. Two agents did run side by side once (two sessions each started one): both
 worked card #32 at the same moment — double test runs, a worktree edited under a run.
 
+**It restarts itself when `agent.py` changes.** Python does not reload code while it
+runs, so a deploy that changed the agent used to need a person to restart it — the #41
+merged and deployed dots stayed dark for a day because the agent running was older than
+the code that sets them. After each poll the agent compares `agent.py`'s mtime with the
+one it started from; if it differs, and no run is in flight and no quota pause is on
+(both live in this process and would be lost), it closes the lock port — or the new
+process would exit as "already running" — starts `python -u agent.py` and exits. A run in
+progress simply defers the restart to a later poll.
+
 **A git worktree per card.** Develop and test run in a worktree of the card's own, next
 to the project's repo: `<repo>.worktrees/card-<id>` on branch `card/<id>`, made from the
 repo's current branch on the card's first develop run and reused after that (rework, the
@@ -441,6 +450,7 @@ no longer on the board.
 | 29 | ctrl/shift-click selects several cards; dragging one moves them all | done |
 | 30 | #41 merged and deployed dots, set by the agent's deploy step, cleared on rework | done |
 | 31 | #46 one dot: the auto dot turns red for attention; the separate red dot top right is gone | done |
+| 32 | #50 the agent restarts itself when `agent.py` changes on disk, so a deploy that changes it takes effect | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

@@ -1091,6 +1091,41 @@ def test_a_second_agent_process_exits_without_touching_the_board(tmp_path):
     assert "polling" not in r.stdout
 
 
+# ---------- the agent restarts itself when agent.py changes ----------
+
+def test_an_unchanged_agent_py_does_not_restart():
+    assert not agent.stale(agent.SOURCE.stat().st_mtime)
+
+
+def test_a_changed_agent_py_restarts_between_polls():
+    assert agent.stale(0)   # any other mtime: the file on disk is not the one we read
+
+
+def test_a_run_in_flight_holds_the_restart_off():
+    agent.running["repo"] = "a run"
+    try:
+        assert not agent.stale(0)
+    finally:
+        del agent.running["repo"]
+
+
+def test_a_quota_pause_holds_the_restart_off(monkeypatch):
+    monkeypatch.setattr(agent, "paused_until",
+                        agent.datetime.now() + agent.timedelta(hours=1))
+    assert not agent.stale(0)
+
+
+def test_the_restart_frees_the_lock_before_starting_the_new_agent(monkeypatch):
+    addr = free_port()
+    lock = agent.only_one(addr)
+    started = []
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **k: started.append(cmd))
+    with pytest.raises(SystemExit):
+        agent.restart(lock)
+    assert started and started[0][-1] == str(agent.SOURCE)
+    agent.only_one(addr).close()   # free: the new agent can take the lock
+
+
 # ---------- the merged and deployed dots ----------
 
 def deploys(repo, monkeypatch, out, merge=False):

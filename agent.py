@@ -27,6 +27,9 @@ instructions; either way the card stays in verify, with the result as a comment.
 Projects run side by side, but each project has one run at a time: a card waits while
 another card of its project is worked, and the highest-priority waiting card goes next.
 
+A deploy that changes agent.py takes effect on its own: between polls, with no run going,
+the agent sees the new file, frees its lock port and starts a fresh process of itself.
+
 Any failure comments why, unassigns and turns auto advance off, so the card sits in its
 lane until a person looks: no retry loop. Running out of quota is not a failure: the
 agent comments when it will resume, pauses all runs until the limit resets, then picks the
@@ -40,6 +43,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -49,6 +53,7 @@ from mcp import Client
 from core import NO_PROJECT, PRIORITIES, number   # pure helpers only: the board is reached over MCP
 
 AGENT = "claude-agent"
+SOURCE = Path(__file__).resolve()   # watched: a deploy that changes it restarts the agent
 URL = "http://127.0.0.1:8123/mcp"
 POLL = 15
 LOCK = ("127.0.0.1", 8124)   # held while an agent runs: a second one cannot start
@@ -411,6 +416,22 @@ async def work(connect, c, key):
         del running[key]
 
 
+def stale(mtime):
+    """Has agent.py changed on disk since this process read it, with nothing in flight?
+    A deploy that changes the agent only takes effect in a new process; a run in progress
+    (or a quota pause, whose end time lives in this process) waits for its poll."""
+    return not running and not paused_until and SOURCE.stat().st_mtime != mtime
+
+
+def restart(lock):
+    """Hand over to a fresh agent. The lock port goes first, or the new process would exit
+    as 'already running'."""
+    print("agent.py changed on disk: restarting", flush=True)
+    lock.close()
+    subprocess.Popen([sys.executable, "-u", str(SOURCE)], cwd=str(SOURCE.parent))
+    raise SystemExit(0)
+
+
 def only_one(addr=LOCK):
     """Hold a port for as long as this process lives, so only one agent runs. Two agents
     would each work the same card (the one-run-per-project limit is per process); the
@@ -428,13 +449,14 @@ def only_one(addr=LOCK):
     return s
 
 
-async def main():
+async def main(lock=None):
     async with Client(URL) as client:
         await call(client, "create_user", name=AGENT)
         for a in await call(client, "set_activity", actor=AGENT):   # a crashed run's leftovers
             if a["actor"].startswith(AGENT):
                 await call(client, "set_activity", actor=a["actor"])
     print(f"{AGENT} polling {URL} every {POLL}s", flush=True)
+    mtime = SOURCE.stat().st_mtime
     while True:
         try:  # a fresh client per poll, so a backend restart does not kill the agent
             async with Client(URL) as client:
@@ -442,8 +464,10 @@ async def main():
         except Exception:
             traceback.print_exc()
         await asyncio.sleep(POLL)
+        if lock and stale(mtime):
+            restart(lock)
 
 
 if __name__ == "__main__":
     lock = only_one()   # kept referenced for the process's life
-    asyncio.run(main())
+    asyncio.run(main(lock))
