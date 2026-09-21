@@ -33,6 +33,10 @@ PALETTE = ["#0052cc", "#00875a", "#ff991f", "#6554c0", "#de350b", "#00a3bf", "#c
 EVENT_KIND = {"lane": "moved", "assignee": "assigned", "archived": "archived"}
 # the lanes the board agent works: a person's reply to a card waiting there hands it back
 AGENT_LANES = ("plan", "develop", "test")
+AGENT = "claude-agent"   # the board agent's name: its own writes never restart a card
+# a person's update to one of these on a verified card is a new request: the card is
+# planned again (#60). A comment counts too, see `comment`.
+REPLAN_FIELDS = ("description", "answers", "checklist")
 REPLIED = {"field": "auto_advance", "from": False, "to": True}
 
 SCHEMA = """
@@ -483,6 +487,13 @@ def update_card(id, actor, **fields):
             fields["project"] = _project(db, fields["project"])
         if isinstance(fields.get("questions"), str):   # every writer's questions: 1. 2. 3.
             fields["questions"] = number(fields["questions"])
+        # a person's update to a verified card is a new request: it goes back to plan,
+        # assigned to the agent, and round the loop again (#60). The agent's own writes
+        # (its deploy result) do not, nor does an explicit lane in the same write.
+        if (old["lane"] == "verify" and actor != AGENT
+                and any(f in fields and fields[f] != old[f] for f in REPLAN_FIELDS)):
+            fields.setdefault("lane", "plan")
+            fields.setdefault("assignee", AGENT)
         # moving a card forward, or back into plan to replan it, is the go signal: it
         # switches auto advance on, unless the same write says otherwise (the agent's own
         # moves do). Into done is the end, so no; nor another move back, nor a card already
@@ -540,6 +551,8 @@ def comment(id, actor, text):
             if not old["auto_advance"] and old["lane"] in AGENT_LANES:
                 db.execute("UPDATE cards SET auto_advance=1 WHERE id=?", (id,))
                 _event(db, id, actor, "edited", REPLIED)
+    if old["lane"] == "verify" and actor != AGENT:   # a new request, as in update_card (#60)
+        return update_card(id, actor, lane="plan", assignee=AGENT)
     return get_card(id)
 
 

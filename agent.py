@@ -51,9 +51,8 @@ from pathlib import Path
 
 from mcp import Client
 
-from core import NO_PROJECT, number   # pure helpers only: the board is reached over MCP
+from core import AGENT, NO_PROJECT, number   # the board itself is reached over MCP
 
-AGENT = "claude-agent"
 SOURCE = Path(__file__).resolve()   # watched: a deploy that changes it restarts the agent
 URL = "http://127.0.0.1:8123/mcp"
 POLL = 15

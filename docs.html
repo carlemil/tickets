@@ -101,6 +101,9 @@ again.</p>
     lane it arrives in.</li>
   <li>Moving a card forward (except into <code>done</code>), or back into
     <code>plan</code>, switches its auto advance on.</li>
+  <li>A card in <code>verify</code> is done work. Change its description, your answers or
+    its checklist there, or add a comment, and you are asking for it again: the card goes
+    back to <code>plan</code> and the agent plans and builds it anew.</li>
   <li>Click a card to open its sheet. Every field saves as soon as you leave it, so there is
     no save button; "close" closes the sheet. The sheet holds the description, the plan, the
     open questions and your answers, the checklist, labels, links (parent and blocks), the
@@ -190,6 +193,8 @@ again.</p>
     have it do one stage and hand it back.</li>
   <li><b>After a failure:</b> read the comment, then fix the description or add a comment.
     That reply restarts the agent.</li>
+  <li><b>Not what you asked for?</b> Rewrite the description of the card in
+    <code>verify</code> (or comment on it) and it starts over from <code>plan</code>.</li>
   <li>Keep one concern per card, keep project instructions current, use links for
     dependencies, and archive what you no longer need.</li>
 </ul>

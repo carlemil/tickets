@@ -422,6 +422,18 @@ def test_plan_fields_over_the_tool_and_what_it_tells_agents():
         assert said in doc
 
 
+def test_a_new_request_on_a_verified_card_replans_it_over_the_tool_and_http(client):
+    c = core.create_card("a", actor="ann", project="Home", lane="verify")
+    back = app.update_card(c["id"], "ce", description="a different ask")
+    assert (back["lane"], back["assignee"]) == ("plan", core.AGENT)
+    v = core.update_card(back["id"], "ce", lane="verify")["id"]
+    r = client.post(f"/api/cards/{v}/comment", json={"actor": "ce", "text": "not this"})
+    assert r.status_code == 200, r.text
+    assert r.json()["lane"] == "plan"
+    assert "A card in verify is finished work" in app.update_card.__doc__
+    assert "A person's comment on a card in verify" in app.comment.__doc__
+
+
 def test_project_colors_over_rest(client):
     r = client.post("/api/projects", json={"name": "Red", "color": "#FF0000"})
     assert r.status_code == 201 and r.json()["color"] == "#ff0000", r.text
