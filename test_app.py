@@ -40,6 +40,8 @@ def test_docs_page_is_served_and_covers_the_essentials(client):
     assert r.status_code == 200 and "text/html" in r.headers["content-type"]
     for text in ["127.0.0.1", "claude-agent", "RESULT: PASS", "worktree", *core.LANES]:
         assert text in r.text, text
+    for text in ["this machine", "8000 is taken", "on master"]:   # nothing about one setup
+        assert text not in r.text, text
 
 
 def test_create_card_returns_201_and_the_full_card(client):

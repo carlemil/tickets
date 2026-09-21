@@ -34,9 +34,8 @@ test_agent.py  the agent against the real tools in-process, claude faked
 Run: `uv run uvicorn app:app --host 127.0.0.1 --port 8123`
 Agent hookup: `claude mcp add --transport http tickets http://127.0.0.1:8123/mcp`
 
-Port 8000 is already in use on this machine by something else, so the default would
-fail to bind. 8123 is what the end-to-end run used; any free port works, as long as the
-`claude mcp add` URL matches.
+8123 is the port `agent.py`, `restart-backend.ps1` and the docs use; any free port works,
+as long as all three match.
 
 ### Why no FastAPI
 
