@@ -79,6 +79,12 @@ activity(actor PRIMARY KEY, card_id, doing, since)   -- what agents are doing no
   was the built-in default — keeps working, its `inbox` now an ordinary, renamable
   project; case variants collapse into one project and cards keep their stored
   spelling. Filters match ignoring case.
+- **Adding a project opens a card for whatever its setup is missing.** `POST
+  /api/projects` calls `setup_cards(name)`, which puts a `todo` card in the new project —
+  authored by `board`, unassigned, auto advance off — for each of: no `path`, and
+  instructions that do not mention testing or deploying (a word match). A person fixes
+  them and archives them; agents cannot configure a project. The check sits on the route,
+  not in `create_project`, so scripted setup and the test fixtures do not spawn cards.
 - **Every project has a color** (`#rrggbb`, stored lowercase), and its cards are tagged
   with it. A new project takes the least-used color of `PALETTE`, earliest on a tie, unless
   one is given; `connect()` gives one the same way to every project without a color — a
@@ -92,7 +98,8 @@ activity(actor PRIMARY KEY, card_id, doing, since)   -- what agents are doing no
 `update_card(id, actor, **fields)` · `comment(id, actor, text)` ·
 `link_cards(from_id, to_id, kind, actor)` / `unlink_cards(...)` ·
 `list_users()` / `ensure_user(name)` · `list_projects()` / `get_project(name)` /
-`create_project(name, path, instructions)` / `update_project(name, /, **fields)`
+`create_project(name, path, instructions)` / `update_project(name, /, **fields)` /
+`setup_cards(name)`
 
 `update_card` is one function covering move-lane, assign, retitle, edit body and tick
 checklist. It diffs old against new and writes one event per changed field — that is
@@ -128,7 +135,8 @@ name is a `ValueError`.
 `GET|POST /api/users` · `GET /api/activity` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}`. Every
 write body carries `actor` — except `POST /api/users` (`{"name"}` → 201), the one write
 that predates having an actor, and the project writes, which are configuration rather
-than card activity and log no event.
+than card activity and log no event. `POST /api/projects` also opens a setup card per
+missing piece of the new project's configuration.
 
 ## MCP tools (`app.py`)
 

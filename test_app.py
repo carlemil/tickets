@@ -83,6 +83,21 @@ def test_projects_routes_create_list_and_update(client, tmp_path):
     assert r.status_code == 200 and r.json()["instructions"] == "be thorough", r.text
 
 
+def test_adding_a_project_opens_a_card_for_each_missing_thing(client):
+    assert client.post("/api/projects", json={"name": "Fresh"}).status_code == 201
+    cards = client.get("/api/cards?project=Fresh").json()
+    assert [c["title"] for c in cards] == ["Set Fresh's folder",
+                                           "Tell the agent how to test Fresh",
+                                           "Tell the agent how to deploy Fresh"]
+    assert {c["lane"] for c in cards} == {"todo"}
+
+
+def test_adding_a_configured_project_opens_no_cards(client, tmp_path):
+    client.post("/api/projects", json={"name": "Fresh", "path": str(tmp_path),
+                                       "instructions": "test: pytest. deploy: merge."})
+    assert client.get("/api/cards?project=Fresh").json() == []
+
+
 def test_a_renamed_project_is_reached_by_its_new_name(client):
     client.post("/api/projects", json={"name": "Old name"})
     c = client.post("/api/cards", json={"title": "a", "actor": "ann",
@@ -469,8 +484,9 @@ def test_delete_project_route(client):
     client.post("/api/projects", json={"name": "Old/one"})
     client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Old/one"})
     r = client.delete("/api/projects/old/one")
-    assert r.status_code == 200 and r.json() == {"deleted": "Old/one", "moved": 1}, r.text
-    assert client.get("/api/cards").json()[0]["project"] == core.NO_PROJECT
+    # the card above plus the three setup cards adding the project opened
+    assert r.status_code == 200 and r.json() == {"deleted": "Old/one", "moved": 4}, r.text
+    assert {c["project"] for c in client.get("/api/cards").json()} == {core.NO_PROJECT}
     assert client.delete("/api/projects/Old/one").status_code == 404
     r = client.delete("/api/projects/" + core.NO_PROJECT)
     assert r.status_code == 400 and "cannot be deleted" in r.json()["error"], r.text
