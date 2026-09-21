@@ -52,7 +52,8 @@ from pathlib import Path
 
 from mcp import Client
 
-from core import AGENT, NO_PROJECT, number   # the board itself is reached over MCP
+from core import (AGENT, DEPLOYED_HEAD, FAILED_HEAD, NO_PROJECT,   # the board is reached over MCP
+                  SKIPPED_HEAD, number)
 
 SOURCE = Path(__file__).resolve()   # watched: a deploy that changes it restarts the agent
 URL = "http://127.0.0.1:8123/mcp"
@@ -351,9 +352,10 @@ def doer(project, lane):
 
 async def deploy(client, card, cwd, notes, base):
     """The last step, on a card just moved to verify. It stays in verify either way: the
-    comment says what was deployed, or why the deploy failed. The card's merged and
-    deployed dots are set from it: merged from git, since a deploy can merge and push and
-    still fail after; deployed from the verdict."""
+    comment says what was deployed, or why the deploy failed. The card's merged dot is set
+    from git, since a deploy can merge and push and still fail after; the deployed dot the
+    board sets from the comment's first word (`core.comment`), so it does not depend on
+    this process being as new as the code."""
     id = card["id"]
     # the card is the test card: the deploy updates that run's row and holds its slot
     await call(client, "set_activity", actor=doer(card["project"], card["lane"]), card_id=id,
@@ -370,14 +372,14 @@ async def deploy(client, card, cwd, notes, base):
         return
     except Exception as e:
         out, verdict = f"{e}", []
-    head = {(DEPLOYED,): "deployed: ", (SKIPPED,): "deploy skipped: "}.get(tuple(verdict),
-                                                                          "deploy failed: ")
+    head = {(DEPLOYED,): DEPLOYED_HEAD, (SKIPPED,): SKIPPED_HEAD}.get(tuple(verdict),
+                                                                      FAILED_HEAD)
     # the worktree shares refs with the repo, so the deploy's push is already in origin/<base>
     merged = git(cwd, "merge-base", "--is-ancestor", f"card/{id}", f"origin/{base}").returncode == 0
+    # the head sets the deployed dot on the way in; this write only adds what git knows
     await call(client, "comment", id=id, actor=AGENT, text=head + (out or "(no output)"))
     # a comment is a reply and clears the dot: set it again, verify waits for a person
-    await call(client, "update_card", id=id, actor=AGENT, attention=True, merged=merged,
-               deployed=verdict == [DEPLOYED])
+    await call(client, "update_card", id=id, actor=AGENT, attention=True, merged=merged)
 
 
 async def tick(client, connect):
