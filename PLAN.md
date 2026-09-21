@@ -54,7 +54,7 @@ example found online needs translating.
 ```sql
 users(id, name UNIQUE)
 cards(id, project, title, description, lane, assignee, created_by,
-      created_at, updated_at, priority, labels, checklist, archived, auto_advance,
+      created_at, updated_at, pos, labels, checklist, archived, auto_advance,
       attention, plan, questions, answers, merged, deployed)
 events(id, card_id, actor, kind, detail, at)     -- append-only
 links(from_id, to_id, kind)                      -- kind: 'parent' | 'blocks'
@@ -99,8 +99,15 @@ checklist. It diffs old against new and writes one event per changed field — t
 what makes the audit trail free instead of something every caller must remember. Every
 card write goes through it; no route or tool writes SQL.
 
-Rejects: a lane not in `LANES`, a priority not in `low|med|high`, a link kind not in
+Rejects: a lane not in `LANES`, a `pos` that is not a number, a link kind not in
 `parent|blocks`, a self-link, an unknown field name, an unknown card id.
+
+`pos` is the card's place in its column (`REAL`, listed `ORDER BY pos, id`). Anything
+arriving in a lane — a new card, a card moved without an explicit `pos` — lands at the
+bottom of it, so the agent takes the top card and a card it moves queues behind the ones
+already waiting. A drop between two cards takes the midpoint of their `pos` values, so a
+reorder writes one row. A `pos`-only write is not history: it logs no event and does not
+count as the reply that clears the attention dot.
 
 **Idempotence rule.** "Already in that state" is a silent no-op that writes no event — a
 no-op update, a repeat link, an unlink of an absent link. "Not a valid thing" is a
@@ -159,7 +166,9 @@ output becomes a comment, and the card moves on
 (`plan → develop`, `develop → test`, `test → verify`) and is unassigned. Unassigning is both the human gate
 (read the plan, reassign to have it built) and the loop guard (no re-trigger on its own
 write, no state file). On any failure it comments `agent failed: …` and unassigns, lane
-unchanged. Development is a normal agent in auto mode (`--permission-mode auto`, never
+unchanged. Running out of quota is not a failure: it comments `out of quota: resuming
+at HH:MM`, pauses all runs until the limit resets, and leaves the card as it was, so the
+next poll after the pause takes it again. Development is a normal agent in auto mode (`--permission-mode auto`, never
 plan mode): it edits and runs the tests on its own, with Claude Code's auto-mode checks
 still on, and commits its work on the card's own branch. The test stage runs with
 `--dangerously-skip-permissions`, reviews the card's changes against the card
@@ -177,6 +186,15 @@ so it needs one agent process: `agent.py` holds 127.0.0.1:8124 while it runs (ex
 on Windows) and a second one exits at once with "already running", before it touches the
 board. Two agents did run side by side once (two sessions each started one): both
 worked card #32 at the same moment — double test runs, a worktree edited under a run.
+
+**It restarts itself when `agent.py` changes.** Python does not reload code while it
+runs, so a deploy that changed the agent used to need a person to restart it — the #41
+merged and deployed dots stayed dark for a day because the agent running was older than
+the code that sets them. After each poll the agent compares `agent.py`'s mtime with the
+one it started from; if it differs, and no run is in flight and no quota pause is on
+(both live in this process and would be lost), it closes the lock port — or the new
+process would exit as "already running" — starts `python -u agent.py` and exits. A run in
+progress simply defers the restart to a later poll.
 
 **A git worktree per card.** Develop and test run in a worktree of the card's own, next
 to the project's repo: `<repo>.worktrees/card-<id>` on branch `card/<id>`, made from the
@@ -268,8 +286,8 @@ when the set of busy cards changes it reloads the board (skipped mid-drag), so a
 agent just moved shows up in its new lane. A killed agent's entry lingers until it
 restarts — the "started" age is what makes that visible.
 
-**Attention: "waiting for you".** `cards.attention` is a red dot top right of the board
-card. Only an explicit `attention=True` sets it, and the agent passes it whenever it
+**Attention: "waiting for you".** `cards.attention` turns the card's auto dot red on the
+board. Only an explicit `attention=True` sets it, and the agent passes it whenever it
 hands a card back to a person: open questions, a stage done on an assigned card, an auto
 card reaching `verify`, any failure. An auto card still moving on does not ask. Any
 other change to the card — an edit, a move, a comment, by anyone — clears it; opening
@@ -282,6 +300,15 @@ input — answers, a comment on a failure, a fixed description. A write that set
 leaves it off. Edits to a card with no dot never start the agent. Each field saves on
 `change`, so an answers box is one reply however many questions it answers.
 
+**A new request on a verified card (#60).** A card in `verify` is finished work waiting
+for a person, and the agent never polls that lane, so an update there would otherwise sit
+unread. Instead, a person's write to `description`, `answers` or `checklist` — or a
+comment — on a `verify` card sends it back to `plan` in `core.update_card`, assigned to
+`claude-agent`, which turns auto advance on and clears `merged`/`deployed` as rework: the
+next poll replans it and it runs the whole loop again against the new request. The agent's
+own writes are exempt, or its deploy comment would bounce every card it just deployed.
+Passing `lane` in the same write keeps the card where it is.
+
 **Docs.** `docs.html` is the user's manual, written by hand from this file and
 `agent.py`: a change to how the board or the agent behaves updates it too.
 `test_docs_page_is_served_and_covers_the_essentials` checks the lanes and key terms.
@@ -290,12 +317,13 @@ leaves it off. Edits to a card with no dot never start the agent. Each field sav
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
 `drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: description,
-priority, labels, checklist, an "auto advance" checkbox (an `auto` pill on the
-board card), links, activity log, comment box. A "you are:" `<select>`
-persisted in `localStorage` supplies `actor` on every write — its "+ another name…" entry
-prompts and `POST`s to `/api/users`, so a new person or agent is registered and assignable
-without writing a card first — and a project `<select>`
+labels, checklist, an "auto advance" checkbox (an `auto` pill on the
+board card), links, activity log, comment box. The board writes as `User`, a fixed
+name, and agents write under their own names. A project `<select>`
 (also persisted) filters the board — an agent and a human both scope to one project.
+Dragging inside a column reorders it: `dropBefore` finds the card the pointer is above
+(shown with a `.drop-at` insertion line) and `slots` gives the dropped cards their `pos`
+values between its neighbours.
 
 Once a card has a plan, questions or answers, the sheet shows each in its own box under
 the description: "plan" is a fixed 10 lines and scrolls, "open questions" and "your
@@ -311,7 +339,13 @@ current `auto_advance`, so a card it hands back still halts for a person.
 
 **Auto advance at a glance.** Every board card leads with a small dot: lit green when
 auto advance is on, a faint ring when it is off (it replaced the "auto" pill, which only
-showed the on state). The red dot top right is attention, a different thing.
+showed the on state). Attention shares the dot (#46): red if `attention`, else green if
+`auto_advance`, else the ring; the pulse means an agent is working it. No state is lost:
+in the agent lanes a hand-back with attention always has auto off (failures and open
+questions switch it off, a stage is handed back only when it is already off). Only in
+`verify` can both be on, where the agent never picks the card up, so red wins and the
+tooltip still gives the auto state. Clicking a red dot toggles auto advance, and that
+write clears attention: on a failed card it means "go again".
 
 **On master, deployed (#41).** After the auto dot come two more, on the board card and in
 the sheet header: blue when `merged` (the card's branch is on the base branch on origin),
@@ -434,6 +468,10 @@ no longer on the board.
 | 28 | the auto dot pulses on cards an agent is working on, on the board and in the sheet header | done |
 | 29 | ctrl/shift-click selects several cards; dragging one moves them all | done |
 | 30 | #41 merged and deployed dots, set by the agent's deploy step, cleared on rework | done |
+| 31 | #46 one dot: the auto dot turns red for attention; the separate red dot top right is gone | done |
+| 32 | #50 the agent restarts itself when `agent.py` changes on disk, so a deploy that changes it takes effect | done |
+| 33 | #58 `priority` gone: free ordering per column (`cards.pos`), drag up and down to reorder, anything arriving in a lane lands at its bottom | done |
+| 34 | #60 a person's update or comment on a card in `verify` sends it back to `plan`, assigned to the agent, to be planned and built again | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

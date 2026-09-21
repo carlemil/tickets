@@ -98,6 +98,13 @@ def test_assigned_card_is_worked_moved_and_handed_back(ran, lane, nxt):
     assert all(e["actor"] == agent.AGENT for e in c["events"][1:])
 
 
+def test_a_card_the_agent_moves_queues_behind_the_lane_it_lands_in(ran):
+    waiting = card("develop", assignee=None)
+    moved = card("plan")
+    tick()
+    assert [c["id"] for c in core.list_cards(lane="develop")] == [waiting, moved]
+
+
 def test_second_tick_does_not_retrigger_on_its_own_write(ran):
     card("plan")
     tick()
@@ -856,6 +863,33 @@ def test_a_project_runs_one_card_at_a_time_in_order(ran):
     assert worked() == [(a, "develop", f"card-{a}"), (b, "test", f"card-{b}")]
 
 
+def test_the_top_card_of_the_column_goes_first(ran):
+    last, first, middle = card("develop"), card("develop"), card("develop")
+    core.update_card(first, "ce", pos=-1)    # dragged to the top, after everything was made
+    core.update_card(middle, "ce", pos=0)
+    for n, want in enumerate([first, middle, last], 1):
+        tick()
+        assert len(ran) == n and ran[-1][0] == want
+
+
+def test_a_top_card_that_cannot_run_does_not_block(ran):
+    core.update_card(card("develop", assignee=None), "ce", pos=-1)
+    below = card("develop")
+    tick()
+    assert [r[0] for r in ran] == [below]
+
+
+def test_a_busy_projects_top_card_does_not_block_another_project(ran, repo):
+    core.update_card(card("develop"), "ce", pos=-1)
+    other = card("develop", project="Repo")
+    agent.running["proj"] = "busy"
+    try:
+        tick()
+    finally:
+        del agent.running["proj"]
+    assert [r[0] for r in ran] == [other]
+
+
 def test_a_card_waits_while_its_project_is_busy(ran):
     id = card("develop")
     agent.running["proj"] = "a run started by an earlier poll"
@@ -1066,6 +1100,41 @@ def test_a_second_agent_process_exits_without_touching_the_board(tmp_path):
     assert "polling" not in r.stdout
 
 
+# ---------- the agent restarts itself when agent.py changes ----------
+
+def test_an_unchanged_agent_py_does_not_restart():
+    assert not agent.stale(agent.SOURCE.stat().st_mtime)
+
+
+def test_a_changed_agent_py_restarts_between_polls():
+    assert agent.stale(0)   # any other mtime: the file on disk is not the one we read
+
+
+def test_a_run_in_flight_holds_the_restart_off():
+    agent.running["repo"] = "a run"
+    try:
+        assert not agent.stale(0)
+    finally:
+        del agent.running["repo"]
+
+
+def test_a_quota_pause_holds_the_restart_off(monkeypatch):
+    monkeypatch.setattr(agent, "paused_until",
+                        agent.datetime.now() + agent.timedelta(hours=1))
+    assert not agent.stale(0)
+
+
+def test_the_restart_frees_the_lock_before_starting_the_new_agent(monkeypatch):
+    addr = free_port()
+    lock = agent.only_one(addr)
+    started = []
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **k: started.append(cmd))
+    with pytest.raises(SystemExit):
+        agent.restart(lock)
+    assert started and started[0][-1] == str(agent.SOURCE)
+    agent.only_one(addr).close()   # free: the new agent can take the lock
+
+
 # ---------- the merged and deployed dots ----------
 
 def deploys(repo, monkeypatch, out, merge=False):
@@ -1136,3 +1205,108 @@ def test_the_deploy_prompt_knows_the_skipped_verdict(monkeypatch, tmp_path):
                         subprocess.CompletedProcess(cmd, 0, stdout="ok"))
     agent.run_claude({"lane": "deploy", "id": 7}, tmp_path)
     assert "DEPLOY: SKIPPED" in got["input"] and "DEPLOY: FAILED" in got["input"]
+
+
+# ---------- out of quota ----------
+
+QUOTA = "You've hit your session limit · resets 10:30pm (Europe/Stockholm)\n"
+
+
+@pytest.fixture(autouse=True)
+def not_paused():
+    agent.paused_until = None
+    yield
+    agent.paused_until = None
+
+
+@pytest.mark.parametrize("text, now, want", [
+    ("10:30pm", "2026-09-19 20:22", "2026-09-19 22:31"),     # later today
+    ("10:30pm", "2026-09-20 00:10", "2026-09-20 22:31"),     # read after midnight: today
+    ("1am", "2026-09-19 23:00", "2026-09-20 01:01"),         # passed today: tomorrow
+    ("10pm", "2026-09-19 20:00", "2026-09-19 22:01"),
+    ("12am", "2026-09-19 20:00", "2026-09-20 00:01"),
+    ("12pm", "2026-09-19 10:00", "2026-09-19 12:01"),
+    ("Sep 21, 10am", "2026-09-19 20:00", "2026-09-21 10:01"),
+    ("Jan 2, 3pm", "2026-12-30 20:00", "2027-01-02 15:01"),
+    ("10:30pm", "2026-09-19 22:31", "2026-09-19 22:36"),     # just passed: a short wait
+    ("soon", "2026-09-19 20:00", "2026-09-19 20:30"),        # unreadable: 30 minutes
+    (None, "2026-09-19 20:00", "2026-09-19 20:30"),
+])
+def test_resume_at(text, now, want):
+    from datetime import datetime
+    got = agent.resume_at(text, datetime.fromisoformat(now))
+    assert got == datetime.fromisoformat(want)
+
+
+@pytest.mark.parametrize("out, err", [("", QUOTA), (QUOTA, ""),
+                                      ("", "You've hit your weekly limit\n")])
+def test_run_claude_raises_out_of_quota(monkeypatch, tmp_path, out, err):
+    from datetime import datetime
+
+    def fail(*a, **k):
+        raise subprocess.CalledProcessError(1, "claude", output=out, stderr=err)
+    monkeypatch.setattr(subprocess, "run", fail)
+    with pytest.raises(agent.OutOfQuota) as e:
+        agent.run_claude({"lane": "develop", "id": 1}, tmp_path)
+    assert str(e.value) == (out or err).strip() and e.value.at > datetime.now()
+
+
+def quota(monkeypatch, lane=None):
+    """claude is out of quota for 2 hours: in every stage, or only in `lane`."""
+    from datetime import datetime, timedelta
+    at = datetime.now() + timedelta(hours=2)
+
+    def out(card, cwd, instructions=""):
+        if lane in (None, card["lane"]):
+            raise agent.OutOfQuota(QUOTA, at)
+        return "ok\nRESULT: PASS"
+    monkeypatch.setattr(agent, "run_claude", out)
+    return at
+
+
+def test_out_of_quota_is_not_a_failure_and_pauses(ran, monkeypatch):
+    id = card("develop", assignee="ce", auto=True)
+    at = quota(monkeypatch)
+    tick()
+    c = core.get_card(id)
+    assert (c["lane"], c["assignee"], c["auto_advance"], c["attention"]) == \
+        ("develop", "ce", True, False)
+    assert comments(id) == [f"out of quota: resuming at {at:%H:%M} ({QUOTA.strip()})"]
+    assert agent.paused_until == at
+    assert [(a["actor"], a["card_id"]) for a in core.list_activity()] == [(agent.AGENT, id)]
+
+
+def test_a_card_assigned_to_the_agent_stays_assigned(ran, monkeypatch):
+    id = card("plan")
+    quota(monkeypatch)
+    tick()
+    c = core.get_card(id)
+    assert (c["lane"], c["assignee"], c["auto_advance"]) == ("plan", agent.AGENT, False)
+
+
+def test_the_pause_holds_every_project_then_the_card_goes_on(ran, monkeypatch):
+    from datetime import datetime, timedelta
+    core.create_project("Other", path=str(core.get_project("Proj")["path"]))
+    id = card("develop", auto=True)
+    quota(monkeypatch)
+    tick()
+    ran.clear()
+    monkeypatch.undo()   # claude has quota again...
+    monkeypatch.setattr(agent, "run_claude", lambda c, cwd, i="": ran.append(c["id"]) or "ok")
+    other = card("plan", project="Other")
+    tick()
+    assert ran == [] and core.get_card(id)["lane"] == "develop", "...but the pause holds"
+    agent.paused_until = datetime.now() - timedelta(seconds=1)
+    tick()
+    assert sorted(ran) == sorted([id, other]) and core.get_card(id)["lane"] == "test"
+    assert agent.paused_until is None and core.list_activity() == [], "status bar cleared"
+
+
+def test_out_of_quota_in_deploy_postpones_it(ran, monkeypatch):
+    id = card("test", auto=True)
+    at = quota(monkeypatch, lane="deploy")
+    tick()
+    c = core.get_card(id)
+    assert c["lane"] == "verify" and c["attention"] and not c["deployed"]
+    assert comments(id)[-1].startswith(f"deploy postponed: out of quota, resuming at {at:%H:%M}")
+    assert agent.paused_until == at

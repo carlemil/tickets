@@ -400,7 +400,17 @@ def test_auto_advance_over_rest_and_the_tools(client):
 def test_attention_set_by_the_tool_cleared_by_other_changes():
     c = core.create_card("a", actor="ann", project="Home")
     assert app.update_card(c["id"], "bot", attention=True)["attention"] is True
-    assert app.update_card(c["id"], "bot", priority="high")["attention"] is False
+    assert app.update_card(c["id"], "bot", title="b")["attention"] is False
+
+
+def test_pos_reorders_over_http_and_must_be_a_number(client):
+    a = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home"}).json()
+    b = client.post("/api/cards", json={"title": "b", "actor": "ann", "project": "Home"}).json()
+    r = client.patch(f"/api/cards/{b['id']}", json={"pos": a["pos"] - 1, "actor": "ann"})
+    assert r.status_code == 200, r.text
+    assert [c["title"] for c in client.get("/api/cards").json()] == ["b", "a"]
+    bad = client.patch(f"/api/cards/{b['id']}", json={"pos": "top", "actor": "ann"})
+    assert bad.status_code == 400 and "pos" in bad.json()["error"], bad.text
 
 
 def test_plan_fields_over_the_tool_and_what_it_tells_agents():
@@ -410,6 +420,18 @@ def test_plan_fields_over_the_tool_and_what_it_tells_agents():
     doc = app.update_card.__doc__
     for said in ("`description` is the request", "`plan` is the", "`answers` is the person"):
         assert said in doc
+
+
+def test_a_new_request_on_a_verified_card_replans_it_over_the_tool_and_http(client):
+    c = core.create_card("a", actor="ann", project="Home", lane="verify")
+    back = app.update_card(c["id"], "ce", description="a different ask")
+    assert (back["lane"], back["assignee"]) == ("plan", core.AGENT)
+    v = core.update_card(back["id"], "ce", lane="verify")["id"]
+    r = client.post(f"/api/cards/{v}/comment", json={"actor": "ce", "text": "not this"})
+    assert r.status_code == 200, r.text
+    assert r.json()["lane"] == "plan"
+    assert "A card in verify is finished work" in app.update_card.__doc__
+    assert "A person's comment on a card in verify" in app.comment.__doc__
 
 
 def test_project_colors_over_rest(client):

@@ -23,7 +23,7 @@ def projects(*names):
 
 def test_new_card_defaults_and_created_event():
     c = card(labels=["ui"], checklist=[{"text": "sketch", "done": False}])
-    assert c["lane"] == "todo" and c["priority"] == "med", c
+    assert c["lane"] == "todo", c
     assert c["project"] == "Home", c
     assert c["labels"] == ["ui"], c["labels"]
     assert [(e["kind"], e["actor"]) for e in c["events"]] == [("created", "ann")], c["events"]
@@ -31,10 +31,10 @@ def test_new_card_defaults_and_created_event():
 
 def test_create_card_persists_every_optional_field():
     projects("Tickets")
-    c = card(description="the long version", assignee="bob", priority="high",
+    c = card(description="the long version", assignee="bob",
              project="Tickets", lane="plan")
     assert c["description"] == "the long version"
-    assert c["assignee"] == "bob" and c["priority"] == "high"
+    assert c["assignee"] == "bob"
     assert c["project"] == "Tickets" and c["lane"] == "plan"
     assert core.get_card(c["id"])["description"] == "the long version", "survives a reload"
 
@@ -67,7 +67,6 @@ def test_assignee_can_be_cleared():
 @pytest.mark.parametrize("field,value", [
     ("title", "Renamed"),
     ("description", "now with detail"),
-    ("priority", "high"),
     ("labels", ["ui", "api"]),
 ])
 def test_plain_fields_write_one_edited_event(field, value):
@@ -99,17 +98,16 @@ def test_unknown_field_is_rejected_by_name():
         core.update_card(c["id"], "ann", nope=1)
 
 
-@pytest.mark.parametrize("bad", [{"lane": "backlog"}, {"priority": "urgent"}])
-def test_update_rejects_bad_lane_and_priority(bad):
+@pytest.mark.parametrize("bad", [{"lane": "backlog"}, {"pos": "top"}, {"pos": True}])
+def test_update_rejects_a_bad_lane_and_a_pos_that_is_not_a_number(bad):
     c = card()
     with pytest.raises(ValueError):
         core.update_card(c["id"], "ann", **bad)
 
 
-@pytest.mark.parametrize("bad", [{"lane": "backlog"}, {"priority": "urgent"}])
-def test_create_rejects_bad_lane_and_priority(bad):
+def test_create_rejects_a_bad_lane():
     with pytest.raises(ValueError):
-        card(**bad)
+        card(lane="backlog")
 
 
 # ---------- checklists ----------
@@ -245,11 +243,68 @@ def test_the_renamed_fifth_lane_is_real():
     assert [x["id"] for x in core.list_cards(lane="verify")] == [c["id"]]
 
 
-def test_listed_most_recently_changed_first():
+def test_listed_in_board_order_which_an_edit_does_not_disturb():
     a, b = card("A"), card("B", actor="bob")
-    core.update_card(a["id"], "ann", title="A, touched")   # an explicit update, because
-    ids = [x["id"] for x in core.list_cards()]             # ISO creation stamps can tie
+    core.update_card(a["id"], "ann", title="A, touched")   # touching a card used to throw
+    ids = [x["id"] for x in core.list_cards()]             # it back to the top of its column
     assert ids == [a["id"], b["id"]], ids
+
+
+# ---------- ordering: the column is the queue ----------
+
+def test_a_new_card_lands_at_the_bottom_of_its_lane():
+    a, b, c = card("A"), card("B"), card("C", lane="plan")
+    assert a["pos"] < b["pos"], (a["pos"], b["pos"])
+    assert [x["id"] for x in core.list_cards(lane="todo")] == [a["id"], b["id"]]
+    assert c["pos"] == 1, "a lane of its own starts from the top"
+
+
+def test_a_lane_move_without_a_pos_lands_at_the_bottom_of_the_new_lane():
+    waiting, also = card("waiting"), card("also waiting")
+    for c in (waiting, also):
+        core.update_card(c["id"], "ann", lane="develop")
+    moved = core.update_card(card("late")["id"], "bot", lane="develop")
+    assert [x["id"] for x in core.list_cards(lane="develop")] ==         [waiting["id"], also["id"], moved["id"]]
+
+
+def test_an_explicit_pos_is_honoured_and_reorders_the_list():
+    a, b = card("A"), card("B")
+    b = core.update_card(b["id"], "ann", pos=a["pos"] - 1)   # dragged above A
+    assert [x["title"] for x in core.list_cards()] == ["B", "A"]
+    # and a drop between two cards takes the midpoint, writing one row
+    c = core.update_card(card("C")["id"], "ann", pos=(b["pos"] + a["pos"]) / 2)
+    assert [x["title"] for x in core.list_cards()] == ["B", "C", "A"], c["pos"]
+
+
+def test_a_pos_only_update_is_not_history_and_not_a_reply():
+    """The one that would really hurt: tidying a column must not count as answering the
+    agent, or every drag would restart a card the agent is waiting on."""
+    c = core.update_card(card()["id"], "bot", lane="develop", attention=True,
+                         auto_advance=False)
+    before = len(c["events"])
+    c = core.update_card(c["id"], "ann", pos=0.5)
+    assert c["pos"] == 0.5 and len(c["events"]) == before, c["events"]
+    assert c["attention"] is True and c["auto_advance"] is False, c
+
+
+def test_a_database_with_priority_and_no_pos_keeps_the_order_it_showed(db):
+    """The live board at deploy time: the column dropped, pos backfilled from the order
+    the board used to list in, so nothing jumps on the first load."""
+    import sqlite3
+    core.list_cards()                       # today's schema, then make it yesterday's
+    old = sqlite3.connect(core.DB_PATH)
+    old.execute("ALTER TABLE cards DROP COLUMN pos")
+    old.execute("ALTER TABLE cards ADD COLUMN priority TEXT NOT NULL DEFAULT 'med'")
+    for n, at in enumerate(("2026-01-01", "2026-03-01", "2026-02-01"), 1):
+        old.execute("INSERT INTO cards (id, project, title, lane, created_by, created_at,"
+                    " updated_at, priority) VALUES (?,'Home',?,'todo','ann','t',?,'high')",
+                    (n, f"c{n}", at))
+    old.commit()
+    old.close()
+    assert [c["title"] for c in core.list_cards()] == ["c2", "c3", "c1"], "newest first, as before"
+    assert "priority" not in core.list_cards()[0], "the column is gone"
+    core.update_card(1, "ann", pos=0)       # and the added column is writable
+    assert [c["title"] for c in core.list_cards()] == ["c1", "c2", "c3"]
 
 
 # ---------- projects ----------
@@ -284,7 +339,7 @@ def test_names_already_on_cards_become_projects_once_each(db):
     old.execute("DELETE FROM projects")
     for n, proj in enumerate(("Tickets", "tickets", "inbox"), 1):
         old.execute("INSERT INTO cards (id, project, title, lane, created_by, created_at,"
-                    " updated_at, priority) VALUES (?,?,'t','todo','ann','t','t','med')",
+                    " updated_at) VALUES (?,?,'t','todo','ann','t','t')",
                     (n, proj))
     old.commit()
     old.close()
@@ -315,8 +370,8 @@ def test_an_old_database_keeps_its_inbox_as_an_ordinary_project(db):
     """A board from when "inbox" was the built-in default keeps it, now renamable."""
     import sqlite3
     old = sqlite3.connect(core.DB_PATH)
-    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at, updated_at,"
-                " priority) VALUES ('inbox','old','todo','ann','t','t','med')")
+    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at,"
+                " updated_at) VALUES ('inbox','old','todo','ann','t','t')")
     old.commit()
     old.close()
     assert [p["name"] for p in core.list_projects()] == ["Home", "inbox"]
@@ -358,6 +413,41 @@ def test_ensure_user_strips_and_rejects_blanks():
     assert core.list_users() == ["eve"], core.list_users()
 
 
+def test_rename_user_moves_every_trace_of_the_old_name():
+    mine = card(actor="ce")["id"]
+    core.update_card(mine, "ce", assignee="ce")
+    core.comment(mine, "ce", "hi")
+    core.set_activity("ce", mine, "looking")
+    theirs = card(actor="zoe", assignee="zoe")["id"]
+    core.update_card(theirs, "zoe", assignee="ce")      # the old name as `to`...
+    core.update_card(theirs, "zoe", assignee="zoe")     # ...and as `from`
+    core.set_activity("User", theirs, "already here")   # a clash on activity's primary key
+
+    core.rename_user("ce", "User")
+
+    c = core.get_card(mine)
+    assert c["created_by"] == "User" and c["assignee"] == "User", c
+    assert {e["actor"] for e in c["events"]} == {"User"}, c["events"]
+    assert [e["detail"]["to"] for e in c["events"] if e["kind"] == "assigned"] == ["User"]
+    t = core.get_card(theirs)
+    assert t["created_by"] == "zoe" and t["assignee"] == "zoe", "zoe is untouched"
+    assert {e["actor"] for e in t["events"]} == {"zoe"}, t["events"]
+    assert [(e["detail"]["from"], e["detail"]["to"]) for e in t["events"]
+            if e["kind"] == "assigned"] == [("zoe", "User"), ("User", "zoe")]
+    assert [(a["actor"], a["doing"]) for a in core.list_activity()] == [("User", "already here")]
+    assert core.list_users() == ["User", "zoe"], core.list_users()
+
+    before = (core.get_card(mine), core.get_card(theirs), core.list_users())
+    core.rename_user("ce", "User")                      # a second run changes nothing
+    assert (core.get_card(mine), core.get_card(theirs), core.list_users()) == before
+    core.rename_user("User", "User")                    # same name: a no-op
+    for blank in ("", "  ", None):
+        with pytest.raises(ValueError):
+            core.rename_user(blank, "User")
+        with pytest.raises(ValueError):
+            core.rename_user("ce", blank)
+
+
 # ---------- archiving ----------
 
 def test_archive_hides_the_card_and_unarchive_brings_it_back():
@@ -385,9 +475,9 @@ def test_a_database_from_before_archiving_gains_the_column(db):
     old.execute("CREATE TABLE cards (id INTEGER PRIMARY KEY, project TEXT NOT NULL,"
                 " title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', lane TEXT NOT NULL,"
                 " assignee TEXT, created_by TEXT NOT NULL, created_at TEXT NOT NULL,"
-                " updated_at TEXT NOT NULL, priority TEXT NOT NULL,"
+                " updated_at TEXT NOT NULL,"
                 " labels TEXT NOT NULL DEFAULT '[]', checklist TEXT NOT NULL DEFAULT '[]')")
-    old.execute("INSERT INTO cards VALUES (1,'inbox','old','','todo',NULL,'ann','t','t','med','[]','[]')")
+    old.execute("INSERT INTO cards VALUES (1,'inbox','old','','todo',NULL,'ann','t','t','[]','[]')")
     old.commit()
     old.close()
     assert [(c["title"], c["archived"], c["auto_advance"]) for c in core.list_cards()] == [
@@ -641,8 +731,8 @@ def test_a_database_with_archived_but_not_auto_advance_gains_it(db):
     core.list_cards()   # create today's schema, then take the newest column back out
     old = sqlite3.connect(core.DB_PATH)
     old.execute("ALTER TABLE cards DROP COLUMN auto_advance")
-    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at, updated_at,"
-                " priority, archived) VALUES ('inbox','old','todo','ann','t','t','med',1)")
+    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at,"
+                " updated_at, archived) VALUES ('inbox','old','todo','ann','t','t',1)")
     old.commit()
     old.close()
     [c] = core.list_cards(archived=True)
@@ -772,8 +862,8 @@ def test_a_database_without_the_plan_fields_gains_them(db):
     old = sqlite3.connect(core.DB_PATH)
     for col in ("plan", "questions", "answers"):
         old.execute(f"ALTER TABLE cards DROP COLUMN {col}")
-    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at, updated_at,"
-                " priority) VALUES ('inbox','old','todo','ann','t','t','med')")
+    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at,"
+                " updated_at) VALUES ('inbox','old','todo','ann','t','t')")
     old.commit()
     old.close()
     [c] = core.list_cards()
@@ -844,8 +934,8 @@ def test_projects_backfilled_from_cards_get_colors_too(db):
     import sqlite3
     core.list_projects()
     raw = sqlite3.connect(db)
-    raw.execute("INSERT INTO cards (project, title, lane, created_by, created_at, updated_at,"
-                " priority) VALUES ('Legacy','old','todo','ann','t','t','med')")
+    raw.execute("INSERT INTO cards (project, title, lane, created_by, created_at,"
+                " updated_at) VALUES ('Legacy','old','todo','ann','t','t')")
     raw.commit()
     raw.close()
     assert core.list_projects() == [{"name": "Legacy", "path": "", "instructions": "",
@@ -1021,6 +1111,66 @@ def test_questions_are_stored_numbered_from_1_whoever_writes_them():
     assert core.update_card(id, "ce", questions="")["questions"] == ""
 
 
+# ---------- a new request on a verified card replans it (#60) ----------
+
+@pytest.mark.parametrize("field, value", [("description", "a different ask"),
+                                          ("answers", "1. blue"),
+                                          ("checklist", [{"text": "and this", "done": False}])])
+def test_a_persons_update_to_a_verified_card_sends_it_back_to_plan(field, value):
+    c = core.update_card(card(lane="verify")["id"], "ann", **{field: value})
+    assert (c["lane"], c["assignee"], c["auto_advance"]) == ("plan", core.AGENT, True)
+    assert [(e["actor"], e["detail"]["from"], e["detail"]["to"]) for e in c["events"]
+            if e["kind"] == "moved"] == [("ann", "verify", "plan")]
+
+
+def test_a_persons_comment_on_a_verified_card_sends_it_back_to_plan():
+    c = core.comment(card(lane="verify")["id"], "ann", "not what I meant")
+    assert (c["lane"], c["assignee"], c["auto_advance"]) == ("plan", core.AGENT, True)
+    assert [e["kind"] for e in c["events"]] == ["created", "comment", "moved", "assigned",
+                                                "edited"]
+
+
+@pytest.mark.parametrize("lane", ["todo", "plan", "develop", "test", "done"])
+def test_only_verify_cards_are_replanned(lane):
+    c = card(lane=lane)["id"]
+    assert core.update_card(c, "ann", description="a different ask")["lane"] == lane
+    assert core.comment(c, "ann", "and this too")["lane"] == lane
+
+
+def test_the_agents_own_writes_never_replan_a_verified_card():
+    """Its deploy step comments on the card it just deployed: that must not bounce it."""
+    c = card(lane="verify")["id"]
+    assert core.comment(c, core.AGENT, "deployed: ok")["lane"] == "verify"
+    assert core.update_card(c, core.AGENT, checklist=[{"text": "shipped", "done": True}],
+                            merged=True, deployed=True)["lane"] == "verify"
+
+
+def test_a_lane_in_the_same_write_wins():
+    c = card(lane="verify")["id"]
+    assert core.update_card(c, "ann", description="typo fixed", lane="verify")["lane"] == "verify"
+    assert core.update_card(c, "ann", description="done with it", lane="done")["lane"] == "done"
+
+
+def test_an_unchanged_field_replans_nothing():
+    c = card(lane="verify", description="as asked")["id"]
+    after = core.update_card(c, "ann", description="as asked", title="a better title")
+    assert (after["lane"], after["assignee"]) == ("verify", None)
+
+
+@pytest.mark.parametrize("field, value", [("title", "renamed"), ("labels", ["ui"]),
+                                          ("plan", "step one"), ("questions", "- red?"),
+                                          ("attention", True), ("assignee", "bob")])
+def test_other_fields_leave_a_verified_card_where_it_is(field, value):
+    assert core.update_card(card(lane="verify")["id"], "ann", **{field: value})["lane"] == "verify"
+
+
+def test_a_replanned_card_is_rework_at_the_bottom_of_plan():
+    waiting = card(lane="plan")["id"]
+    c = core.update_card(shipped()["id"], "ann", description="a different ask")
+    assert (c["merged"], c["deployed"], c["attention"]) == (False, False, False)
+    assert c["pos"] > core.get_card(waiting)["pos"], "behind the card already waiting"
+
+
 # ---------- merged and deployed ----------
 
 def shipped(lane="verify"):
@@ -1078,8 +1228,8 @@ def test_a_database_without_merged_and_deployed_gains_them(db):
     old = sqlite3.connect(core.DB_PATH)
     old.execute("ALTER TABLE cards DROP COLUMN merged")
     old.execute("ALTER TABLE cards DROP COLUMN deployed")
-    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at, updated_at,"
-                " priority) VALUES ('inbox','old','todo','ann','t','t','med')")
+    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at,"
+                " updated_at) VALUES ('inbox','old','todo','ann','t','t')")
     old.commit()
     old.close()
     [c] = core.list_cards()

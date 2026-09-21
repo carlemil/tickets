@@ -53,13 +53,10 @@
   }
   .card {
     background: var(--panel); border-radius: 4px; padding: 8px 10px; cursor: pointer;
-    box-shadow: 0 1px 1px rgba(9,30,66,.25); border-left: 3px solid transparent;
+    box-shadow: 0 1px 1px rgba(9,30,66,.25);
   }
   .card:hover { background: #f7f8f9; }
   .card { position: relative; }
-  .card .dot { position: absolute; top: 6px; right: 6px; width: 10px; height: 10px;
-               border-radius: 50%; background: #de350b; }
-  .card:has(.dot) .t { padding-right: 14px; }
   .card.dragging { opacity: .4; }
   .card { user-select: none; }   /* shift-click selects cards, not text */
   .card.selected { outline: 2px solid var(--accent); }
@@ -71,9 +68,8 @@
   .arch { margin-left: auto; font-size: 11px; padding: 0 6px; cursor: pointer;
           text-transform: none; letter-spacing: normal; }
   .lane h2 .arch { margin-right: 6px; }
-  .card.p-high { border-left-color: #de350b; }
-  .card.p-med  { border-left-color: #ffab00; }
-  .card.p-low  { border-left-color: #36b37e; }
+  /* the line a dragged card would drop above */
+  .card.drop-at { box-shadow: inset 0 3px 0 var(--accent); }
   .pill { background: #dfe1e6; border-radius: 10px; padding: 1px 7px; font-size: 11px; color: #42526e; }
   .pill.who { background: #deebff; color: #0747a6; }
   /* auto advance at a glance: lit green when on, a faint ring when off */
@@ -84,6 +80,9 @@
   .card .auto::after { content: ""; position: absolute; inset: -5px; }
   .auto.on { background: #36b37e; border-color: #36b37e;
                    box-shadow: 0 0 4px 1px rgba(54,179,126,.7); }
+  /* waiting for your input: red wins over green */
+  .auto.attn { background: #de350b; border-color: #de350b;
+               box-shadow: 0 0 4px 1px rgba(222,53,11,.7); }
   /* an agent is working on the card right now */
   .auto.working { animation: pulse 1.2s infinite; }
   /* on master, deployed: set by the agent's deploy step, so not clickable */
@@ -159,7 +158,6 @@
 
 <header>
   <h1>Tickets</h1>
-  <label class="f">you are</label> <select id="who"></select>
   <label class="f">project</label> <select id="proj"></select>
   <button id="projects">projects…</button>
   <label class="f"><input type="checkbox" id="showArch"> show archived</label>
@@ -208,14 +206,14 @@ $("#err").onclick = () => $("#err").classList.remove("on");
 async function api(method, path, body) {
   const opts = { method, headers: { "Content-Type": "application/json" } };
   if (body) opts.body = JSON.stringify(path.startsWith("/api/projects") ? body
-                                                                         : { ...body, actor: who() });
+                                                                         : { ...body, actor: USER });
   const r = await fetch(path, opts);
   const data = await r.json();
   if (!r.ok) throw new Error(data.error || (r.status + " " + r.statusText));
   return data;
 }
 
-const who = () => localStorage.getItem("actor") || "";
+const USER = "User";   // the one person; a settings-chosen name can replace this later
 const proj = () => localStorage.getItem("project") || "";
 
 function ago(iso) {
@@ -297,12 +295,14 @@ function projectTag(name) {
   return tag;
 }
 
-// green when auto advance is on, a ring when off; pulses while an agent works the card
+// red when an agent handed the card back and waits for you, else green when auto advance
+// is on, a ring when off; pulses while an agent works the card
 // only the board's dot is clickable; in the sheet the auto advance switch is the control
 function autoDot(c, clickable) {
   const d = Object.assign(document.createElement("span"),
-    { className: "auto" + (c.auto_advance ? " on" : ""),
-      title: (c.auto_advance
+    { className: "auto" + (c.auto_advance ? " on" : "") + (c.attention ? " attn" : ""),
+      title: (c.attention ? "waiting for your input: an agent handed this card back. " +
+        "Any edit, move or comment clears it. " : "") + (c.auto_advance
         ? "auto advance is on: the agent carries this card on to verify by itself"
         : "auto advance is off: the agent works this card only when it is assigned to it") +
         (clickable ? (c.auto_advance ? ". Click to turn it off." : ". Click to turn it on.") : "") });
@@ -329,7 +329,7 @@ function markWorking(d) {
 
 function cardNode(c) {
   const n = document.createElement("div");
-  n.className = "card p-" + c.priority + (selected.has(c.id) ? " selected" : "");
+  n.className = "card" + (selected.has(c.id) ? " selected" : "");
   n.draggable = true;
   n.dataset.id = c.id;
   const t = document.createElement("div");
@@ -340,8 +340,6 @@ function cardNode(c) {
     { className: "id", textContent: "#" + c.id }));
   if (c.assignee) meta.append(Object.assign(document.createElement("span"),
     { className: "pill who", textContent: c.assignee }));
-  meta.append(Object.assign(document.createElement("span"),
-    { className: "pill pri", textContent: c.priority }));
   meta.prepend(autoDot(c, true), ...statusDots(c));
   meta.append(projectTag(c.project));
   for (const l of c.labels) meta.append(Object.assign(document.createElement("span"),
@@ -357,10 +355,6 @@ function cardNode(c) {
     meta.append(a);
   }
   n.append(t, meta);
-  // set by an agent handing the card back; any edit, move or comment clears it
-  if (c.attention) n.append(Object.assign(document.createElement("span"),
-    { className: "dot", title: "waiting for your input: an agent handed this card back. " +
-      "Any edit, move or comment clears it and sends the card back to the agent" }));
 
   n.ondragstart = ev => {
     ev.dataTransfer.setData("text/plain", String(c.id));
@@ -395,7 +389,9 @@ function renderBoard() {
     const col = document.createElement("div");
     col.className = "lane";
     col.dataset.lane = lane;
-    const mine = cards.filter(c => c.lane === lane);
+    // the column is the queue: top card first. Sorted here too, not only by the server,
+    // so an optimistic local write lands in the right slot without a reload
+    const mine = cards.filter(c => c.lane === lane).sort((a, b) => a.pos - b.pos || a.id - b.id);
     const h = document.createElement("h2");
     h.append(document.createTextNode(lane));
     if (lane === "done" && mine.length && !$("#showArch").checked)
@@ -426,14 +422,41 @@ function laneAt(ev) {
   }
   return best;
 }
-function markOver(col) {
+// Where in the column a drop lands: the first card whose middle is below the pointer,
+// null for the end of the column. The dragged card is no landmark for itself.
+function staying(col) { return [...col.querySelectorAll(".card:not(.dragging)")]; }
+function dropBefore(col, y) {
+  return staying(col).find(n => {
+    const r = n.getBoundingClientRect();
+    return r.top + r.height / 2 > y;
+  }) || null;
+}
+// The pos values for n cards dropped there, spread evenly between the card above and the
+// one below so a multi-card drop keeps its order instead of tying.
+// ponytail: halving a gap runs out of float precision after ~50 drops into the same spot;
+// renumber the lane if it ever shows up.
+function slots(col, y, n) {
+  const rest = staying(col);
+  if (!rest.length) return [...Array(n).keys()];
+  const at = i => cards.find(c => c.id === +rest[i].dataset.id).pos;
+  const before = dropBefore(col, y);
+  const k = before ? rest.indexOf(before) : rest.length;
+  const hi = k < rest.length ? at(k) : at(rest.length - 1) + 1;
+  const lo = k ? at(k - 1) : hi - 1;
+  return [...Array(n).keys()].map(i => lo + (hi - lo) * (i + 1) / (n + 1));
+}
+function markOver(col, before) {
   for (const x of document.querySelectorAll(".lane.over")) if (x !== col) x.classList.remove("over");
+  for (const x of document.querySelectorAll(".card.drop-at"))
+    if (x !== before) x.classList.remove("drop-at");
   if (col) col.classList.add("over");
+  if (before) before.classList.add("drop-at");
 }
 document.addEventListener("dragover", ev => {
   if (!$(".card.dragging")) return;   // a card's drag only, not text or files
   ev.preventDefault();
-  markOver(laneAt(ev));
+  const col = laneAt(ev);
+  markOver(col, col && dropBefore(col, ev.clientY));
 });
 document.addEventListener("dragleave", ev => { if (!ev.relatedTarget) markOver(null); });
 document.addEventListener("dragend", () => markOver(null));
@@ -446,23 +469,25 @@ document.addEventListener("drop", ev => {
   // a selected card takes the whole selection with it; any other card goes alone
   const ids = selected.has(id) ? [...selected] : [id];
   if (selected.has(id)) selected.clear();
-  ids.forEach(i => move(i, col.dataset.lane));
+  const at = slots(col, ev.clientY, ids.length);
+  ids.forEach((i, k) => move(i, col.dataset.lane, at[k]));
 });
 document.addEventListener("keydown", ev => {
   if (ev.key === "Escape" && !open && selected.size) { selected.clear(); renderBoard(); }
 });
 
-async function move(id, lane) {
+// One call for both gestures: to another lane, or up and down inside this one.
+async function move(id, lane, pos) {
   const c = cards.find(x => x.id === id);
-  if (!c || c.lane === lane) return;
-  const was = c.lane;
-  c.lane = lane;                 // optimistic: the card lands where it was dropped
+  if (!c || (c.lane === lane && c.pos === pos)) return;
+  const was = { lane: c.lane, pos: c.pos };
+  c.lane = lane; c.pos = pos;    // optimistic: the card lands where it was dropped
   renderBoard();
   try {
-    replace(await api("PATCH", "/api/cards/" + id, { lane }));
+    replace(await api("PATCH", "/api/cards/" + id, { lane, pos }));
     if (open && open.id === id) openCard(id);
   } catch (e) {
-    c.lane = was;                // put it back where it came from
+    Object.assign(c, was);       // put it back where it came from
     renderBoard();
     showErr("could not move #" + id + ": " + e.message);
   }
@@ -478,14 +503,16 @@ async function archive(ids) {
 async function toggleAuto(id) {
   const c = cards.find(x => x.id === id);
   if (!c) return;
-  const was = c.auto_advance;
+  const was = c.auto_advance, attn = c.attention;
   c.auto_advance = !was;         // optimistic, like move()
+  c.attention = false;           // the write is a reply, so the server clears it too
   renderBoard();
   try {
     replace(await api("PATCH", "/api/cards/" + id, { auto_advance: !was }));
     if (open && open.id === id) openCard(id);
   } catch (e) {
     c.auto_advance = was;
+    c.attention = attn;
     renderBoard();
     showErr("could not switch auto advance on #" + id + ": " + e.message);
   }
@@ -697,11 +724,6 @@ function renderPanel() {
   const row = document.createElement("div");
   row.className = "row";
 
-  const pri = document.createElement("select");
-  for (const v of ["low", "med", "high"])
-    pri.append(new Option(v, v, false, v === c.priority));
-  pri.onchange = () => patch({ priority: pri.value });
-
   const asg = document.createElement("select");
   asg.append(new Option("— nobody —", "", false, !c.assignee));
   for (const u of users) asg.append(new Option(u, u, false, u === c.assignee));
@@ -713,9 +735,9 @@ function renderPanel() {
   for (const v of LANES) lane.append(new Option(v, v, false, v === c.lane));
   lane.onchange = () => patch({ lane: lane.value });
 
-  for (const [name, node] of [["priority", pri], ["assignee", asg], ["lane", lane]]) {
+  for (const [name, node] of [["assignee", asg], ["lane", lane]]) {
     const w = field(name, node);
-    w.style.flex = "1 1 30%";
+    w.style.flex = "1 1 45%";
     row.append(w);
   }
   p.append(row);
@@ -806,7 +828,7 @@ function renderPanel() {
 
   // a draft's queued comments show as they will read once posted
   p.append(field("activity", renderLog(c.id ? c.events : c.comments.map(text =>
-    ({ actor: who(), kind: "comment", detail: { text }, at: new Date().toISOString() })))));
+    ({ actor: USER, kind: "comment", detail: { text }, at: new Date().toISOString() })))));
 
   const box = Object.assign(document.createElement("textarea"),
     { className: "say-box", placeholder: "comment… (ctrl+enter to send)" });
@@ -832,38 +854,6 @@ function renderPanel() {
 }
 
 // ---------- header controls ----------
-const NEWUSER = " new";
-
-function renderWho() {
-  const s = $("#who");
-  s.textContent = "";
-  // the placeholder shows whenever no actor is stored: without it the box displays the first
-  // registered name while who() is still "", so writes fail against a box that says otherwise
-  if (!who()) s.append(new Option("— who are you? —", ""));
-  for (const u of users) s.append(new Option(u, u, false, u === who()));
-  if (who() && !users.includes(who())) s.append(new Option(who(), who(), false, true));
-  s.append(new Option("+ another name…", NEWUSER));
-}
-
-$("#who").onchange = async ev => {
-  if (ev.target.value === NEWUSER) {
-    const name = (prompt("Name to add (a person, or an agent's name):") || "").trim();
-    if (name) {
-      try {
-        await api("POST", "/api/users", { name });
-        localStorage.setItem("actor", name);
-        users = await api("GET", "/api/users");  // so the new name is assignable too
-      } catch (e) { showErr(e.message); }
-    } else {
-      showErr("no name given — nothing was added");  // a suppressed prompt looks like a cancel
-    }
-  } else {
-    localStorage.setItem("actor", ev.target.value);
-  }
-  renderWho();
-  if (open) renderPanel();
-};
-
 function renderProj() {
   const s = $("#proj");
   s.textContent = "";
@@ -990,7 +980,6 @@ $("#showArch").onchange = () => load();
 
 // Opens the panel on an unsaved card; nothing is written until its "create" button.
 $("#add").onclick = () => {
-  if (!who()) return showErr("say who you are first — set it in the “you are” box, top left");
   if (!projects.length) {   // every card belongs to a project, and there is none yet
     showErr("create a project first — every card belongs to one");
     open = PROJECTS;
@@ -1001,7 +990,7 @@ $("#add").onclick = () => {
   // been renamed or deleted elsewhere)
   const find = n => projects.find(p => p.name.toLowerCase() === (n || "").toLowerCase());
   const home = find(proj()) || find(localStorage.getItem("lastProject"));
-  open = { title: "", description: "", lane: "todo", assignee: null, priority: "med",
+  open = { title: "", description: "", lane: "todo", assignee: null,
            labels: [], checklist: [], project: (home || projects[0]).name, auto_advance: false,
            events: [], links: [], comments: [] };
   renderPanel();
@@ -1016,7 +1005,6 @@ async function load() {
       api("GET", "/api/cards?" + q), api("GET", "/api/users"), api("GET", "/api/projects"),
     ]);
   } catch (e) { return showErr("could not load the board: " + e.message); }
-  renderWho();
   renderProj();
   renderBoard();
 }
@@ -1062,7 +1050,6 @@ const FIELD_TIPS = {
   "plan": "the implementation plan the planning agent wrote. Edit it if you want it done differently",
   "open questions": "what the plan needs a person to decide before the work can go on",
   "your answers": "your answers to the open questions: saving them sends the card back to the agent to replan",
-  "priority": "how urgent: low, med or high (the colored bar on the card's left)",
   "assignee": "who is working on it: a person, or an agent while it works. Assigning claude-agent starts it",
   "lane": "the stage it is in: todo → plan → develop → test → verify → done",
   "auto advance": "on: the agent works the card by itself, stage after stage, until it reaches verify",
@@ -1084,7 +1071,6 @@ const LANE_TIPS = {
 // later, and never over a title an element already has (those are more specific)
 const TIPS = [
   ["header h1", "the board: cards move left to right through the lanes"],
-  ["#who", "who you are: everything you change is logged under this name"],
   ["#proj", "show only this project's cards"],
   ["#projects", "set up projects: name, folder the agent works in, agent instructions, color"],
   ["label:has(#showArch)", "show archived cards instead of the ones on the board"],
@@ -1093,11 +1079,10 @@ const TIPS = [
   ...LANES.map(l => [`.lane[data-lane="${l}"] h2`, LANE_TIPS[l]]),
   [".card .id", "the card's number"],
   [".card .pill.who", "assigned to"],
-  [".card .pill.pri", "priority"],
   [".card .pill.proj", "project"],
   [".card .pill.label", "label"],
   [".card .pill.checks", "checklist items done / total"],
-  [".card", "click to open, drag to another lane to move it; ctrl/shift-click to select several, then drag one of them to move them all"],
+  [".card", "click to open, drag to another lane to move it, or up and down to reorder — an agent takes the top card of a column; ctrl/shift-click to select several, then drag one of them to move them all"],
   ["#status", "what agents are doing right now"],
   ["#panel .shut", "save and close; every field is already saved, and so is what you are still typing"],
   ["#panel .project input[type=text]:first-of-type", "the project's name, as cards show it"],

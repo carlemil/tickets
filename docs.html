@@ -53,8 +53,8 @@ what.</p>
 planning with others and anything shared stays there. Tickets is for the local loop: you
 hand coding tasks to an agent on your machine and review what comes back.</p>
 <p class="note"><b>Local and single-person only.</b> It is one process, bound to
-<code>127.0.0.1</code>. It has no auth, no accounts and no sync: "you are" is a name, not a
-login. Never put it on a network, never host it online and never share it with a group.</p>
+<code>127.0.0.1</code>. It has no auth, no accounts and no sync: the person at the board is logged as
+"User"; agents log under their own names. Never put it on a network, never host it online and never share it with a group.</p>
 
 <h2 id="run">2. Run it</h2>
 <p>Start the server (port 8000 is taken on this machine; any free port works if the MCP URL
@@ -84,8 +84,6 @@ again.</p>
 
 <h3>The header</h3>
 <ul>
-  <li><b>you are</b>: the name every change you make is logged under. "+ another name…" adds
-    one.</li>
   <li><b>project</b>: shows one project's cards, or all of them.</li>
   <li><b>projects…</b>: each project's name, path (the absolute folder of its git repo, where
     the agent works), agent instructions (how to build, test and deploy, and how to install
@@ -97,10 +95,15 @@ again.</p>
 
 <h3>Cards</h3>
 <ul>
-  <li>Drag a card to another lane. Dropping anywhere on the page puts it in the nearest
-    column.</li>
+  <li>Drag a card to another lane, or up and down inside its own column to reorder it:
+    a column is a queue, and an agent takes the top card of it. Dropping anywhere on the
+    page puts it in the nearest column. A card an agent moves lands at the bottom of the
+    lane it arrives in.</li>
   <li>Moving a card forward (except into <code>done</code>), or back into
     <code>plan</code>, switches its auto advance on.</li>
+  <li>A card in <code>verify</code> is done work. Change its description, your answers or
+    its checklist there, or add a comment, and you are asking for it again: the card goes
+    back to <code>plan</code> and the agent plans and builds it anew.</li>
   <li>Click a card to open its sheet. Every field saves as soon as you leave it, so there is
     no save button; "close" closes the sheet. The sheet holds the description, the plan, the
     open questions and your answers, the checklist, labels, links (parent and blocks), the
@@ -111,16 +114,19 @@ again.</p>
 
 <h3>Signals</h3>
 <ul>
-  <li><span class="dot" style="background:#36b37e"></span> <b>green dot</b>, left on the card:
-    auto advance is on. A faint ring means it is off.</li>
+  <li><b>the dot</b>, left on the card:
+    <span class="dot" style="background:#36b37e"></span> green when auto advance is on, a
+    faint ring when it is off.
+    <span class="dot" style="background:var(--warn)"></span> Red when it is waiting for you:
+    the agent sets it when it hands a card back, and red wins over green. Any change to the
+    card clears it; just opening the card does not. It pulses while an agent is on the card.
+    A click toggles auto advance; on a red dot it also clears the red and restarts the
+    agent.</li>
   <li><span class="dot" style="background:#0052cc"></span> <b>blue dot</b>, next to it:
     the card is on master, committed and pushed.
     <span class="dot" style="background:#6554c0"></span> <b>purple dot</b>: it is deployed to
     the local test backend or a device. The agent's deploy sets them; moving the card back
     to plan, develop or test clears them.</li>
-  <li><span class="dot" style="background:var(--warn)"></span> <b>red dot</b>, top right:
-    waiting for you. The agent sets it when it hands a card back. Any change to the card
-    clears it; just opening the card does not.</li>
   <li><b>status bar</b>, at the bottom: which agent is working on which card, doing what, and
     since when. Click a card in it to open it.</li>
 </ul>
@@ -158,7 +164,9 @@ again.</p>
 <h3>When things go wrong</h3>
 <ul>
   <li>A failed run comments <code>agent failed: …</code>, gives the card back, switches auto
-    advance off and sets the red dot. The card stays in its lane.</li>
+    advance off and the dot turns red. The card stays in its lane.</li>
+  <li>Running out of quota is not a failure: the agent comments when it will resume, pauses
+    all runs until the limit resets, then picks the card up again where it was.</li>
   <li>Your move wins: if you move a card during a run, the run's output becomes a comment and
     the card stays where you put it.</li>
 </ul>
@@ -170,7 +178,7 @@ again.</p>
   <li>New Card in <code>todo</code>: a title and a clear description of what you want and
     why.</li>
   <li>Drag it to <code>plan</code>. Auto advance goes on and the agent plans it.</li>
-  <li>Red dot with open questions? Fill in "your answers". That reply restarts the agent,
+  <li>The dot turned red with open questions? Fill in "your answers". That reply restarts the agent,
     and it replans with your answers.</li>
   <li>No open questions: the card carries itself through develop and test to verify. Watch
     the status bar and the comments.</li>
@@ -179,12 +187,14 @@ again.</p>
     its worktree, and move the card to <code>done</code>.</li>
 </ol>
 <ul>
-  <li><b>A red dot means it's your turn.</b></li>
+  <li><b>When the dot turns red, it's your turn.</b></li>
   <li><b>To stop the agent:</b> switch auto advance off, or move the card to
     <code>todo</code>. Without auto advance, assign a card to <code>claude-agent</code> to
     have it do one stage and hand it back.</li>
   <li><b>After a failure:</b> read the comment, then fix the description or add a comment.
     That reply restarts the agent.</li>
+  <li><b>Not what you asked for?</b> Rewrite the description of the card in
+    <code>verify</code> (or comment on it) and it starts over from <code>plan</code>.</li>
   <li>Keep one concern per card, keep project instructions current, use links for
     dependencies, and archive what you no longer need.</li>
 </ul>

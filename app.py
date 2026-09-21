@@ -146,7 +146,8 @@ async def api_update_project(request):
 def list_cards(project: str | None = None, lane: str | None = None,
                assignee: str | None = None, label: str | None = None,
                archived: bool = False) -> list[dict]:
-    """List cards, most recently changed first. Filters combine; omit one to ignore it.
+    """List cards in the board's own order — each lane's top card first, which is the
+    order to take them in. Filters combine; omit one to ignore it.
 
     Lanes in order: todo -> plan -> develop -> test -> verify -> done.
     `project` scopes the board and is matched case-insensitively; work is grouped by
@@ -171,14 +172,14 @@ def get_card(id: int) -> dict:
 
 @tool
 def create_card(title: str, actor: str, project: str, description: str = "",
-                lane: str = core.LANES[0], assignee: str | None = None, priority: str = "med",
+                lane: str = core.LANES[0], assignee: str | None = None,
                 labels: list[str] | None = None, checklist: list[dict] | None = None,
                 auto_advance: bool = False) -> dict:
     """Create a card. `actor` is you: pass your own agent name, it is recorded as the author.
 
     `lane` is one of todo -> plan -> develop -> test -> verify -> done, and normally starts
-    at todo. `priority` is low, med or high. `project` is required: the project the work
-    belongs to. It must be a configured project (list_projects); an unknown name is an
+    at todo; the card lands at the bottom of it. `project` is required: the project the
+    work belongs to. It must be a configured project (list_projects); an unknown name is an
     error, not a new project, and if there are none, ask a person to create one on the
     board — agents do not configure projects.
     `description` is the request: what needs doing and why. A plan, its open questions and
@@ -188,13 +189,13 @@ def create_card(title: str, actor: str, project: str, description: str = "",
     verify on its own once it reaches plan.
     """
     return core.create_card(title=title, actor=actor, description=description, lane=lane,
-                            assignee=assignee, priority=priority, labels=labels,
+                            assignee=assignee, labels=labels,
                             checklist=checklist, project=project, auto_advance=auto_advance)
 
 
 @tool
 def update_card(id: int, actor: str, title: str | None = None, description: str | None = None,
-                lane: str | None = None, assignee: str | None = None, priority: str | None = None,
+                lane: str | None = None, assignee: str | None = None,
                 labels: list[str] | None = None, checklist: list[dict] | None = None,
                 project: str | None = None, archived: bool | None = None,
                 auto_advance: bool | None = None, attention: bool | None = None,
@@ -207,13 +208,18 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     changing; omitted fields are left alone, and a field passed unchanged records nothing.
 
     `lane` moves the card, in order todo -> plan -> develop -> test -> verify -> done.
+    It lands at the bottom of the lane it arrives in, behind the cards already waiting there.
     Moving a card forward (except into done), or back into plan, also turns auto_advance
     on, so the board agent takes it up; pass auto_advance=False (or its current value) in
     the same call to move it without that.
+    A card in verify is finished work, so a person's update to its `description`,
+    `answers` or `checklist` (or a comment on it) is a new request: the card goes back
+    to plan, assigned to the agent, to be planned and built again. Pass `lane` in the
+    same call to write to a verify card without that.
     `assignee` assigns it to a person or an agent, by name; pass "" to unassign. A name
     not yet on the board is registered as a user by assigning it. When you start work on a
     card, assign it to yourself so the board shows who is on it; when you are done, give it
-    back to whoever had it before (or "" if nobody did). `priority` is low, med or high.
+    back to whoever had it before (or "" if nobody did).
     `checklist` REPLACES the whole list, so send every item back, not just the one you
     ticked: get_card first, flip the `done` you want, send the full list. `labels` likewise
     replaces the whole list. `archived=True` takes the card off the board without deleting
@@ -224,7 +230,8 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     `merged` (the card's branch is on the base branch on origin) and `deployed` (deployed
     to the local test backend or a device) are the board agent's to set after a deploy.
 
-    Where text goes — each field REPLACES what is there: `description` is the request;
+    Where text goes — each field REPLACES what is there: `description` is the request,
+    and rewriting it on a verified card asks for the work again (see `lane`);
     leave it to the person who asked, do not put a plan in it. `plan` is the
     implementation plan (markdown), the planning agent's to write. `questions` holds only
     what a person must decide before the work can go on, as a list numbered from 1
@@ -233,7 +240,7 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     write it. Results of development or testing go in a comment, not in these fields.
     """
     fields = {k: v for k, v in dict(
-        title=title, description=description, lane=lane, assignee=assignee, priority=priority,
+        title=title, description=description, lane=lane, assignee=assignee,
         labels=labels, checklist=checklist, project=project, archived=archived,
         auto_advance=auto_advance, attention=attention, plan=plan, questions=questions,
         answers=answers, merged=merged, deployed=deployed).items()
@@ -283,7 +290,10 @@ def set_activity(actor: str, card_id: int | None = None, doing: str = "") -> lis
 
 @tool
 def comment(id: int, actor: str, text: str) -> dict:
-    """Add a comment to a card's activity log. `actor` is you — it is who the comment is from."""
+    """Add a comment to a card's activity log. `actor` is you — it is who the comment is from.
+
+    A person's comment on a card in verify asks for the work again: the card goes back to
+    plan, assigned to the agent. The agent's own comments (its deploy result) do not."""
     return core.comment(id, actor, text)
 
 
