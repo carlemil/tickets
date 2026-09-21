@@ -212,6 +212,15 @@ def test_comment_appends_to_the_log_in_order():
     assert log == sorted(log, key=lambda e: e["id"]), "events must be chronological"
 
 
+def test_a_comment_can_carry_the_output_of_the_run_that_wrote_it():
+    c = card()
+    core.comment(c["id"], "claude-agent", "did it", output="● Read(a.txt)")
+    core.comment(c["id"], "cat", "looks good")
+    a, b = core.get_card(c["id"])["events"][-2:]
+    assert a["detail"] == {"text": "did it", "output": "● Read(a.txt)"}
+    assert b["detail"] == {"text": "looks good"}, "nothing to show: no output key at all"
+
+
 # ---------- listing and filtering ----------
 
 def test_filters_by_lane_and_label():

@@ -291,12 +291,15 @@ def set_activity(actor: str, card_id: int | None = None, doing: str = "") -> lis
 
 
 @tool
-def comment(id: int, actor: str, text: str) -> dict:
+def comment(id: int, actor: str, text: str, output: str = "") -> dict:
     """Add a comment to a card's activity log. `actor` is you — it is who the comment is from.
+
+    `output` is optional: the raw CLI transcript of the run this comment reports, which the
+    board shows under the comment in a box that starts closed.
 
     A person's comment on a card in verify asks for the work again: the card goes back to
     plan, assigned to the agent. The agent's own comments (its deploy result) do not."""
-    return core.comment(id, actor, text)
+    return core.comment(id, actor, text, output)
 
 
 @tool
