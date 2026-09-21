@@ -1063,6 +1063,8 @@ def test_run_claude_deploys_with_rights_and_skips_a_missing_phone(monkeypatch, t
     assert "DEPLOY: OK" in p and "deploy with ./ship.sh" in p
     assert "may merge, push or restart services" in p, "a deploy that merges is not refused"
     assert "Do not push, merge" not in p, "develop's rule is not the deploy's"
+    assert "local test backend" in p and "unless the project's instructions" in p, \
+        "deploy is local unless production is spelled out"
 
 
 # ---------- open questions are numbered from 1 ----------

@@ -92,8 +92,11 @@ PROMPTS = {
             f"you found, and end with a last line of exactly {PASS} or RESULT: FAIL.",
     # not a lane: run on a card the agent just moved to verify
     "deploy": "This ticket card passed testing and is committed and pushed (the workspace "
-              "note below says where its changes are). Deploy it. Look at what the card "
-              "changed: if it changed the backend, deploy the backend; if it changed the "
+              "note below says where its changes are). Deploy it. Deploy means the local "
+              "test backend and a local install on a connected phone. Never deploy to "
+              "production, a public server, or an app store unless the project's "
+              "instructions clearly say this deploy is a production one. Look at what the "
+              "card changed: if it changed the backend, deploy the backend; if it changed the "
               "mobile app, install it on the phone, but only if a phone is connected (check, "
               "e.g. adb devices): with no phone connected, skip the phone and say so. If it "
               "changed neither, deploy nothing. Follow the project instructions on how to "
