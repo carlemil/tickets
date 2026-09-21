@@ -11,5 +11,6 @@ if ($Delay -gt 0) {
 Start-Sleep -Seconds $Sleep
 Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'uvicorn.*app:app.*8123' } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Start-Process -FilePath uv -ArgumentList run, uvicorn, app:app, --host, 127.0.0.1, --port, 8123 `
+Start-Process -FilePath uv -ArgumentList run, uvicorn, app:app, --host, 127.0.0.1, --port, 8123, `
+    --log-config, "`"$PSScriptRoot\log-config.json`"" `
     -WorkingDirectory $PSScriptRoot -WindowStyle Minimized

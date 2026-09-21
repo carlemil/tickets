@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -1496,3 +1497,9 @@ def test_a_comment_with_nothing_to_show_carries_no_output_at_all(ran, monkeypatc
     said = [e["detail"] for e in core.get_card(id)["events"] if e["kind"] == "comment"]
     assert list(said[0]) == ["text"], "no empty box on the board"
     assert said[0]["text"].startswith("did it, printed nothing")
+
+
+def test_log_stamps_each_row(capsys):
+    agent.log("#81 plan: log")
+    out = capsys.readouterr().out.strip()
+    assert re.match(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d #81 plan: log$", out), out

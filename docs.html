@@ -60,7 +60,7 @@ hand coding tasks to an agent on your machine and review what comes back.</p>
 <p>You need Python 3.12 or newer and <code>uv</code>. Chrome too, but only for the browser
 tests.</p>
 <p>Start the server:</p>
-<pre>uv run uvicorn app:app --host 127.0.0.1 --port 8123</pre>
+<pre>uv run uvicorn app:app --host 127.0.0.1 --port 8123 --log-config log-config.json</pre>
 <p>Start the agent, in a second terminal:</p>
 <pre>uv run python agent.py</pre>
 <p>Give Claude Code the board's tools:</p>

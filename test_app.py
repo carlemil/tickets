@@ -9,6 +9,9 @@ direct function call cannot prove.
 
 import asyncio
 import json
+import logging
+import re
+from pathlib import Path
 
 import pytest
 from mcp import Client
@@ -500,3 +503,17 @@ def test_update_card_tool_sets_merged_and_deployed_and_rejects_non_bools():
     assert (c["merged"], c["deployed"]) == (True, True)
     with pytest.raises(ToolError, match="deployed must be true or false"):
         app.update_card(id=c["id"], actor="ann", deployed="yes")
+
+
+def test_log_config_timestamps_the_access_row():
+    """#81: uvicorn's rows say when. Built by hand, not dictConfig, which would re-point
+    logging for the rest of the suite."""
+    from uvicorn.logging import AccessFormatter
+
+    f = json.loads((Path(__file__).parent / "log-config.json").read_text())["formatters"]["access"]
+    rec = logging.LogRecord("uvicorn.access", logging.INFO, "", 0,
+                            '%s - "%s %s HTTP/%s" %d',
+                            ("127.0.0.1:54099", "GET", "/api/activity", "1.1", 200), None)
+    line = AccessFormatter(fmt=f["fmt"], datefmt=f["datefmt"]).format(rec)
+    assert re.match(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d ", line), line
+    assert "/api/activity" in line
