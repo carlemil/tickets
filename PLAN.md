@@ -221,8 +221,10 @@ fails in test, with the git error, and is not moved. A failed test commits nothi
 `claude -p` in the worktree (`--dangerously-skip-permissions`, it runs deploy tools and
 `adb`): deploy the backend if the card changed it; install the mobile app on the phone if
 the card changed it and a phone is connected, and skip the phone otherwise; deploy
-nothing if neither changed. How to deploy comes from the project's instructions. The reply
-must end in `DEPLOY: OK`; it becomes a comment `deployed: …`, anything else (or a crash)
+nothing if neither changed. How to deploy comes from the project's instructions. A deploy
+means the local test backend or a local install on a connected phone; it never goes to
+production, a public server or an app store unless the project's instructions clearly call
+for a production deploy. The reply must end in `DEPLOY: OK`; it becomes a comment `deployed: …`, anything else (or a crash)
 `deploy failed: …`. Either way the card stays in verify, handed back with the dot: a
 deploy never moves a card. Only the agent's own move to verify deploys; a card moved off
 test during its run, or a failed test, is not deployed. The deploy prompt lets the
@@ -477,6 +479,7 @@ no longer on the board.
 | 33 | #58 `priority` gone: free ordering per column (`cards.pos`), drag up and down to reorder, anything arriving in a lane lands at its bottom | done |
 | 34 | #60 a person's update or comment on a card in `verify` sends it back to `plan`, assigned to the agent, to be planned and built again | done |
 | 35 | #63 parallel work per project: the run slot is keyed by `(project, lane)`, so a project's plan, develop and test lanes run side by side, one card each | done |
+| 36 | #67 a deploy is local by default: the test backend or a connected phone, production only when a project's instructions say so | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
