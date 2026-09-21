@@ -379,12 +379,13 @@ no outside to click: the "close" button top right is the way out (the projects s
 is "done").
 The top of a card's sheet is one sticky header row that stays put while the sheet
 scrolls: the card number, the title (edited in place), "created <when>" (the full date on
-hover), "archive", "cancel" and "close". A new card's row is "new", the title, "cancel", "close".
+hover), "archive", "move to done" (only while the card is in `verify`) and "close". A new
+card's row is "new", the title, "cancel", "close".
 The card number carries the auto dot, which pulses while an agent works the card.
 Project, lane and creator sit on the line under it.
 Closing blurs the focused field, so the edit still in progress saves too, and text left
-in the comment box is posted rather than dropped. "cancel" closes a card without saving the field
-being edited or posting the comment box; edits already saved stay. A comment being typed
+in the comment box is posted rather than dropped. "move to done" is the one click that ends a
+verified card: it writes the lane like the lane select does, and the sheet stays open. A comment being typed
 survives a re-render: the box is refilled with whatever was in it. The error bar is fixed above the sheet
 so its messages stay visible. The sheet keeps "archive".
 

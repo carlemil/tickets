@@ -1050,40 +1050,6 @@ def test_a_comment_left_in_the_box_is_posted_on_close(page):
             if e["kind"] == "comment"] == ["unsent, but not lost"]
 
 
-def cancel_sheet(page):
-    page.click("#panel button:text-is('cancel')")
-    page.wait_for_function("() => !open")
-    page.wait_for_timeout(300)   # a save the cancel let through would have landed by now
-
-
-def test_cancel_on_a_card_drops_the_edit_in_progress(page):
-    cid = add_card(page, "keep my text")
-    before = len(core.get_card(cid)["events"])
-    page.fill("#panel textarea >> nth=0", "typed, then cancelled")   # still focused
-    cancel_sheet(page)
-    c = core.get_card(cid)
-    assert c["description"] == "" and len(c["events"]) == before, c["events"]
-    page.click(f'.card[data-id="{cid}"]')
-    page.wait_for_function(f"() => open && open.id === {cid}")
-    assert page.input_value("#panel textarea >> nth=0") == "", "reopened, the old text is back"
-
-
-def test_cancel_on_a_card_drops_the_unsent_comment(page):
-    cid = add_card(page, "hush")
-    page.fill("#panel .say-box", "never sent")
-    cancel_sheet(page)
-    assert [e for e in core.get_card(cid)["events"] if e["kind"] == "comment"] == []
-
-
-def test_cancel_keeps_edits_already_saved(page):
-    core.create_project("Other")
-    cid = add_card(page, "keep the project")
-    page.select_option("#panel select >> nth=0", "Other")   # project, under the title
-    wait_saved(page, cid, "project", "Other")
-    cancel_sheet(page)
-    assert core.get_card(cid)["project"] == "Other"
-
-
 def test_a_comment_being_typed_survives_a_re_render(page):
     """A field's save re-renders the sheet, which rebuilds the comment box: the text
     half-typed into it must come back with it."""
@@ -1437,10 +1403,10 @@ def test_a_long_description_opens_at_its_full_height(page):
 def test_the_sheet_buttons_have_a_gap_between_them(page):
     add_card(page, "spaced")
     boxes = [page.locator(f"#panel button:text-is('{t}')").bounding_box()
-             for t in ("archive", "cancel")]
+             for t in ("archive", "close")]
     left, right = sorted(boxes, key=lambda b: b["x"])
     gap = right["x"] - (left["x"] + left["width"])
-    assert gap >= 8, f"archive and cancel are {gap:.1f}px apart"
+    assert gap >= 8, f"archive and close are {gap:.1f}px apart"
 
 
 def test_dragging_a_card_into_plan_ticks_auto_advance(page):
@@ -1679,15 +1645,26 @@ def head_parts(page):
         n.tagName === 'INPUT' ? 'input:' + n.value : n.textContent)""")
 
 
-def test_the_header_row_holds_number_title_created_archive_cancel_and_close(page):
+def test_the_header_row_holds_number_title_created_archive_and_close(page):
     cid = add_card(page, "headed")
-    num, title, when, arch, cancel, shut = head_parts(page)
-    assert (num, title, arch, cancel, shut) == (f"#{cid}", "input:headed", "archive",
-                                                "cancel", "close")
+    num, title, when, arch, shut = head_parts(page)
+    assert (num, title, arch, shut) == (f"#{cid}", "input:headed", "archive", "close")
     assert when.startswith("created ")
     tops = [b["y"] for b in (page.locator(f"#panel .head > *").nth(i).bounding_box()
-                             for i in range(6))]
+                             for i in range(5))]
     assert max(tops) - min(tops) < 20, "one row"
+
+
+def test_move_to_done_shows_only_in_verify_and_ends_the_card(page):
+    cid = add_card(page, "verify me")
+    assert "move to done" not in head_parts(page), "not in todo"
+    page.select_option("#panel select >> nth=2", "verify")        # lane
+    wait_saved(page, cid, "lane", "verify")
+    assert head_parts(page)[3:] == ["archive", "move to done", "close"]
+    page.click("#panel button:text-is('move to done')")
+    wait_saved(page, cid, "lane", "done")
+    assert page.locator("#panel.on").count() == 1, "the sheet stays open"
+    assert "move to done" not in head_parts(page), "gone in done"
 
 
 def test_a_draft_header_row_holds_the_title_cancel_and_close(page):

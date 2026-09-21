@@ -114,7 +114,7 @@
   #panel .project button { align-self: flex-start; }
   .close { float: right; margin-left: 10px; }   /* the gap between neighbouring buttons */
   /* the card's header row stays put while the sheet scrolls under it: number, title,
-     created, archive, save. The negative margin cancels the sheet's padding */
+     created, archive, close. The negative margin cancels the sheet's padding */
   #panel .head { position: sticky; top: -16px; z-index: 1; display: flex; gap: 10px;
                  align-items: center; margin: -16px -20px 8px; padding: 12px 20px;
                  background: var(--panel); border-bottom: 1px solid var(--line); }
@@ -660,18 +660,6 @@ function renderPanel() {
     { type: "text", value: c.title, placeholder: "what needs doing?", title: FIELD_TIPS.title });
   title.onchange = () => patch({ title: title.value });
   title.onkeydown = ev => { if (!c.id && ev.key === "Enter") closePanel(); };
-  // closing without saving: the edit still being typed and the comment box are dropped,
-  // edits already saved stay
-  const cancel = Object.assign(document.createElement("button"),
-    { className: "close", textContent: "cancel",
-      title: c.id ? "close without saving what you are typing" : "throw this new card away" });
-  // keep focus in the field: a mousedown here would blur it, and the blur's change saves it
-  cancel.onmousedown = e => e.preventDefault();
-  cancel.onclick = () => {
-    const a = document.activeElement;
-    if (a && p.contains(a)) a.onchange = null;   // hiding the sheet blurs it: that must not save
-    dismiss();
-  };
   const head = Object.assign(document.createElement("div"), { className: "head" });
   p.append(head);
 
@@ -688,6 +676,11 @@ function renderPanel() {
         load();
       } catch (e) { showErr(e.message); }
     };
+    // verify is the last lane a person acts on: one click ends the card
+    const fin = c.lane === "verify" ? Object.assign(document.createElement("button"),
+      { className: "close", textContent: "move to done",
+        title: "the card is verified: move it to done" }) : null;
+    if (fin) fin.onclick = () => patch({ lane: "done" });
     const idSpan = Object.assign(document.createElement("span"), { className: "id", textContent: "#" + c.id });
     idSpan.prepend(autoDot(c), ...statusDots(c));
     head.append(idSpan,
@@ -695,10 +688,20 @@ function renderPanel() {
                 Object.assign(document.createElement("span"),
                   { className: "when", textContent: "created " + ago(c.created_at),
                     title: new Date(c.created_at).toLocaleString() }),
-                arch, cancel, shut);
+                arch, ...(fin ? [fin] : []), shut);
     p.append(Object.assign(document.createElement("div"),
       { className: "sub", textContent: `${c.project} · ${c.lane} · created by ${c.created_by}` }));
   } else {
+    // a draft has no other way out: cancel throws it away, dropping what is typed
+    const cancel = Object.assign(document.createElement("button"),
+      { className: "close", textContent: "cancel", title: "throw this new card away" });
+    // keep focus in the field: a mousedown here would blur it, and the blur's change saves it
+    cancel.onmousedown = e => e.preventDefault();
+    cancel.onclick = () => {
+      const a = document.activeElement;
+      if (a && p.contains(a)) a.onchange = null;   // hiding the sheet blurs it: that must not save
+      dismiss();
+    };
     head.append(Object.assign(document.createElement("span"), { className: "id", textContent: "new" }),
                 title, cancel, shut);
     p.append(Object.assign(document.createElement("div"),
