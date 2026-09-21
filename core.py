@@ -8,12 +8,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 LANES = ["todo", "plan", "develop", "test", "verify", "done"]
-PRIORITIES = ["low", "med", "high"]
 LINK_KINDS = ["parent", "blocks"]
 
 DB_PATH = "tickets.db"  # reassign core.DB_PATH to point elsewhere (tests, alt board)
 
-CARD_FIELDS = ("project", "title", "description", "lane", "assignee", "priority", "labels", "checklist",
+CARD_FIELDS = ("project", "title", "description", "lane", "assignee", "pos", "labels", "checklist",
                "archived", "auto_advance", "attention", "plan", "questions", "answers",
                "merged", "deployed")
 # merged: on the base branch on origin; deployed: on the local test backend or a device.
@@ -51,7 +50,7 @@ CREATE TABLE IF NOT EXISTS cards (
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    priority TEXT NOT NULL,
+    pos REAL NOT NULL DEFAULT 0,
     labels TEXT NOT NULL DEFAULT '[]',
     checklist TEXT NOT NULL DEFAULT '[]',
     archived INTEGER NOT NULL DEFAULT 0,
@@ -111,6 +110,15 @@ def connect():
     for col in PLAN_FIELDS:
         if col not in have:
             db.execute(f"ALTER TABLE cards ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
+    # free ordering replaced `priority` (#58): rank the existing cards by what the board
+    # used to show them in, so nothing jumps the first time it loads
+    if "pos" not in have:
+        db.execute("ALTER TABLE cards ADD COLUMN pos REAL NOT NULL DEFAULT 0")
+        db.execute("UPDATE cards SET pos = (SELECT COUNT(*) FROM cards x"
+                   " WHERE x.updated_at > cards.updated_at"
+                   " OR (x.updated_at = cards.updated_at AND x.id > cards.id))")
+    if "priority" in have:
+        db.execute("ALTER TABLE cards DROP COLUMN priority")
     # Every card names a configured project. A database from before projects has cards
     # naming projects that were only strings, so give each one a row. A fresh database has
     # no projects at all: a card cannot be made until someone configures one. Checked
@@ -158,6 +166,13 @@ def _load(db, id):
     return _card(row)
 
 
+def _bottom(db, lane):
+    """The free slot under a lane's last card: where a card arriving in the lane lands.
+    Lane-wide, not per project — it must be below every card there, whatever the board
+    is filtered to."""
+    return (db.execute("SELECT MAX(pos) FROM cards WHERE lane=?", (lane,)).fetchone()[0] or 0) + 1
+
+
 def _event(db, card_id, actor, kind, detail):
     # every mutation funnels through here, so actors self-register: no auth, a user is
     # just a name that has done something
@@ -171,8 +186,11 @@ def _event(db, card_id, actor, kind, detail):
 def _validate(fields):
     if "lane" in fields and fields["lane"] not in LANES:
         raise ValueError(f"lane must be one of {LANES}")
-    if "priority" in fields and fields["priority"] not in PRIORITIES:
-        raise ValueError(f"priority must be one of {PRIORITIES}")
+    # a position arrives from an HTTP body, so it may be anything; a bool is an int in
+    # Python and would slip through
+    if "pos" in fields and (isinstance(fields["pos"], bool)
+                            or not isinstance(fields["pos"], (int, float))):
+        raise ValueError("pos must be a number")
     for f in BOOL_FIELDS:
         if f in fields and not isinstance(fields[f], bool):
             raise ValueError(f"{f} must be true or false")
@@ -380,22 +398,22 @@ def create_card(
     description="",
     lane="todo",
     assignee=None,
-    priority="med",
     labels=None,
     checklist=None,
     project=None,   # required in practice: _project refuses a missing one with a reason
     auto_advance=False,
 ):
-    _validate({"lane": lane, "priority": priority, "auto_advance": auto_advance})
+    _validate({"lane": lane, "auto_advance": auto_advance})
     now = _now()
     with closing(connect()) as db, db:
         project = _project(db, project)
         id = db.execute(
             "INSERT INTO cards (project, title, description, lane, assignee, created_by,"
-            " created_at, updated_at, priority, labels, checklist, auto_advance)"
+            " created_at, updated_at, pos, labels, checklist, auto_advance)"
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (
-                project, title, description, lane, assignee, actor, now, now, priority,
+                project, title, description, lane, assignee, actor, now, now,
+                _bottom(db, lane),
                 json.dumps(labels or []), json.dumps(checklist or []), int(auto_advance),
             ),
         ).lastrowid
@@ -420,7 +438,8 @@ def get_card(id):
 
 
 def list_cards(lane=None, assignee=None, label=None, project=None, archived=False):
-    """Archived cards are off the board: listed only when asked for with archived=True."""
+    """In the board's own order — each lane top card first. Archived cards are off the
+    board: listed only when asked for with archived=True."""
     where, args = ["archived=?"], [int(archived)]
     if lane is not None:
         where.append("lane=?")
@@ -433,7 +452,7 @@ def list_cards(lane=None, assignee=None, label=None, project=None, archived=Fals
         args.append(project)
     sql = "SELECT * FROM cards WHERE " + " AND ".join(where)
     with closing(connect()) as db:
-        cards = [_card(r) for r in db.execute(sql + " ORDER BY updated_at DESC", args)]
+        cards = [_card(r) for r in db.execute(sql + " ORDER BY pos, id", args)]
     # ponytail: label filter scans in Python — fine to a few thousand cards.
     # Past that, index labels with json1 (json_each) and push it into the WHERE clause.
     return [c for c in cards if label is None or label in c["labels"]]
@@ -469,27 +488,33 @@ def update_card(id, actor, **fields):
         # moves do). Into done is the end, so no; nor another move back, nor a card already
         # in its lane, so one the agent stopped stays stopped.
         frm, to = LANES.index(old["lane"]), LANES.index(fields.get("lane", old["lane"]))
+        # a card arriving in a lane queues behind the ones already there, unless the
+        # writer said where it goes (the board's drag does; an agent's move does not)
+        if to != frm:
+            fields.setdefault("pos", _bottom(db, LANES[to]))
         if to != frm and (to > frm or LANES[to] == "plan") and LANES[to] != "done":
             fields.setdefault("auto_advance", True)
         # back into an agent lane is rework: the new work is neither on master nor deployed
         if to != frm and LANES[to] in AGENT_LANES and LANES[frm] not in AGENT_LANES:
             fields.setdefault("merged", False)
             fields.setdefault("deployed", False)
-        sets, args, evs = [], [], []
+        sets, args, evs, changed = [], [], [], set()
         for f, new in fields.items():
             if new == old[f]:
                 continue
             sets.append(f"{f}=?")
             args.append(json.dumps(new) if f in JSON_FIELDS else new)
-            if f == "attention":
-                continue   # a notification, not history: not logged
+            changed.add(f)
+            if f in ("attention", "pos"):
+                continue   # a notification and a place in the queue: neither is history
             if f == "checklist":
                 evs += _checklist_events(old[f], new)
             else:
                 evs.append((EVENT_KIND.get(f, "edited"), {"field": f, "from": old[f], "to": new}))
         # attention is "waiting for you": any other change to the card is the reply. It
-        # clears the dot and, unless the same write says otherwise, gets the agent back on it
-        if sets and "attention" not in fields and old["attention"]:
+        # clears the dot and, unless the same write says otherwise, gets the agent back on
+        # it. Tidying a column is not a reply, so a pos-only write leaves both alone.
+        if changed - {"pos"} and "attention" not in fields and old["attention"]:
             sets.append("attention=0")
             if ("auto_advance" not in fields and not old["auto_advance"]
                     and fields.get("lane", old["lane"]) in AGENT_LANES):

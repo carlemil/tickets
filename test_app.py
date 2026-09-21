@@ -400,7 +400,17 @@ def test_auto_advance_over_rest_and_the_tools(client):
 def test_attention_set_by_the_tool_cleared_by_other_changes():
     c = core.create_card("a", actor="ann", project="Home")
     assert app.update_card(c["id"], "bot", attention=True)["attention"] is True
-    assert app.update_card(c["id"], "bot", priority="high")["attention"] is False
+    assert app.update_card(c["id"], "bot", title="b")["attention"] is False
+
+
+def test_pos_reorders_over_http_and_must_be_a_number(client):
+    a = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home"}).json()
+    b = client.post("/api/cards", json={"title": "b", "actor": "ann", "project": "Home"}).json()
+    r = client.patch(f"/api/cards/{b['id']}", json={"pos": a["pos"] - 1, "actor": "ann"})
+    assert r.status_code == 200, r.text
+    assert [c["title"] for c in client.get("/api/cards").json()] == ["b", "a"]
+    bad = client.patch(f"/api/cards/{b['id']}", json={"pos": "top", "actor": "ann"})
+    assert bad.status_code == 400 and "pos" in bad.json()["error"], bad.text
 
 
 def test_plan_fields_over_the_tool_and_what_it_tells_agents():
