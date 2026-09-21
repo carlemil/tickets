@@ -40,7 +40,8 @@ tests.
 3. Open `http://127.0.0.1:8123/` and create a project under "projects…". There is no
    default project and a card needs one. A project carries a `path` (its folder on this
    machine, a git repo) and free-text `instructions` the agent follows — how to test the
-   project, how to deploy it. Whatever you leave out shows up as a card in `todo`.
+   project, how to deploy it. Whatever you leave out shows up as a card in `todo`
+   telling you what is still missing.
 
 4. Give Claude Code the board's tools:
 
