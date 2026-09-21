@@ -1235,3 +1235,40 @@ def test_a_database_without_merged_and_deployed_gains_them(db):
     [c] = core.list_cards()
     assert (c["merged"], c["deployed"]) == (False, False)
     assert core.update_card(c["id"], "ann", deployed=True)["deployed"] is True
+
+
+# ---------- a new project's setup cards ----------
+
+def test_a_bare_project_gets_a_card_for_each_missing_thing():
+    core.create_project("Fresh")
+    cards = core.setup_cards("Fresh")
+    assert [c["title"] for c in cards] == ["Set Fresh's folder",
+                                           "Tell the agent how to test Fresh",
+                                           "Tell the agent how to deploy Fresh"]
+    for c in cards:
+        assert (c["lane"], c["assignee"], c["auto_advance"]) == ("todo", None, False)
+        assert (c["created_by"], c["project"]) == ("board", "Fresh")
+        assert "projects…" in c["description"]
+
+
+def test_a_fully_configured_project_gets_no_cards(tmp_path):
+    core.create_project("Fresh", path=str(tmp_path),
+                        instructions="test with pytest; deploy by merging to master")
+    assert core.setup_cards("Fresh") == []
+    assert core.list_cards(project="Fresh") == []
+
+
+def test_only_what_is_missing_gets_a_card(tmp_path):
+    core.create_project("Fresh", path=str(tmp_path), instructions="run uv run pytest")
+    [c] = core.setup_cards("Fresh")
+    assert c["title"] == "Tell the agent how to deploy Fresh"
+
+
+def test_the_cards_take_the_projects_own_spelling():
+    core.create_project("Tickets")
+    assert {c["project"] for c in core.setup_cards("tickets")} == {"Tickets"}
+
+
+def test_setup_cards_for_an_unknown_project_is_not_found():
+    with pytest.raises(core.NotFound):
+        core.setup_cards("nope")

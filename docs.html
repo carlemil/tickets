@@ -88,7 +88,9 @@ again.</p>
   <li><b>projects…</b>: each project's name, path (the absolute folder of its git repo, where
     the agent works), agent instructions (how to build, test and deploy, and how to install
     dependencies in a fresh worktree) and color. "delete project…" moves its cards to
-    "No Project", where agents never work.</li>
+    "No Project", where agents never work. Adding a project opens a <code>todo</code> card
+    for each thing its setup still lacks &mdash; a path, or instructions saying how to test
+    or deploy. Fix it, then archive the card.</li>
   <li><b>show archived</b>: shows the archived cards instead.</li>
   <li><b>New Card</b>: opens a draft. Nothing is saved until you close it.</li>
 </ul>
@@ -177,7 +179,8 @@ again.</p>
 <h2 id="workflow">5. How you work with it</h2>
 <ol>
   <li>Create a project under "projects…". Point its path at a git repo and write its agent
-    instructions.</li>
+    instructions. Whatever you leave out shows up as a card in <code>todo</code> telling you
+    what is still missing.</li>
   <li>New Card in <code>todo</code>: a title and a clear description of what you want and
     why.</li>
   <li>Drag it to <code>plan</code>. Auto advance goes on and the agent plans it.</li>

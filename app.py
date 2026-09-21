@@ -128,7 +128,9 @@ async def api_projects(request):
 # Project config is not card activity, so these writes carry no `actor` and log no event.
 @route("/api/projects", methods=["POST"])
 async def api_create_project(request):
-    return JSONResponse(core.create_project(**await request.json()), status_code=201)
+    p = core.create_project(**await request.json())
+    core.setup_cards(p["name"])   # what it still needs, as cards for a person
+    return JSONResponse(p, status_code=201)
 
 
 @route("/api/projects/{name:path}", methods=["DELETE"])

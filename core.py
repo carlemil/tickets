@@ -396,6 +396,41 @@ def delete_project(name):
     return {"deleted": old, "moved": n}
 
 
+BOARD = "board"   # author of the cards the board opens by itself
+FOLDER = """The project has no folder set, so an agent cannot check out a card's branch.
+
+Set its path under "projects…" on the board: the absolute path of a git checkout that has
+an `origin` remote (the test lane pushes the card's branch there). Archive this card once
+it is set."""
+TESTS = """The project's instructions do not say how to test it.
+
+An agent must run the project's tests before it may pass a card, so write the test command
+into the instructions under "projects…" on the board. Archive this card once they do."""
+DEPLOY = """The project's instructions do not say how to deploy it.
+
+The agent is told to follow the project instructions on how to deploy, so write the deploy
+steps into the instructions under "projects…" on the board. Archive this card once they do."""
+
+
+def setup_cards(name):
+    """Cards for what a new project still needs before an agent can work a card in it: a
+    folder, and instructions covering tests and deploying. Unassigned, in `todo`, auto
+    advance off -- a person has to fix them: agents cannot configure a project.
+    ponytail: "the instructions cover tests/deploying" is a word match. It asks once, on a
+    new project, and a wrong guess costs one archived card."""
+    p = get_project(name)          # NotFound for an unknown name; gives the stored spelling
+    said = p["instructions"].lower()
+    missing = []
+    if not p["path"]:
+        missing.append((f"Set {p['name']}'s folder", FOLDER))
+    if "test" not in said:
+        missing.append((f"Tell the agent how to test {p['name']}", TESTS))
+    if "deploy" not in said:
+        missing.append((f"Tell the agent how to deploy {p['name']}", DEPLOY))
+    return [create_card(t, actor=BOARD, description=d, project=p["name"])
+            for t, d in missing]
+
+
 def create_card(
     title,
     actor,

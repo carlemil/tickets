@@ -677,6 +677,20 @@ def test_add_a_project_from_the_panel(page, tmp_path):
     assert project_block(page, "new project").locator("input >> nth=0").input_value() == ""
 
 
+def test_adding_a_project_with_nothing_set_puts_its_setup_cards_on_the_board(page):
+    page.click("#projects")
+    new = project_block(page, "new project")
+    new.locator("input >> nth=0").fill("Fresh")
+    human_click(page, "#panel button:text-is('add project')")
+    page.wait_for_selector("#panel .project h3:text-is('Fresh')")
+    close_sheet(page)   # the panel covers the board
+    page.wait_for_selector("#panel.on", state="detached")
+    titles = page.locator('.lane[data-lane="todo"] .card .t').all_text_contents()
+    assert [t for t in titles if "Fresh" in t] == ["Set Fresh's folder",
+                                                   "Tell the agent how to test Fresh",
+                                                   "Tell the agent how to deploy Fresh"]
+
+
 def test_a_duplicate_project_keeps_what_was_typed(page):
     page.click("#projects")
     new = project_block(page, "new project")
