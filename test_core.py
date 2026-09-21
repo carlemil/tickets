@@ -1237,6 +1237,58 @@ def test_a_database_without_merged_and_deployed_gains_them(db):
     assert core.update_card(c["id"], "ann", deployed=True)["deployed"] is True
 
 
+# ---------- the deployed dot follows the deploy comment ----------
+
+def commented(text, actor=core.AGENT, lane="verify"):
+    return core.comment(card(lane=lane)["id"], actor, text)
+
+
+def test_the_agents_deploy_comment_lights_the_deployed_dot():
+    c = commented("deployed: backend restarted")
+    assert (c["lane"], c["deployed"], c["merged"]) == ("verify", True, False), "git sets merged"
+    assert [(e["kind"], e["detail"].get("field")) for e in c["events"][1:]] == [
+        ("comment", None), ("edited", "deployed")]
+
+
+@pytest.mark.parametrize("text", ["deploy failed: adb not found",
+                                  "deploy skipped: no phone connected"])
+def test_a_failed_or_skipped_deploy_leaves_it_dark(text):
+    c = commented(text)
+    assert (c["lane"], c["deployed"]) == ("verify", False)
+    assert [e["kind"] for e in c["events"][1:]] == ["comment"], "nothing changed, nothing logged"
+
+
+def test_a_redeploy_that_fails_darkens_the_dot_again():
+    id = card(lane="verify")["id"]
+    core.comment(id, core.AGENT, "deployed: ok")
+    assert core.comment(id, core.AGENT, "deploy failed: the restart died")["deployed"] is False
+
+
+def test_deploying_twice_writes_one_event():
+    id = card(lane="verify")["id"]
+    core.comment(id, core.AGENT, "deployed: ok")
+    c = core.comment(id, core.AGENT, "deployed: ok again")
+    fields = [e["detail"].get("field") for e in c["events"]]
+    assert (c["deployed"], fields.count("deployed")) == (True, 1)
+
+
+def test_only_the_agents_comment_lights_it():
+    c = commented("deployed: I did it myself", actor="ann")
+    assert (c["deployed"], c["lane"]) == (False, "plan"), "a person's comment is a new request"
+
+
+def test_an_ordinary_agent_comment_leaves_it_alone():
+    assert commented("the tests pass")["deployed"] is False
+
+
+def test_the_dot_survives_the_agents_own_follow_up_write():
+    """`deploy()` comments, then writes what git knows: that must not undo the dot."""
+    id = card(lane="verify")["id"]
+    core.comment(id, core.AGENT, "deployed: ok")
+    c = core.update_card(id, core.AGENT, attention=True, merged=True)
+    assert (c["merged"], c["deployed"], c["attention"]) == (True, True, True)
+
+
 # ---------- a new project's setup cards ----------
 
 def test_a_bare_project_gets_a_card_for_each_missing_thing():

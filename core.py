@@ -15,8 +15,8 @@ DB_PATH = "tickets.db"  # reassign core.DB_PATH to point elsewhere (tests, alt b
 CARD_FIELDS = ("project", "title", "description", "lane", "assignee", "pos", "labels", "checklist",
                "archived", "auto_advance", "attention", "plan", "questions", "answers",
                "merged", "deployed")
-# merged: on the base branch on origin; deployed: on the local test backend or a device.
-# Only the agent's deploy step sets them.
+# merged: on the base branch on origin, set by the agent's deploy step from git.
+# deployed: on the local test backend or a device, set here from the deploy comment.
 BOOL_FIELDS = ("archived", "auto_advance", "attention", "merged", "deployed")   # stored as 0/1, surfaced as true/false
 JSON_FIELDS = ("labels", "checklist")
 # the planning round, kept apart from the request in `description`: the agent's plan, its
@@ -38,6 +38,9 @@ AGENT = "claude-agent"   # the board agent's name: its own writes never restart 
 # planned again (#60). A comment counts too, see `comment`.
 REPLAN_FIELDS = ("description", "answers", "checklist")
 REPLIED = {"field": "auto_advance", "from": False, "to": True}
+# how the agent's deploy comment starts: the deployed dot follows it, see `comment`
+DEPLOYED_HEAD, SKIPPED_HEAD, FAILED_HEAD = "deployed: ", "deploy skipped: ", "deploy failed: "
+DEPLOY_HEADS = (DEPLOYED_HEAD, SKIPPED_HEAD, FAILED_HEAD)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -588,6 +591,11 @@ def comment(id, actor, text):
                 _event(db, id, actor, "edited", REPLIED)
     if old["lane"] == "verify" and actor != AGENT:   # a new request, as in update_card (#60)
         return update_card(id, actor, lane="plan", assignee=AGENT)
+    # the deployed dot follows the deploy comment, so it is right whatever version of
+    # agent.py wrote it: #41's dots never reached the board through 59 deploys, because
+    # the one agent process running them all was older than the code that set them
+    if actor == AGENT and text.startswith(DEPLOY_HEADS):
+        return update_card(id, actor, deployed=text.startswith(DEPLOYED_HEAD))
     return get_card(id)
 
 

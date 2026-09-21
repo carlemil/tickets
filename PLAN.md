@@ -207,10 +207,14 @@ progress simply defers the restart to a later poll.
 It happened again, for the one reason self-restart cannot cover: the agent that was
 running predated #50 itself, so it had no restart code to run and stayed on a `deploy()`
 older than the dots. Twenty-one verify cards collected a `deployed:` comment with both
-dots dark before anyone noticed. The symptom to look for is exactly that — a verify card
-whose last comment says `deployed:` and whose dots are dark — and the cure is one restart
-by hand; from then on the agent keeps itself current. #68 backfilled those dots from the
-deploy comments and `git merge-base`, the same two facts `deploy()` writes them from.
+dots dark before anyone noticed. #68 backfilled those dots from the deploy comments and
+`git merge-base`, the same two facts `deploy()` writes them from — and then the same
+agent went on deploying, so five more cards went dark and needed a third backfill. The
+event log says it was never anything else: of 59 deploy comments, not one had a dot write
+beside it. A dot that only a long-lived process writes is a dot nobody can trust, so the
+deployed one now follows the comment instead, set by `core.comment` on the way in (see
+the dots below). `merged` still comes from the agent, because only git knows it; an agent
+started from here on carries #50, so it cannot fall behind the code again.
 
 **A git worktree per card.** Develop and test run in a worktree of the card's own, next
 to the project's repo: `<repo>.worktrees/card-<id>` on branch `card/<id>`, made from the
@@ -368,10 +372,13 @@ write clears attention: on a failed card it means "go again".
 **On master, deployed (#41).** After the auto dot come two more, on the board card and in
 the sheet header: blue when `merged` (the card's branch is on the base branch on origin),
 purple when `deployed` (on the local test backend or a device), rings when not. Not
-clickable. Only the agent's deploy step sets them, in the same write as `attention=True`:
-`merged` from `git merge-base --is-ancestor card/<id> origin/<base>` after the run,
-whatever its verdict; `deployed` only from `DEPLOY: OK` (`DEPLOY: SKIPPED`, nothing to
-deploy or no phone, comments `deploy skipped:` and is not a failure). A move from
+clickable. The deploy step sets `merged` from `git merge-base --is-ancestor card/<id>
+origin/<base>` after the run, whatever its verdict, in the same write as `attention=True`.
+`deployed` the board sets itself, from the head of the deploy comment: `core.comment`
+lights it on `deployed: ` from `claude-agent` and darkens it on `deploy skipped: ` or
+`deploy failed: ` (a skip — nothing to deploy, or no phone — is not a failure). The head
+comes from the verdict line (`DEPLOY: OK`, `DEPLOY: SKIPPED`, anything else), so the dot
+says what the comment says, whatever version of `agent.py` wrote it (#68). A move from
 todo/verify/done back into plan, develop or test is rework and clears both, unless the
 same write sets them. A card merged or deployed by hand stays dark; MCP `update_card`
 takes both.
@@ -496,6 +503,7 @@ no longer on the board.
 | 35 | #63 parallel work per project: the run slot is keyed by `(project, lane)`, so a project's plan, develop and test lanes run side by side, one card each | done |
 | 36 | #67 a deploy is local by default: the test backend or a connected phone, production only when a project's instructions say so | done |
 | 37 | #68 the verify column's dark dots backfilled from the deploy comments and `git merge-base`; an agent older than #50 cannot restart itself, so it needs one restart by hand | done |
+| 38 | the deployed dot follows the deploy comment, written by `core.comment`, not by the agent: a stale agent can no longer leave a deployed card dark | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
