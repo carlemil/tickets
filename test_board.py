@@ -1874,3 +1874,37 @@ def test_merged_and_deployed_dots_on_the_board_and_in_the_editor(page):
     close_sheet(page)
     c = core.get_card(lit)
     assert (c["merged"], c["deployed"], c["auto_advance"]) == (True, True, False)
+
+
+# ---------- the folded activity log ----------
+
+def test_the_log_opens_folded_down_to_the_agents_last_comment(page):
+    cid = core.create_card("worked on", actor="User", project="Home")["id"]
+    core.comment(cid, "claude-agent", "plan written")
+    core.update_card(cid, "User", lane="develop")
+    core.comment(cid, "claude-agent", "done, see the diff")
+    core.update_card(cid, "User", labels=["ui"])
+    events = core.get_card(cid)["events"]
+    last = max(i for i, e in enumerate(events)
+               if e["kind"] == "comment" and e["actor"] != "User")
+    page.evaluate(f"openCard({cid})")
+    page.wait_for_function(f"() => open && open.id === {cid}")
+
+    shown = lambda: page.locator("#panel .log li:not(.more):visible").evaluate_all(
+        "ns => ns.map(n => n.textContent)")
+    assert len(shown()) == len(events) - last, shown()   # that comment and all after it
+    assert "done, see the diff" in shown()[0]
+    assert not any("plan written" in t for t in shown()), "the older round is folded away"
+
+    page.click("#panel .log li.more button")
+    assert len(shown()) == len(events), shown()
+    assert page.text_content("#panel .log li.more button") == "hide earlier"
+    page.click("#panel .log li.more button")
+    assert len(shown()) == len(events) - last, shown()
+    assert page.text_content("#panel .log li.more button") == f"show {last} earlier"
+
+
+def test_a_short_log_has_nothing_to_fold(page):
+    add_card(page, "brand new")
+    assert page.locator("#panel .log li.more").count() == 0, "one event: no toggle"
+    assert page.locator("#panel .log li:visible").count() == 1

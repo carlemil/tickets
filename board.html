@@ -128,6 +128,8 @@
   .log .when { color: #a5adba; font-size: 11px; margin-left: 4px; }
   .log .say { display: block; margin-top: 2px; white-space: pre-wrap; }
   .log li.comment { background: #f7f8fc; border-radius: 4px; padding: 6px 8px; }
+  .log:not(.open) li.old { display: none; }
+  .log li.more { border-top: 0; }
   .chk, .auto-sw { display: flex; gap: 6px; align-items: baseline; }
   .chk.done span { text-decoration: line-through; color: var(--dim); }
   .links li { list-style: none; display: flex; gap: 6px; align-items: center; }
@@ -255,18 +257,25 @@ function eventLine(e) {
   }
 }
 
+// Everything older than the last comment by someone else (the agent) is folded away
+// behind one button: opening a worked card should not mean scrolling past its history.
+// No such comment -- the agent has not spoken yet -- and only the newest line stays.
 function renderLog(events) {
   const ul = document.createElement("ul");
   ul.className = "log";
-  for (const e of events) {
+  if (logOpen) ul.classList.add("open");
+  let cut = events.length - 1;
+  events.forEach((e, i) => { if (e.kind === "comment" && e.actor !== USER) cut = i; });
+  events.forEach((e, i) => {
     const li = document.createElement("li");
+    if (i < cut) li.classList.add("old");
     const actor = document.createElement("span");
     actor.className = "who"; actor.textContent = e.actor;
     const when = document.createElement("span");
     when.className = "when"; when.textContent = ago(e.at); when.title = e.at;
     li.append(actor);
     if (e.kind === "comment") {
-      li.className = "comment";
+      li.classList.add("comment");
       li.append(document.createTextNode(" "), when);
       const say = document.createElement("span");
       say.className = "say"; say.textContent = e.detail.text;
@@ -275,6 +284,18 @@ function renderLog(events) {
       li.append(document.createTextNode(" " + eventLine(e)), when);
     }
     ul.append(li);
+  });
+  if (cut > 0) {
+    const btn = document.createElement("button");
+    const label = () => {
+      btn.textContent = logOpen ? "hide earlier" : `show ${cut} earlier`;
+      btn.setAttribute("aria-expanded", logOpen);
+    };
+    btn.onclick = () => { logOpen = !logOpen; ul.classList.toggle("open", logOpen); label(); };
+    label();
+    const li = Object.assign(document.createElement("li"), { className: "more" });
+    li.append(btn);
+    ul.prepend(li);
   }
   if (!events.length) ul.append(Object.assign(document.createElement("li"),
     { className: "sub", textContent: "nothing yet" }));
@@ -583,6 +604,7 @@ for (const ev of ["pointerup", "pointercancel", "dragend"])
   }, true);
 
 let shown = null;    // which card the sheet currently holds, so a re-render can keep the comment box
+let logOpen = false;   // the activity log's older half, expanded -- survives a re-render
 const cardKey = c => c === PROJECTS ? "projects" : c?.id ?? "draft";
 
 function hidePanel() { open = shown = null; $("#panel").classList.remove("on"); }
@@ -645,6 +667,7 @@ function renderPanel() {
   const p = $("#panel");
   // a re-render must not eat a half-typed comment -- but a different card gets its own box
   const typed = shown === cardKey(open) ? ($("#panel .say-box")?.value || "") : "";
+  if (shown !== cardKey(open)) logOpen = false;   // another card opens folded again
   shown = cardKey(open);
   p.textContent = "";
   p.classList.add("on");
