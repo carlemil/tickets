@@ -1,6 +1,7 @@
 """The board agent against the real MCP tools in-process. Claude itself is faked."""
 
 import asyncio
+import re
 import shutil
 import socket
 import subprocess
@@ -1365,3 +1366,9 @@ def test_out_of_quota_in_deploy_postpones_it(ran, monkeypatch):
     assert c["lane"] == "verify" and c["attention"] and not c["deployed"]
     assert comments(id)[-1].startswith(f"deploy postponed: out of quota, resuming at {at:%H:%M}")
     assert agent.paused_until == at
+
+
+def test_log_stamps_each_row(capsys):
+    agent.log("#81 plan: log")
+    out = capsys.readouterr().out.strip()
+    assert re.match(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d #81 plan: log$", out), out

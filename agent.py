@@ -343,10 +343,15 @@ working = set()
 paused_until = None
 
 
+def log(msg):
+    """Every row of agent.log carries a timestamp, like the backend's (#81)."""
+    print(f"{datetime.now():%Y-%m-%d %H:%M:%S} {msg}", flush=True)
+
+
 def pause(at):
     global paused_until
     paused_until = max(paused_until or at, at)
-    print(f"out of quota until {paused_until:%Y-%m-%d %H:%M}", flush=True)
+    log(f"out of quota until {paused_until:%Y-%m-%d %H:%M}")
 
 
 def doer(project, lane):
@@ -395,7 +400,7 @@ async def tick(client, connect):
         if datetime.now() < paused_until:
             return []
         paused_until = None
-        print("quota back, resuming", flush=True)
+        log("quota back, resuming")
         await call(client, "set_activity", actor=AGENT)
     started = []
     # list_cards comes back in board order, so the first card eligible for a project lane is
@@ -416,7 +421,7 @@ async def tick(client, connect):
 async def work(connect, c, key):
     try:
         async with connect() as client:
-            print(f"#{c['id']} {c['lane']}: {c['title']}", flush=True)
+            log(f"#{c['id']} {c['lane']}: {c['title']}")
             who = doer(c["project"], c["lane"])
             await call(client, "set_activity", actor=who, card_id=c["id"], doing=DOING[c["lane"]])
             try:
@@ -444,7 +449,7 @@ def stale(mtime):
 def restart(lock):
     """Hand over to a fresh agent. The lock port goes first, or the new process would exit
     as 'already running'."""
-    print("agent.py changed on disk: restarting", flush=True)
+    log("agent.py changed on disk: restarting")
     lock.close()
     # ponytail: same interpreter, so a deploy that also changes pyproject.toml/uv.lock
     # restarts into an unsynced venv; switch to `uv run` if deps start moving with the agent
@@ -475,7 +480,7 @@ async def main(lock=None):
         for a in await call(client, "set_activity", actor=AGENT):   # a crashed run's leftovers
             if a["actor"].startswith(AGENT):
                 await call(client, "set_activity", actor=a["actor"])
-    print(f"{AGENT} polling {URL} every {POLL}s", flush=True)
+    log(f"{AGENT} polling {URL} every {POLL}s")
     mtime = SOURCE.stat().st_mtime
     while True:
         try:  # a fresh client per poll, so a backend restart does not kill the agent

@@ -29,9 +29,10 @@ test_board.py  the board in a real browser, plus one lock per bug that shipped
 test_e2e.py    one card, browser and MCP, one attributed history
 agent.py       board agent: plans, develops and tests cards, over MCP
 test_agent.py  the agent against the real tools in-process, claude faked
+log-config.json uvicorn log format: a timestamp per row
 ```
 
-Run: `uv run uvicorn app:app --host 127.0.0.1 --port 8123`
+Run: `uv run uvicorn app:app --host 127.0.0.1 --port 8123 --log-config log-config.json`
 Agent hookup: `claude mcp add --transport http tickets http://127.0.0.1:8123/mcp`
 
 8123 is the port `agent.py`, `restart-backend.ps1` and the docs use; any free port works,
@@ -512,6 +513,7 @@ no longer on the board.
 | 37 | #68 the verify column's dark dots backfilled from the deploy comments and `git merge-base`; an agent older than #50 cannot restart itself, so it needs one restart by hand | done |
 | 38 | the deployed dot follows the deploy comment, written by `core.comment`, not by the agent: a stale agent can no longer leave a deployed card dark | done |
 | 39 | #76 one run per card as well as per project lane: a card moved to another lane mid-run no longer starts a second run in the same worktree | done |
+| 40 | #81 every log row is timestamped: `log-config.json` for uvicorn, a `log()` helper in `agent.py` | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
