@@ -56,7 +56,7 @@ def wait_saved(page, cid, field, value):
 
 def close_sheet(page):
     """How a sheet is closed -- and a new card created. The sheet covers the whole window,
-    so its "save" button is the one way out."""
+    so its "close" button is the one way out."""
     page.click("#panel .shut")
 
 
@@ -799,7 +799,7 @@ def test_a_stale_filter_falls_back_to_the_first_project_for_new_cards(page):
 
 def test_a_human_click_on_close_after_typing_closes_the_panel(page):
     """Leaving the field fires its PATCH on mousedown; a re-render landing before mouseup
-    would replace the "save" button and eat the click. At human speed, it still closes."""
+    would replace the "close" button and eat the click. At human speed, it still closes."""
     cid = add_card(page, "human save")
     page.fill("#panel input[type=text] >> nth=0", "typed, then saved by a person")
     box = page.locator("#panel .shut").bounding_box()
@@ -1076,14 +1076,25 @@ def test_cancel_on_a_card_drops_the_unsent_comment(page):
 
 
 def test_cancel_keeps_edits_already_saved(page):
-    cid = add_card(page, "keep the priority")
-    page.select_option("#panel .row select >> nth=0", "high")
-    wait_saved(page, cid, "priority", "high")
+    core.create_project("Other")
+    cid = add_card(page, "keep the project")
+    page.select_option("#panel select >> nth=0", "Other")   # project, under the title
+    wait_saved(page, cid, "project", "Other")
     cancel_sheet(page)
-    assert core.get_card(cid)["priority"] == "high"
+    assert core.get_card(cid)["project"] == "Other"
 
 
-def test_save_still_saves_the_edit_in_progress(page):
+def test_a_comment_being_typed_survives_a_re_render(page):
+    """A field's save re-renders the sheet, which rebuilds the comment box: the text
+    half-typed into it must come back with it."""
+    cid = add_card(page, "mid-comment")
+    page.fill("#panel .say-box", "still writing this")
+    page.select_option("#panel select >> nth=2", "test")   # lane, saves and re-renders
+    wait_saved(page, cid, "lane", "test")
+    assert page.input_value("#panel .say-box") == "still writing this"
+
+
+def test_close_still_saves_the_edit_in_progress(page):
     cid = add_card(page, "save my text")
     page.fill("#panel textarea >> nth=0", "typed, then saved")   # still focused
     close_sheet(page)
@@ -1426,10 +1437,10 @@ def test_a_long_description_opens_at_its_full_height(page):
 def test_the_sheet_buttons_have_a_gap_between_them(page):
     add_card(page, "spaced")
     boxes = [page.locator(f"#panel button:text-is('{t}')").bounding_box()
-             for t in ("archive", "save")]
+             for t in ("archive", "cancel")]
     left, right = sorted(boxes, key=lambda b: b["x"])
     gap = right["x"] - (left["x"] + left["width"])
-    assert gap >= 8, f"archive and save are {gap:.1f}px apart"
+    assert gap >= 8, f"archive and cancel are {gap:.1f}px apart"
 
 
 def test_dragging_a_card_into_plan_ticks_auto_advance(page):
@@ -1668,20 +1679,20 @@ def head_parts(page):
         n.tagName === 'INPUT' ? 'input:' + n.value : n.textContent)""")
 
 
-def test_the_header_row_holds_number_title_created_archive_cancel_and_save(page):
+def test_the_header_row_holds_number_title_created_archive_cancel_and_close(page):
     cid = add_card(page, "headed")
-    num, title, when, arch, cancel, save = head_parts(page)
-    assert (num, title, arch, cancel, save) == (f"#{cid}", "input:headed", "archive",
-                                                "cancel", "save")
+    num, title, when, arch, cancel, shut = head_parts(page)
+    assert (num, title, arch, cancel, shut) == (f"#{cid}", "input:headed", "archive",
+                                                "cancel", "close")
     assert when.startswith("created ")
     tops = [b["y"] for b in (page.locator(f"#panel .head > *").nth(i).bounding_box()
                              for i in range(6))]
     assert max(tops) - min(tops) < 20, "one row"
 
 
-def test_a_draft_header_row_holds_the_title_cancel_and_save(page):
+def test_a_draft_header_row_holds_the_title_cancel_and_close(page):
     page.click("#add")
-    assert head_parts(page) == ["new", "input:", "cancel", "save"]
+    assert head_parts(page) == ["new", "input:", "cancel", "close"]
 
 
 def test_the_header_row_stays_at_the_top_while_the_sheet_scrolls(page):
