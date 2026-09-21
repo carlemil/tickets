@@ -68,6 +68,7 @@ DOING = {"plan": "planning", "develop": "developing", "test": "testing"}   # the
 # claude -p's "You've hit your session limit · resets 10:30pm (Europe/Stockholm)"
 LIMIT = re.compile(r"hit your [^\n]*?limit(?:[^\n]*?resets ([^(\n]*))?", re.I)
 QUESTIONS_HEAD = re.compile(r"^#+[ \t]*open questions[ \t]*:?[ \t]*$", re.I | re.M)
+CLI_CAP = 100_000   # the transcript goes in the DB, and a develop run can print megabytes
 
 PROMPTS = {
     "plan": "Plan the implementation of this ticket card. Its `description` is the request. "
@@ -89,7 +90,8 @@ PROMPTS = {
     "test": "Check that this ticket card is done: review this card's changes (the workspace "
             "note below says where they are) against the card's request, plan and answers, "
             "and run the "
-            "project's tests. Do not edit any files. Reply with what you checked and what "
+            "project's tests. Do not edit any files, except to finish a merge the workspace "
+            "note says is unfinished. Reply with what you checked and what "
             f"you found, and end with a last line of exactly {PASS} or RESULT: FAIL.",
     # not a lane: run on a card the agent just moved to verify
     "deploy": "This ticket card passed testing and is committed and pushed (the workspace "
@@ -160,16 +162,102 @@ def resume_at(text, now):
     return max(at, now + timedelta(minutes=4)) + timedelta(minutes=1)
 
 
+class Reply(str):
+    """What claude answered, which is all a caller needs, with the run's CLI transcript on
+    `.cli` for the card's output box. A str, so every caller that only wants the answer
+    (`split_plan`, the verdict checks) reads exactly what it did before the transcript
+    existed; read the transcript with `getattr(out, "cli", "")`."""
+    def __new__(cls, text, cli=""):
+        r = super().__new__(cls, text)
+        r.cli = cli
+        return r
+
+
+def _brief(s, n=160):
+    """One line, short enough to read: a tool's arguments or a tool result in the box."""
+    s = " ".join(f"{s}".split())
+    return s if len(s) <= n else s[:n] + "…"
+
+
+def _blocks(e):
+    return e.get("message", {}).get("content", []) if isinstance(e.get("message"), dict) else []
+
+
+def transcript(out):
+    """stream-json -> what a person watching the CLI would have seen: the text claude wrote,
+    a line per tool call and its result, and what the run cost. A line that is not a JSON
+    event (a warning claude printed) is kept as it is."""
+    lines = []
+    for raw in out.splitlines():
+        e = None
+        if raw.strip().startswith("{"):
+            try:
+                e = json.loads(raw)
+            except ValueError:
+                e = None
+        if not isinstance(e, dict):
+            if raw.strip():
+                lines.append(raw.rstrip())
+            continue
+        if e.get("type") == "assistant":
+            for b in _blocks(e):
+                kind = b.get("type")
+                if kind == "text" and b.get("text", "").strip():
+                    lines.append(b["text"].strip())
+                elif kind == "thinking":
+                    lines.append("● thinking…")
+                elif kind == "tool_use":
+                    args = json.dumps(b.get("input", {}), ensure_ascii=False)
+                    lines.append(f"● {b.get('name', 'tool')}({_brief(args)})")
+        elif e.get("type") == "user":
+            for b in _blocks(e):
+                if b.get("type") != "tool_result":
+                    continue
+                body = b.get("content")
+                if isinstance(body, list):
+                    body = " ".join(x.get("text", "") for x in body if isinstance(x, dict))
+                lines.append(f"  ⎿ {_brief(body or '(no output)')}")
+        elif e.get("type") == "result":
+            cost = e.get("total_cost_usd")
+            lines.append(f"● done in {round((e.get('duration_ms') or 0) / 1000)}s"
+                         + (f" · ${cost:.2f}" if isinstance(cost, (int, float)) else ""))
+    text = "\n".join(lines)
+    # the tail is the part worth keeping: the tests that ran and how it ended
+    return text if len(text) <= CLI_CAP else \
+        f"(… {len(text) - CLI_CAP} characters dropped)\n{text[-CLI_CAP:]}"
+
+
+def reply(out):
+    """claude's final answer: the `result` event's text. No such event, or output that is
+    not stream-json at all -> the whole output, so a caller never gets less than plain
+    `-p` gave it."""
+    for raw in reversed(out.splitlines()):
+        if not raw.strip().startswith("{"):
+            continue
+        try:
+            e = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(e, dict) and e.get("type") == "result" and f"{e.get('result') or ''}".strip():
+            return e["result"].strip()
+    return out.strip()
+
+
 def run_claude(card, cwd, instructions=""):
     lane = card["lane"]
     project = f"Project instructions (follow them):\n{instructions}\n\n" if instructions else ""
     prompt = (f"{PROMPTS[lane]}\n\n{project}"
               f"Card:\n{json.dumps(card, indent=2, ensure_ascii=False)}")
     try:
-        return subprocess.run(
-            [shutil.which("claude") or "claude", "-p", *FLAGS[lane]], input=prompt, cwd=cwd,
+        # stream-json prints an event per step, so the run's whole transcript is kept, not
+        # just its last message. The new flags go before FLAGS[lane]: the lane's own flags
+        # stay last, where the tests look for them.
+        out = subprocess.run(
+            [shutil.which("claude") or "claude", "-p", "--output-format", "stream-json",
+             "--verbose", *FLAGS[lane]], input=prompt, cwd=cwd,
             capture_output=True, text=True, encoding="utf-8", timeout=3600, check=True,
-        ).stdout.strip()
+        ).stdout
+        return Reply(reply(out), transcript(out))
     except subprocess.CalledProcessError as e:
         text = e.stderr or e.stdout or ""
         if m := LIMIT.search(text):
@@ -190,8 +278,9 @@ def workspace(card, path):
     Develop and test get a git worktree of their own per card, next to the repo
     (<repo>.worktrees/card-<id>, branch card/<id>, made from the repo's current branch), so
     one card's changes never mix with another's or with a person's work in the repo.
-    Planning only reads, so it runs in the repo. Develop and test never run anywhere but
-    the worktree: a folder that is not a git repository, or a test with no worktree to
+    Each run first merges the base branch in (see catch_up), so a card is built and tested
+    on current code. Planning only reads, so it runs in the repo. Develop and test never
+    run anywhere but the worktree: a folder that is not a git repository, or a test with no worktree to
     test, fails the card."""
     if card["lane"] == "plan":
         return path, "", None, None
@@ -214,11 +303,36 @@ def workspace(card, path):
             raise RuntimeError(f"could not make a worktree at {root}: {made.stderr.strip()}")
     note = (f"Workspace: a git worktree of its own for this card, on branch {branch}, made "
             f"from {base}. ")
-    note += (f"Commit your work on {branch} when you are done. Do not push, merge or switch "
-             "branches." if card["lane"] == "develop" else
+    note += catch_up(root, base)
+    note += (f"Commit your work on {branch} when you are done. Do not push or switch "
+             f"branches; merging {base} into your branch is fine."
+             if card["lane"] == "develop" else
              f"This card's changes are the commits on {branch} since it left {base} (git diff "
              f"{base}...HEAD, git log {base}..HEAD) plus anything uncommitted (git status).")
     return root / path.relative_to(top), note, root, base
+
+
+def catch_up(tree, base):
+    """Bring the card's branch up to date with `base` before a run, so the card is built on
+    current code and the deploy's merge back is clean. Best effort: no origin, offline, or a
+    dirty tree just leaves the branch where it was. Conflicts are left in the worktree for
+    the run to resolve. Returns the line the prompt is told about it."""
+    if git(tree, "rev-parse", "--verify", "--quiet", "MERGE_HEAD").returncode == 0:
+        return (f"A merge of {base} here is unfinished: resolve the conflicts (git status) "
+                "and commit it before anything else. ")
+    git(tree, "fetch", "-q", "origin", base)          # no origin: ignored, the local ref is used
+    ref = next((r for r in (f"origin/{base}", base)
+                if git(tree, "rev-parse", "--verify", "--quiet", r).returncode == 0), None)
+    if not ref or git(tree, "merge-base", "--is-ancestor", ref, "HEAD").returncode == 0:
+        return ""                                      # nothing to catch up to, or already in
+    r = git(tree, "merge", "-m", f"merge {ref} into card branch", ref)
+    if r.returncode == 0:
+        return f"Your branch was brought up to date with {ref} before this run. "
+    if git(tree, "rev-parse", "--verify", "--quiet", "MERGE_HEAD").returncode == 0:
+        return (f"Merging {ref} in left conflicts: resolve them (git status lists the files) "
+                "and commit the merge before anything else. ")
+    git(tree, "merge", "--abort")                      # never started (dirty tree): harmless
+    return f"Could not merge {ref} in ({(r.stderr or r.stdout).strip()[-200:]}); your branch is behind it. "
 
 
 def ship(card, tree):
@@ -251,6 +365,7 @@ def split_plan(out):
 async def handle(client, card, back=""):
     """`back` is who had the card before the agent took it: every way out gives it back."""
     lane, id = card["lane"], card["id"]
+    cli = ""   # the run's CLI transcript: set once claude has run, so a failure can carry it
     try:
         name = card["project"].lower()   # a card from before projects may differ in case
         proj = next((p for p in await call(client, "list_projects")
@@ -263,6 +378,7 @@ async def handle(client, card, back=""):
         cwd, note, tree, base = workspace(card, cwd)
         notes = "\n\n".join(x for x in (proj["instructions"], note) if x)
         out = await asyncio.to_thread(run_claude, card, cwd, notes)
+        cli = getattr(out, "cli", "")
         # so a person knows where to look, and what to merge
         where = f"\n\n(worked in {tree}, branch card/{id})" if tree else ""
         # a run takes minutes; if a person moved the card meanwhile, their move wins: keep
@@ -272,7 +388,7 @@ async def handle(client, card, back=""):
         if now["lane"] != lane:
             await call(client, "comment", id=id, actor=AGENT, text=f"{out or '(no output)'}"
                        f"\n\n(this {lane} run finished after the card moved to {now['lane']}: "
-                       "left as it is)")
+                       "left as it is)", output=cli)
             if now["assignee"] == AGENT:
                 await call(client, "update_card", id=id, actor=AGENT, assignee=back,
                            auto_advance=now["auto_advance"])
@@ -285,7 +401,8 @@ async def handle(client, card, back=""):
                 await call(client, "update_card", id=id, actor=AGENT, plan=plan,
                            questions=questions)
                 await call(client, "comment", id=id, actor=AGENT, text="the plan has open "
-                           "questions: fill in the answers and the card is replanned")
+                           "questions: fill in the answers and the card is replanned",
+                           output=cli)
                 off = {"auto_advance": False} if card["auto_advance"] else {}
                 await call(client, "update_card", id=id, actor=AGENT, assignee=back,
                            attention=True, **off)
@@ -293,9 +410,10 @@ async def handle(client, card, back=""):
             # no questions left: the last round's questions and answers stay, as the record
             # of what was decided
             await call(client, "update_card", id=id, actor=AGENT, plan=plan)
-            await call(client, "comment", id=id, actor=AGENT, text="plan written")
+            await call(client, "comment", id=id, actor=AGENT, text="plan written", output=cli)
         else:
-            await call(client, "comment", id=id, actor=AGENT, text=(out or "(no output)") + where)
+            await call(client, "comment", id=id, actor=AGENT, text=(out or "(no output)") + where,
+                       output=cli)
         if lane == "test":
             if [ln.strip(" *`") for ln in out.splitlines()[-1:]] != [PASS]:
                 raise RuntimeError(f"the test stage did not end in {PASS}")
@@ -323,7 +441,7 @@ async def handle(client, card, back=""):
         await call(client, "update_card", id=id, actor=AGENT,
                    assignee=back if card["auto_advance"] else AGENT)
     except Exception as e:  # any failure: say why, hand the card back, no retry loop
-        await call(client, "comment", id=id, actor=AGENT, text=f"agent failed: {e}")
+        await call(client, "comment", id=id, actor=AGENT, text=f"agent failed: {e}", output=cli)
         await call(client, "update_card", id=id, actor=AGENT, assignee=back, auto_advance=False,
                    attention=True)
 
@@ -369,8 +487,10 @@ async def deploy(client, card, cwd, notes, base):
     # the card is the test card: the deploy updates that run's row and holds its slot
     await call(client, "set_activity", actor=doer(card["project"], card["lane"]), card_id=id,
                doing="deploying")
+    cli = ""
     try:
         out = await asyncio.to_thread(run_claude, {**card, "lane": "deploy"}, cwd, notes)
+        cli = getattr(out, "cli", "")
         verdict = [ln.strip(" *`") for ln in out.splitlines()[-1:]]
     except OutOfQuota as e:
         # not retried: verify cards are not polled, so a person runs the deploy again
@@ -386,7 +506,8 @@ async def deploy(client, card, cwd, notes, base):
     # the worktree shares refs with the repo, so the deploy's push is already in origin/<base>
     merged = git(cwd, "merge-base", "--is-ancestor", f"card/{id}", f"origin/{base}").returncode == 0
     # the head sets the deployed dot on the way in; this write only adds what git knows
-    await call(client, "comment", id=id, actor=AGENT, text=head + (out or "(no output)"))
+    await call(client, "comment", id=id, actor=AGENT, text=head + (out or "(no output)"),
+               output=cli)
     # a comment is a reply and clears the dot: set it again, verify waits for a person
     await call(client, "update_card", id=id, actor=AGENT, attention=True, merged=merged)
 

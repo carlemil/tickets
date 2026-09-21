@@ -1,6 +1,7 @@
 """The board agent against the real MCP tools in-process. Claude itself is faked."""
 
 import asyncio
+import json
 import re
 import shutil
 import socket
@@ -53,9 +54,10 @@ def ran(monkeypatch, tmp_path):
 
     def fake(card, cwd, instructions=""):
         calls.append((card["id"], card["lane"], cwd.name))
-        return f"did {card['lane']}" + {"test": "\nRESULT: PASS",
-                                        "plan": "\nQUESTIONS: NONE",
-                                        "deploy": "\nDEPLOY: OK"}.get(card["lane"], "")
+        return agent.Reply(f"did {card['lane']}" + {"test": "\nRESULT: PASS",
+                                                    "plan": "\nQUESTIONS: NONE",
+                                                    "deploy": "\nDEPLOY: OK"}.get(card["lane"], ""),
+                           f"● transcript of {card['lane']}")
 
     monkeypatch.setattr(agent, "run_claude", fake)
     return calls
@@ -790,6 +792,48 @@ def test_a_folder_that_is_not_a_repo_can_still_be_planned(ran, where, tmp_path):
     assert core.get_card(id)["lane"] == "develop"
 
 
+def test_a_rerun_brings_the_branch_up_to_date_with_the_base(repo, where):
+    id = card("develop", project="Repo")
+    tick()
+    (repo / "c.txt").write_text("c")
+    agent.git(repo, "add", ".")
+    agent.git(repo, "commit", "-q", "-m", "two")
+    core.update_card(id, "ce", lane="develop", assignee=agent.AGENT)
+    tick()
+    _, tree, told = where[1]
+    assert (tree / "c.txt").exists(), "the base's new commit is in the card's worktree"
+    assert "brought up to date" in told
+
+
+def test_a_conflicting_base_is_left_for_the_run_to_resolve(repo, where):
+    id = card("develop", project="Repo")
+    tick()
+    tree = repo.parent / "Repo.worktrees" / f"card-{id}"
+    (tree / "a.txt").write_text("the card's line")
+    agent.git(tree, "commit", "-qam", "card edits a.txt")
+    (repo / "a.txt").write_text("the base's line")
+    agent.git(repo, "commit", "-qam", "base edits a.txt")
+    core.update_card(id, "ce", lane="develop", assignee=agent.AGENT)
+    tick()
+    assert agent.git(tree, "rev-parse", "--verify", "--quiet", "MERGE_HEAD").returncode == 0
+    assert "left conflicts" in where[1][2]
+    assert core.get_card(id)["lane"] == "test", "a conflict does not fail the card"
+    core.update_card(id, "ce", lane="develop", assignee=agent.AGENT)
+    tick()
+    assert "is unfinished" in where[2][2], "the next run is told to finish it, not to remerge"
+
+
+def test_the_test_stage_gets_the_base_as_it_is_now(repo, where):
+    id = card("develop", project="Repo", auto=True)
+    tick()
+    (repo / "c.txt").write_text("c")
+    agent.git(repo, "add", ".")
+    agent.git(repo, "commit", "-q", "-m", "two")
+    tick()
+    lane, cwd, _ = where[1]
+    assert lane == "test" and (cwd / "c.txt").exists()
+
+
 def test_a_worktree_that_cannot_be_made_fails_the_card(repo, where):
     id = card("develop", project="Repo")
     (repo.parent / "Repo.worktrees").write_text("a file where the folder should go")
@@ -1082,12 +1126,12 @@ def test_run_claude_deploys_with_rights_and_skips_a_missing_phone(monkeypatch, t
     monkeypatch.setattr(subprocess, "run", lambda cmd, **k: got.update(cmd=cmd, **k) or
                         subprocess.CompletedProcess(cmd, 0, stdout="ok"))
     agent.run_claude({"lane": "deploy", "id": 7}, tmp_path, "deploy with ./ship.sh")
-    assert got["cmd"][2:] == ["--dangerously-skip-permissions"]
+    assert got["cmd"][-1:] == ["--dangerously-skip-permissions"]
     p = got["input"]
     assert "backend" in p and "phone is connected" in p and "skip the phone" in p
     assert "DEPLOY: OK" in p and "deploy with ./ship.sh" in p
     assert "may merge, push or restart services" in p, "a deploy that merges is not refused"
-    assert "Do not push, merge" not in p, "develop's rule is not the deploy's"
+    assert "Do not push or switch" not in p, "develop's rule is not the deploy's"
     assert "local test backend" in p and "unless the project's instructions" in p, \
         "deploy is local unless production is spelled out"
 
@@ -1366,6 +1410,93 @@ def test_out_of_quota_in_deploy_postpones_it(ran, monkeypatch):
     assert c["lane"] == "verify" and c["attention"] and not c["deployed"]
     assert comments(id)[-1].startswith(f"deploy postponed: out of quota, resuming at {at:%H:%M}")
     assert agent.paused_until == at
+
+
+# ---------- the run's CLI transcript ----------
+
+STREAM = "\n".join([
+    json.dumps({"type": "system", "subtype": "init", "model": "opus"}),
+    json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "thinking", "thinking": "hm"},
+        {"type": "text", "text": "Reading the file."},
+        {"type": "tool_use", "name": "Read", "input": {"file_path": "a.txt"}}]}}),
+    json.dumps({"type": "user", "message": {"content": [
+        {"type": "tool_result", "content": [{"type": "text", "text": "line one\nline two"}]}]}}),
+    "warning: something claude printed plainly",
+    json.dumps({"type": "result", "subtype": "success", "duration_ms": 42000,
+                "total_cost_usd": 0.31, "result": "did develop"}),
+])
+
+
+def test_transcript_renders_the_run_as_the_cli_showed_it():
+    got = agent.transcript(STREAM).splitlines()
+    assert got == ["● thinking…", "Reading the file.", '● Read({"file_path": "a.txt"})',
+                   "  ⎿ line one line two", "warning: something claude printed plainly",
+                   "● done in 42s · $0.31"]
+
+
+def test_reply_is_the_result_event_and_falls_back_to_the_raw_output():
+    assert agent.reply(STREAM) == "did develop"
+    assert agent.reply("  just text \n") == "just text", "not stream-json: all of it"
+    assert agent.reply('{"type": "assistant", "message": {"content": []}}') \
+        == '{"type": "assistant", "message": {"content": []}}', "no result event: all of it"
+
+
+def test_a_run_with_no_tool_calls_is_just_what_claude_said():
+    out = '\n'.join(['{"type": "assistant", "message": {"content": [{"type": "text",'
+                     ' "text": "nothing to do"}]}}',
+                     '{"type": "result", "duration_ms": 900, "result": "nothing to do"}'])
+    assert agent.transcript(out).splitlines() == ["nothing to do", "● done in 1s"]
+
+
+def test_a_transcript_over_the_cap_keeps_its_tail(monkeypatch):
+    monkeypatch.setattr(agent, "CLI_CAP", 50)
+    out = "\n".join(f"line {i}" for i in range(100))
+    got = agent.transcript(out)
+    assert got.startswith("(… ") and "characters dropped)" in got.splitlines()[0]
+    assert got.endswith("line 99") and len(got.splitlines()[1:]) < 100
+
+
+def test_run_claude_asks_for_the_stream_so_the_whole_run_is_kept(monkeypatch, tmp_path):
+    got = {}
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: got.update(cmd=cmd, **k) or
+                        subprocess.CompletedProcess(cmd, 0, stdout=STREAM))
+    out = agent.run_claude({"lane": "develop", "id": 7}, tmp_path)
+    assert "--output-format stream-json --verbose" in " ".join(got["cmd"])
+    assert out == "did develop", "the caller still reads just the answer"
+    assert '● Read({"file_path": "a.txt"})' in out.cli
+
+
+@pytest.mark.parametrize("lane", ["plan", "develop", "test"])
+def test_the_comment_of_a_run_carries_its_transcript(ran, lane):
+    id = card(lane)
+    tick()
+    said = [e["detail"] for e in core.get_card(id)["events"] if e["kind"] == "comment"]
+    assert said[0]["output"] == f"● transcript of {lane}"
+    if lane == "test":   # one transcript per run: not on the commit-and-push line after it
+        assert "output" not in said[1]
+
+
+def test_a_failed_run_still_shows_what_claude_printed(ran, monkeypatch):
+    """A test stage that does not pass fails the card after the run: the failure comment
+    carries the transcript, so a person can see where it went wrong."""
+    id = card("test")
+    monkeypatch.setattr(agent, "run_claude",
+                        lambda c, cwd, i="": agent.Reply("nope\nRESULT: FAIL",
+                                                        "● Bash(pytest)\n  ⎿ 1 failed"))
+    tick()
+    said = [e["detail"] for e in core.get_card(id)["events"] if e["kind"] == "comment"]
+    assert said[-1]["text"].startswith("agent failed:")
+    assert said[-1]["output"] == "● Bash(pytest)\n  ⎿ 1 failed"
+
+
+def test_a_comment_with_nothing_to_show_carries_no_output_at_all(ran, monkeypatch):
+    id = card("develop")
+    monkeypatch.setattr(agent, "run_claude", lambda c, cwd, i="": "did it, printed nothing")
+    tick()
+    said = [e["detail"] for e in core.get_card(id)["events"] if e["kind"] == "comment"]
+    assert list(said[0]) == ["text"], "no empty box on the board"
+    assert said[0]["text"].startswith("did it, printed nothing")
 
 
 def test_log_stamps_each_row(capsys):

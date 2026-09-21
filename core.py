@@ -580,10 +580,13 @@ def update_card(id, actor, **fields):
     return get_card(id)
 
 
-def comment(id, actor, text):
+def comment(id, actor, text, output=""):
+    """`output` is the CLI transcript of the run this comment reports, if it has one: it
+    rides along on the event, so every run keeps its own, and the board shows it in a box
+    that starts closed. Nothing to show -> the key is not there at all."""
     with closing(connect()) as db, db:
         old = _load(db, id)
-        _event(db, id, actor, "comment", {"text": text})
+        _event(db, id, actor, "comment", {"text": text, **({"output": output} if output else {})})
         if old["attention"]:   # a reply, as in update_card
             db.execute("UPDATE cards SET attention=0 WHERE id=?", (id,))
             if not old["auto_advance"] and old["lane"] in AGENT_LANES:
