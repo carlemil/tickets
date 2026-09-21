@@ -670,6 +670,11 @@ function renderPanel() {
         load();
       } catch (e) { showErr(e.message); }
     };
+    // verify is the last lane a person acts on: one click ends the card
+    const fin = c.lane === "verify" ? Object.assign(document.createElement("button"),
+      { className: "close", textContent: "move to done",
+        title: "the card is verified: move it to done" }) : null;
+    if (fin) fin.onclick = () => patch({ lane: "done" });
     const idSpan = Object.assign(document.createElement("span"), { className: "id", textContent: "#" + c.id });
     idSpan.prepend(autoDot(c), ...statusDots(c));
     head.append(idSpan,
@@ -677,7 +682,7 @@ function renderPanel() {
                 Object.assign(document.createElement("span"),
                   { className: "when", textContent: "created " + ago(c.created_at),
                     title: new Date(c.created_at).toLocaleString() }),
-                arch, shut);
+                arch, ...(fin ? [fin] : []), shut);
     p.append(Object.assign(document.createElement("div"),
       { className: "sub", textContent: `${c.project} · ${c.lane} · created by ${c.created_by}` }));
   } else {

@@ -252,6 +252,17 @@ def test_archive_button_removes_the_card_and_show_archived_brings_it_back(page):
     assert core.get_card(cid)["archived"] is False
 
 
+def test_move_to_done_button_shows_only_in_verify_and_ends_the_card(page):
+    cid = add_card(page, "verify me")
+    assert page.locator("#panel button:text('move to done')").count() == 0, "not in todo"
+    page.select_option("#panel select >> nth=2", "verify")        # lane
+    wait_saved(page, cid, "lane", "verify")
+    page.click("#panel button:text('move to done')")
+    wait_saved(page, cid, "lane", "done")
+    assert page.locator("#panel.on").count() == 1, "the sheet stays open"
+    assert page.locator("#panel button:text('move to done')").count() == 0, "gone in done"
+
+
 def test_a_failed_archive_keeps_the_card_and_says_why(page):
     cid = add_card(page, "stays put")
     page.evaluate("""window.fetch = () => Promise.resolve(
