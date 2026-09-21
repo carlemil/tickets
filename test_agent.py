@@ -791,6 +791,48 @@ def test_a_folder_that_is_not_a_repo_can_still_be_planned(ran, where, tmp_path):
     assert core.get_card(id)["lane"] == "develop"
 
 
+def test_a_rerun_brings_the_branch_up_to_date_with_the_base(repo, where):
+    id = card("develop", project="Repo")
+    tick()
+    (repo / "c.txt").write_text("c")
+    agent.git(repo, "add", ".")
+    agent.git(repo, "commit", "-q", "-m", "two")
+    core.update_card(id, "ce", lane="develop", assignee=agent.AGENT)
+    tick()
+    _, tree, told = where[1]
+    assert (tree / "c.txt").exists(), "the base's new commit is in the card's worktree"
+    assert "brought up to date" in told
+
+
+def test_a_conflicting_base_is_left_for_the_run_to_resolve(repo, where):
+    id = card("develop", project="Repo")
+    tick()
+    tree = repo.parent / "Repo.worktrees" / f"card-{id}"
+    (tree / "a.txt").write_text("the card's line")
+    agent.git(tree, "commit", "-qam", "card edits a.txt")
+    (repo / "a.txt").write_text("the base's line")
+    agent.git(repo, "commit", "-qam", "base edits a.txt")
+    core.update_card(id, "ce", lane="develop", assignee=agent.AGENT)
+    tick()
+    assert agent.git(tree, "rev-parse", "--verify", "--quiet", "MERGE_HEAD").returncode == 0
+    assert "left conflicts" in where[1][2]
+    assert core.get_card(id)["lane"] == "test", "a conflict does not fail the card"
+    core.update_card(id, "ce", lane="develop", assignee=agent.AGENT)
+    tick()
+    assert "is unfinished" in where[2][2], "the next run is told to finish it, not to remerge"
+
+
+def test_the_test_stage_gets_the_base_as_it_is_now(repo, where):
+    id = card("develop", project="Repo", auto=True)
+    tick()
+    (repo / "c.txt").write_text("c")
+    agent.git(repo, "add", ".")
+    agent.git(repo, "commit", "-q", "-m", "two")
+    tick()
+    lane, cwd, _ = where[1]
+    assert lane == "test" and (cwd / "c.txt").exists()
+
+
 def test_a_worktree_that_cannot_be_made_fails_the_card(repo, where):
     id = card("develop", project="Repo")
     (repo.parent / "Repo.worktrees").write_text("a file where the folder should go")
@@ -1088,7 +1130,7 @@ def test_run_claude_deploys_with_rights_and_skips_a_missing_phone(monkeypatch, t
     assert "backend" in p and "phone is connected" in p and "skip the phone" in p
     assert "DEPLOY: OK" in p and "deploy with ./ship.sh" in p
     assert "may merge, push or restart services" in p, "a deploy that merges is not refused"
-    assert "Do not push, merge" not in p, "develop's rule is not the deploy's"
+    assert "Do not push or switch" not in p, "develop's rule is not the deploy's"
     assert "local test backend" in p and "unless the project's instructions" in p, \
         "deploy is local unless production is spelled out"
 

@@ -172,7 +172,9 @@ again.</p>
   <dt>develop</dt>
   <dd>Claude builds it in auto mode, in the card's own git worktree at
     <code>&lt;repo&gt;.worktrees/card-&lt;id&gt;</code> on branch <code>card/&lt;id&gt;</code>,
-    and commits there. The project's path must be a git repo.</dd>
+    and commits there. The project's path must be a git repo. Every develop and test run
+    starts by merging the base branch in, so the card is built on current code; if that
+    merge conflicts it is left in the worktree for the run to resolve.</dd>
   <dt>test</dt>
   <dd>Claude reviews the card's changes and runs the tests. Its reply must end in
     <code>RESULT: PASS</code>. The agent then commits anything left, pushes
