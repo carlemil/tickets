@@ -1908,3 +1908,31 @@ def test_a_short_log_has_nothing_to_fold(page):
     add_card(page, "brand new")
     assert page.locator("#panel .log li.more").count() == 0, "one event: no toggle"
     assert page.locator("#panel .log li:visible").count() == 1
+
+
+def test_the_agents_output_is_a_box_that_starts_closed(page):
+    cid = core.create_card("worked on", actor="User", project="Home")["id"]
+    core.comment(cid, "claude-agent", "did it",
+                 output='● Read({"file_path": "a.txt"})\n  ⎿ a')
+    page.evaluate(f"openCard({cid})")
+    page.wait_for_function(f"() => open && open.id === {cid}")
+
+    box = page.locator("#panel .log details.cli")
+    assert box.count() == 1
+    assert not box.locator("pre").is_visible(), "closed by default"
+    box.locator("summary").click()
+    assert box.locator("pre").is_visible()
+    assert '● Read({"file_path": "a.txt"})' in box.locator("pre").inner_text()
+
+    # a re-render must not snap it shut again, the way the folded log's toggle survives one
+    page.evaluate(f"load().then(() => openCard({cid}))")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.locator("#panel .log details.cli pre").is_visible()
+
+
+def test_a_comment_with_no_output_has_no_box(page):
+    cid = core.create_card("plain", actor="User", project="Home")["id"]
+    core.comment(cid, "claude-agent", "did it")
+    page.evaluate(f"openCard({cid})")
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    assert page.locator("#panel .log details.cli").count() == 0
