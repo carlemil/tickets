@@ -24,9 +24,10 @@ the agent deploys it: the backend if the backend changed, the app to the phone i
 changed and a phone is connected (none connected: skipped). How is up to the project's
 instructions; either way the card stays in verify, with the result as a comment.
 
-Projects run side by side, but each project has one run at a time: a card waits while
-another card of its project is worked, and the waiting card nearest the top of its
-column goes next. A card the agent moves goes to the back of the next lane's queue.
+Projects run side by side, and so do the lanes of one project: each project lane has one
+run at a time, so a card waits only while another card in the same lane of its project is
+worked, and the waiting card nearest the top of its column goes next. A card the agent
+moves goes to the back of the next lane's queue.
 
 A deploy that changes agent.py takes effect on its own: between polls, with no run going,
 the agent sees the new file, frees its lock port and starts a fresh process of itself.
@@ -323,9 +324,12 @@ async def handle(client, card, back=""):
                    attention=True)
 
 
-# project (lower case) -> its one run in flight. A project's cards run one at a time, so
-# two runs never share its tests, ports or database; different projects run side by side.
-# ponytail: per process; two agent processes would each keep their own.
+# (project lower case, lane) -> its one run in flight. A project's cards run one at a time
+# per lane, so two runs never share a lane's tests, ports or worktree; different lanes and
+# different projects run side by side.
+# ponytail: per process; two agent processes would each keep their own. Lanes of one
+# project do share the repo, so a develop `git worktree add` can lose an .git/index.lock
+# race with a deploy's merge: the card fails with the git error; retry the git call if it bites.
 running = {}
 # quota is the account's, not a project's: while it is out, no run starts anywhere
 paused_until = None
@@ -337,9 +341,9 @@ def pause(at):
     print(f"out of quota until {paused_until:%Y-%m-%d %H:%M}", flush=True)
 
 
-def doer(project):
-    """The status bar keeps one entry per actor, and runs overlap across projects."""
-    return f"{AGENT} ({project})"
+def doer(project, lane):
+    """The status bar keeps one entry per actor, and runs overlap across project lanes."""
+    return f"{AGENT} ({project} {lane})"
 
 
 async def deploy(client, card, cwd, notes, base):
@@ -348,7 +352,9 @@ async def deploy(client, card, cwd, notes, base):
     deployed dots are set from it: merged from git, since a deploy can merge and push and
     still fail after; deployed from the verdict."""
     id = card["id"]
-    await call(client, "set_activity", actor=doer(card["project"]), card_id=id, doing="deploying")
+    # the card is the test card: the deploy updates that run's row and holds its slot
+    await call(client, "set_activity", actor=doer(card["project"], card["lane"]), card_id=id,
+               doing="deploying")
     try:
         out = await asyncio.to_thread(run_claude, {**card, "lane": "deploy"}, cwd, notes)
         verdict = [ln.strip(" *`") for ln in out.splitlines()[-1:]]
@@ -372,7 +378,7 @@ async def deploy(client, card, cwd, notes, base):
 
 
 async def tick(client, connect):
-    """Start a run for each card waiting on the agent whose project has none going. Each
+    """Start a run for each card waiting on the agent whose project lane has none going. Each
     run opens its own client with `connect`, as it outlives this poll. Returns the runs
     started: main leaves them going, the tests wait for them."""
     global paused_until
@@ -383,12 +389,12 @@ async def tick(client, connect):
         print("quota back, resuming", flush=True)
         await call(client, "set_activity", actor=AGENT)
     started = []
-    # list_cards comes back in board order, so the first card eligible for a project is
-    # the one nearest the top of its column: that is the one that takes the project's slot
+    # list_cards comes back in board order, so the first card eligible for a project lane is
+    # the one nearest the top of its column: that is the one that takes the lane's slot
     cards = await call(client, "list_cards")
     for c in cards:
-        key = c["project"].lower()
-        if key == NO_PROJECT.lower():
+        key = (c["project"].lower(), c["lane"])
+        if key[0] == NO_PROJECT.lower():
             continue   # its project was deleted: off limits, silently
         if c["lane"] in NEXT and (c["assignee"] == AGENT or c["auto_advance"]) \
                 and key not in running:
@@ -401,7 +407,7 @@ async def work(connect, c, key):
     try:
         async with connect() as client:
             print(f"#{c['id']} {c['lane']}: {c['title']}", flush=True)
-            who = doer(c["project"])
+            who = doer(c["project"], c["lane"])
             await call(client, "set_activity", actor=who, card_id=c["id"], doing=DOING[c["lane"]])
             try:
                 # the card shows who is on it: the agent takes it for the run, and hands it
@@ -437,7 +443,7 @@ def restart(lock):
 
 def only_one(addr=LOCK):
     """Hold a port for as long as this process lives, so only one agent runs. Two agents
-    would each work the same card (the one-run-per-project limit is per process); the
+    would each work the same card (the one-run-per-project-lane limit is per process); the
     port is freed by the OS however the agent ends, crash included."""
     s = socket.socket()
     if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):   # Windows: no one may share the port

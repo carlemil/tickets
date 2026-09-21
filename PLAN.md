@@ -175,13 +175,14 @@ still on, and commits its work on the card's own branch. The test stage runs wit
 and plan, runs the tests, and must end with a last line of `RESULT: PASS` (markdown
 `*`/`` ` `` around it tolerated) to move on; anything else is a failure.
 
-**One run per project at a time.** Each project has at most one run going — plan,
-develop or test — so two cards never run a project's tests, ports or database at once;
-a card waits while another card of its project is worked, and is started by the first
-poll after that run ends (failed or not). Different projects run side by side: each poll
-starts a run for every waiting card whose project is free, and each run has its own MCP
-client, as it outlives the poll. The status bar keeps one entry per actor, so each run
-shows as `claude-agent (<project>)`. The limit is kept in the agent process (`running`),
+**One run per project lane at a time.** Each `(project, lane)` pair has at most one run
+going, so two cards never run a lane's tests, ports or worktree at once; a card waits only
+while another card in the same lane of its project is worked, and is started by the first
+poll after that run ends (failed or not). A project's plan, develop and test lanes run
+side by side, and so do different projects: each poll starts a run for every waiting card
+whose project lane is free, and each run has its own MCP client, as it outlives the poll.
+The status bar keeps one entry per actor, so each run shows as
+`claude-agent (<project> <lane>)`. The limit is kept in the agent process (`running`),
 so it needs one agent process: `agent.py` holds 127.0.0.1:8124 while it runs (exclusive
 on Windows) and a second one exits at once with "already running", before it touches the
 board. Two agents did run side by side once (two sessions each started one): both
@@ -372,26 +373,30 @@ tall as the tallest one, so a full lane had no room left under its last card, an
 fixed status bar covered the bottom of the window: a drop there used to land on nothing.
 Only a card's drag counts (`.card.dragging`), not text or files dragged in.
 
-**The sheet covers the whole window; "save" closes it.** Every field saves on
-`change`, so "save" only closes. The sheet is full width, so there is no outside to
-click: the "save" button top right is the way out (the projects sheet's is "done").
+**The sheet covers the whole window; "close" is the way out.** Every field saves on
+its own `change`, so there never was a save button. The sheet is full width, so there is
+no outside to click: the "close" button top right is the way out (the projects sheet's
+is "done").
 The top of a card's sheet is one sticky header row that stays put while the sheet
 scrolls: the card number, the title (edited in place), "created <when>" (the full date on
-hover), "archive" and "save". A new card's row is "new", the title, "cancel", "save".
+hover), "archive", "move to done" (only while the card is in `verify`) and "close". A new
+card's row is "new", the title, "cancel", "close".
 The card number carries the auto dot, which pulses while an agent works the card.
 Project, lane and creator sit on the line under it.
 Closing blurs the focused field, so the edit still in progress saves too, and text left
-in the comment box is posted rather than dropped. The error bar is fixed above the sheet
+in the comment box is posted rather than dropped. "move to done" is the one click that ends a
+verified card: it writes the lane like the lane select does, and the sheet stays open. A comment being typed
+survives a re-render: the box is refilled with whatever was in it. The error bar is fixed above the sheet
 so its messages stay visible. The sheet keeps "archive".
 
 "New Card" opens the same panel on an unsaved draft (title focused, project from the
 filter). It shows everything a saved card does — links, activity, comment box. Nothing
-is written until the draft is closed with "save" (or Enter in the title), which
+is written until the draft is closed with "close" (or Enter in the title), which
 `POST`s the fields all at once (one `created` event), then the links and comments queued
 on the draft (links are checked to exist as they are added), plus any text left in the
 comment box, and hides the sheet. A draft with nothing typed just closes. A draft with
 content but no title stays open and says "a card needs a title". If the `POST` fails
-the sheet stays with everything in it and the next "save" retries; a double click makes one
+the sheet stays with everything in it and the next "close" retries; a double click makes one
 card. "cancel" discards the draft. The draft re-renders only for checklist edits and
 queued links and comments.
 
@@ -416,8 +421,8 @@ new card is always on screen. Renaming the filtered project carries the filter w
 
 **Lost clicks.** A field saves on `change`, which fires on the mousedown that leaves it;
 the save's response re-rendered the panel before mouseup, replacing the button under the
-pointer, and the browser dropped the click — typing a title and clicking the (since
-removed) "save" button left the panel open. `renderPanel()` therefore defers itself while a pointer is held and runs
+pointer, and the browser dropped the click — typing a title and clicking the header's
+closing button left the panel open. `renderPanel()` therefore defers itself while a pointer is held and runs
 after the release and its click. A `<select>` press does not count as held: its native
 popup can swallow the pointerup and would stall every later render. `page.click()`
 presses and releases at once, so it never saw this; `human_click()` in the tests holds
@@ -471,6 +476,7 @@ no longer on the board.
 | 32 | #50 the agent restarts itself when `agent.py` changes on disk, so a deploy that changes it takes effect | done |
 | 33 | #58 `priority` gone: free ordering per column (`cards.pos`), drag up and down to reorder, anything arriving in a lane lands at its bottom | done |
 | 34 | #60 a person's update or comment on a card in `verify` sends it back to `plan`, assigned to the agent, to be planned and built again | done |
+| 35 | #63 parallel work per project: the run slot is keyed by `(project, lane)`, so a project's plan, develop and test lanes run side by side, one card each | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
