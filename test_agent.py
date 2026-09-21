@@ -913,6 +913,30 @@ def test_a_card_waits_while_its_project_lane_is_busy(ran):
     assert core.get_card(id)["lane"] == "test"
 
 
+def test_a_card_moved_mid_run_does_not_get_a_second_run(ran):
+    """#76: the slot is the project's lane, so a card moved while its run was going became
+    eligible again under the new lane's key — two runs, one card, one worktree."""
+    id = card("develop")
+    agent.running[("proj", "develop")] = "its develop run, still going"
+    agent.working.add(id)
+    try:
+        core.update_card(id, "ce", lane="plan")
+        tick()
+    finally:
+        del agent.running[("proj", "develop")]
+        agent.working.discard(id)
+    assert ran == [], "the run in flight owns the card, whatever lane it sits in now"
+
+
+def test_the_card_is_free_again_once_its_run_ends(ran):
+    id = card("develop")
+    tick()
+    assert [r[1] for r in ran] == ["develop"] and agent.working == set()
+    core.update_card(id, "ce", lane="plan")   # a move back re-arms auto advance
+    tick()
+    assert [r[1] for r in ran] == ["develop", "plan"], "not held for good"
+
+
 def test_a_busy_project_is_matched_ignoring_case(ran, db):
     import sqlite3
     id = card("develop")

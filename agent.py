@@ -335,6 +335,10 @@ async def handle(client, card, back=""):
 # project do share the repo, so a develop `git worktree add` can lose an .git/index.lock
 # race with a deploy's merge: the card fails with the git error; retry the git call if it bites.
 running = {}
+# the cards those runs are on. The slot key is the lane, so a card moved to another lane
+# mid-run becomes eligible again under the new lane's key: without this it would get a
+# second run, in the same worktree, while the first was still going (#76, and #33 before it)
+working = set()
 # quota is the account's, not a project's: while it is out, no run starts anywhere
 paused_until = None
 
@@ -402,7 +406,8 @@ async def tick(client, connect):
         if key[0] == NO_PROJECT.lower():
             continue   # its project was deleted: off limits, silently
         if c["lane"] in NEXT and (c["assignee"] == AGENT or c["auto_advance"]) \
-                and key not in running:
+                and key not in running and c["id"] not in working:
+            working.add(c["id"])   # here, not in work(): the task may not have run by the next poll
             running[key] = asyncio.create_task(work(connect, c, key))
             started.append(running[key])
     return started
@@ -426,6 +431,7 @@ async def work(connect, c, key):
         traceback.print_exc()
     finally:
         del running[key]
+        working.discard(c["id"])
 
 
 def stale(mtime):

@@ -188,6 +188,13 @@ while another card in the same lane of its project is worked, and is started by 
 poll after that run ends (failed or not). A project's plan, develop and test lanes run
 side by side, and so do different projects: each poll starts a run for every waiting card
 whose project lane is free, and each run has its own MCP client, as it outlives the poll.
+**And one run per card**, whatever lane it is in (`working`). The slot is the lane, so a
+card moved while its run was going came up again under the new lane's key and got a second
+run, in the same worktree as the first: #76 was planned and developed at the same moment
+because a person moved it back mid-run, and #33 hit it before that. The run in flight owns
+the card until it ends; the move still wins when it does (`handle` keeps the output as a
+comment and leaves the card where the person put it).
+
 The status bar keeps one entry per actor, so each run shows as
 `claude-agent (<project> <lane>)`. The limit is kept in the agent process (`running`),
 so it needs one agent process: `agent.py` holds 127.0.0.1:8124 while it runs (exclusive
@@ -504,6 +511,7 @@ no longer on the board.
 | 36 | #67 a deploy is local by default: the test backend or a connected phone, production only when a project's instructions say so | done |
 | 37 | #68 the verify column's dark dots backfilled from the deploy comments and `git merge-base`; an agent older than #50 cannot restart itself, so it needs one restart by hand | done |
 | 38 | the deployed dot follows the deploy comment, written by `core.comment`, not by the agent: a stale agent can no longer leave a deployed card dark | done |
+| 39 | #76 one run per card as well as per project lane: a card moved to another lane mid-run no longer starts a second run in the same worktree | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
