@@ -90,7 +90,8 @@ PROMPTS = {
     "test": "Check that this ticket card is done: review this card's changes (the workspace "
             "note below says where they are) against the card's request, plan and answers, "
             "and run the "
-            "project's tests. Do not edit any files. Reply with what you checked and what "
+            "project's tests. Do not edit any files, except to finish a merge the workspace "
+            "note says is unfinished. Reply with what you checked and what "
             f"you found, and end with a last line of exactly {PASS} or RESULT: FAIL.",
     # not a lane: run on a card the agent just moved to verify
     "deploy": "This ticket card passed testing and is committed and pushed (the workspace "
@@ -277,8 +278,9 @@ def workspace(card, path):
     Develop and test get a git worktree of their own per card, next to the repo
     (<repo>.worktrees/card-<id>, branch card/<id>, made from the repo's current branch), so
     one card's changes never mix with another's or with a person's work in the repo.
-    Planning only reads, so it runs in the repo. Develop and test never run anywhere but
-    the worktree: a folder that is not a git repository, or a test with no worktree to
+    Each run first merges the base branch in (see catch_up), so a card is built and tested
+    on current code. Planning only reads, so it runs in the repo. Develop and test never
+    run anywhere but the worktree: a folder that is not a git repository, or a test with no worktree to
     test, fails the card."""
     if card["lane"] == "plan":
         return path, "", None, None
@@ -301,11 +303,36 @@ def workspace(card, path):
             raise RuntimeError(f"could not make a worktree at {root}: {made.stderr.strip()}")
     note = (f"Workspace: a git worktree of its own for this card, on branch {branch}, made "
             f"from {base}. ")
-    note += (f"Commit your work on {branch} when you are done. Do not push, merge or switch "
-             "branches." if card["lane"] == "develop" else
+    note += catch_up(root, base)
+    note += (f"Commit your work on {branch} when you are done. Do not push or switch "
+             f"branches; merging {base} into your branch is fine."
+             if card["lane"] == "develop" else
              f"This card's changes are the commits on {branch} since it left {base} (git diff "
              f"{base}...HEAD, git log {base}..HEAD) plus anything uncommitted (git status).")
     return root / path.relative_to(top), note, root, base
+
+
+def catch_up(tree, base):
+    """Bring the card's branch up to date with `base` before a run, so the card is built on
+    current code and the deploy's merge back is clean. Best effort: no origin, offline, or a
+    dirty tree just leaves the branch where it was. Conflicts are left in the worktree for
+    the run to resolve. Returns the line the prompt is told about it."""
+    if git(tree, "rev-parse", "--verify", "--quiet", "MERGE_HEAD").returncode == 0:
+        return (f"A merge of {base} here is unfinished: resolve the conflicts (git status) "
+                "and commit it before anything else. ")
+    git(tree, "fetch", "-q", "origin", base)          # no origin: ignored, the local ref is used
+    ref = next((r for r in (f"origin/{base}", base)
+                if git(tree, "rev-parse", "--verify", "--quiet", r).returncode == 0), None)
+    if not ref or git(tree, "merge-base", "--is-ancestor", ref, "HEAD").returncode == 0:
+        return ""                                      # nothing to catch up to, or already in
+    r = git(tree, "merge", "-m", f"merge {ref} into card branch", ref)
+    if r.returncode == 0:
+        return f"Your branch was brought up to date with {ref} before this run. "
+    if git(tree, "rev-parse", "--verify", "--quiet", "MERGE_HEAD").returncode == 0:
+        return (f"Merging {ref} in left conflicts: resolve them (git status lists the files) "
+                "and commit the merge before anything else. ")
+    git(tree, "merge", "--abort")                      # never started (dirty tree): harmless
+    return f"Could not merge {ref} in ({(r.stderr or r.stdout).strip()[-200:]}); your branch is behind it. "
 
 
 def ship(card, tree):

@@ -227,9 +227,14 @@ started from here on carries #50, so it cannot fall behind the code again.
 to the project's repo: `<repo>.worktrees/card-<id>` on branch `card/<id>`, made from the
 repo's current branch on the card's first develop run and reused after that (rework, the
 test stage). No two cards, and no person working in the repo, share a folder, so changes
-never overwrite or mix. The prompt is told where it is: develop commits on its branch
-(never pushes, merges or switches), test reviews `git diff <base>...HEAD` plus anything
-uncommitted. The card's comment ends with the worktree's path and branch. Planning only
+never overwrite or mix. Each develop and test run starts by merging the base
+branch in (`git fetch origin <base>`, then `origin/<base>` or the local branch), so a card
+is built and tested on current code and the deploy's merge back is clean; a merge that
+conflicts is left in the worktree with the run told to resolve and commit it, and anything
+else that stops the merge (no origin, offline, a dirty tree) just leaves the branch where
+it was. The prompt is told where it is and what the merge did: develop commits on its
+branch (never pushes or switches, merging the base in is fine), test reviews
+`git diff <base>...HEAD` plus anything uncommitted. The card's comment ends with the worktree's path and branch. Planning only
 reads and runs in the repo. Develop and test never run anywhere but the card's worktree:
 a project folder that is not a git repository fails the card (it can still be planned),
 and so does a card in test with no worktree (built before worktrees, or the worktree was
@@ -512,6 +517,7 @@ no longer on the board.
 | 37 | #68 the verify column's dark dots backfilled from the deploy comments and `git merge-base`; an agent older than #50 cannot restart itself, so it needs one restart by hand | done |
 | 38 | the deployed dot follows the deploy comment, written by `core.comment`, not by the agent: a stale agent can no longer leave a deployed card dark | done |
 | 39 | #76 one run per card as well as per project lane: a card moved to another lane mid-run no longer starts a second run in the same worktree | done |
+| 40 | #89 every develop and test run first merges the base branch into the card's branch; a conflict is left in the worktree for the run to resolve, so the commit, push and deploy merge stay clean | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
