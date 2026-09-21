@@ -212,6 +212,10 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     Moving a card forward (except into done), or back into plan, also turns auto_advance
     on, so the board agent takes it up; pass auto_advance=False (or its current value) in
     the same call to move it without that.
+    A card in verify is finished work, so a person's update to its `description`,
+    `answers` or `checklist` (or a comment on it) is a new request: the card goes back
+    to plan, assigned to the agent, to be planned and built again. Pass `lane` in the
+    same call to write to a verify card without that.
     `assignee` assigns it to a person or an agent, by name; pass "" to unassign. A name
     not yet on the board is registered as a user by assigning it. When you start work on a
     card, assign it to yourself so the board shows who is on it; when you are done, give it
@@ -226,7 +230,8 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     `merged` (the card's branch is on the base branch on origin) and `deployed` (deployed
     to the local test backend or a device) are the board agent's to set after a deploy.
 
-    Where text goes — each field REPLACES what is there: `description` is the request;
+    Where text goes — each field REPLACES what is there: `description` is the request,
+    and rewriting it on a verified card asks for the work again (see `lane`);
     leave it to the person who asked, do not put a plan in it. `plan` is the
     implementation plan (markdown), the planning agent's to write. `questions` holds only
     what a person must decide before the work can go on, as a list numbered from 1
@@ -285,7 +290,10 @@ def set_activity(actor: str, card_id: int | None = None, doing: str = "") -> lis
 
 @tool
 def comment(id: int, actor: str, text: str) -> dict:
-    """Add a comment to a card's activity log. `actor` is you — it is who the comment is from."""
+    """Add a comment to a card's activity log. `actor` is you — it is who the comment is from.
+
+    A person's comment on a card in verify asks for the work again: the card goes back to
+    plan, assigned to the agent. The agent's own comments (its deploy result) do not."""
     return core.comment(id, actor, text)
 
 

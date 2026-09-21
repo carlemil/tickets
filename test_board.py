@@ -1492,6 +1492,21 @@ def test_plan_questions_and_answers_get_their_own_boxes_once_planned(page):
     assert (c["attention"], c["auto_advance"]) == (False, True), "the reply restarts the agent"
 
 
+def test_a_new_request_on_a_verified_card_sends_it_back_to_plan(page):
+    cid = core.create_card("shipped", actor="ce", project="Home", lane="verify",
+                           description="the ask")["id"]
+    core.update_card(cid, "claude-agent", attention=True, merged=True, deployed=True)
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    type_into(page, "#panel textarea.desc", "a different ask")
+    wait_saved(page, cid, "description", "a different ask")
+    close_sheet(page)
+    page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{cid}"] .auto.on')
+    c = core.get_card(cid)
+    assert (c["assignee"], c["merged"], c["deployed"]) == ("claude-agent", False, False)
+
+
 def test_the_plan_box_is_ten_lines_whatever_its_text(page):
     cid = core.create_card("p", actor="ce", project="Home")["id"]
     core.update_card(cid, "claude-agent", plan="one line")

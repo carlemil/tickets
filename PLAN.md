@@ -300,6 +300,15 @@ input — answers, a comment on a failure, a fixed description. A write that set
 leaves it off. Edits to a card with no dot never start the agent. Each field saves on
 `change`, so an answers box is one reply however many questions it answers.
 
+**A new request on a verified card (#60).** A card in `verify` is finished work waiting
+for a person, and the agent never polls that lane, so an update there would otherwise sit
+unread. Instead, a person's write to `description`, `answers` or `checklist` — or a
+comment — on a `verify` card sends it back to `plan` in `core.update_card`, assigned to
+`claude-agent`, which turns auto advance on and clears `merged`/`deployed` as rework: the
+next poll replans it and it runs the whole loop again against the new request. The agent's
+own writes are exempt, or its deploy comment would bounce every card it just deployed.
+Passing `lane` in the same write keeps the card where it is.
+
 **Docs.** `docs.html` is the user's manual, written by hand from this file and
 `agent.py`: a change to how the board or the agent behaves updates it too.
 `test_docs_page_is_served_and_covers_the_essentials` checks the lanes and key terms.
@@ -461,6 +470,7 @@ no longer on the board.
 | 31 | #46 one dot: the auto dot turns red for attention; the separate red dot top right is gone | done |
 | 32 | #50 the agent restarts itself when `agent.py` changes on disk, so a deploy that changes it takes effect | done |
 | 33 | #58 `priority` gone: free ordering per column (`cards.pos`), drag up and down to reorder, anything arriving in a lane lands at its bottom | done |
+| 34 | #60 a person's update or comment on a card in `verify` sends it back to `plan`, assigned to the agent, to be planned and built again | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

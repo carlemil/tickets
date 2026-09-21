@@ -1111,6 +1111,66 @@ def test_questions_are_stored_numbered_from_1_whoever_writes_them():
     assert core.update_card(id, "ce", questions="")["questions"] == ""
 
 
+# ---------- a new request on a verified card replans it (#60) ----------
+
+@pytest.mark.parametrize("field, value", [("description", "a different ask"),
+                                          ("answers", "1. blue"),
+                                          ("checklist", [{"text": "and this", "done": False}])])
+def test_a_persons_update_to_a_verified_card_sends_it_back_to_plan(field, value):
+    c = core.update_card(card(lane="verify")["id"], "ann", **{field: value})
+    assert (c["lane"], c["assignee"], c["auto_advance"]) == ("plan", core.AGENT, True)
+    assert [(e["actor"], e["detail"]["from"], e["detail"]["to"]) for e in c["events"]
+            if e["kind"] == "moved"] == [("ann", "verify", "plan")]
+
+
+def test_a_persons_comment_on_a_verified_card_sends_it_back_to_plan():
+    c = core.comment(card(lane="verify")["id"], "ann", "not what I meant")
+    assert (c["lane"], c["assignee"], c["auto_advance"]) == ("plan", core.AGENT, True)
+    assert [e["kind"] for e in c["events"]] == ["created", "comment", "moved", "assigned",
+                                                "edited"]
+
+
+@pytest.mark.parametrize("lane", ["todo", "plan", "develop", "test", "done"])
+def test_only_verify_cards_are_replanned(lane):
+    c = card(lane=lane)["id"]
+    assert core.update_card(c, "ann", description="a different ask")["lane"] == lane
+    assert core.comment(c, "ann", "and this too")["lane"] == lane
+
+
+def test_the_agents_own_writes_never_replan_a_verified_card():
+    """Its deploy step comments on the card it just deployed: that must not bounce it."""
+    c = card(lane="verify")["id"]
+    assert core.comment(c, core.AGENT, "deployed: ok")["lane"] == "verify"
+    assert core.update_card(c, core.AGENT, checklist=[{"text": "shipped", "done": True}],
+                            merged=True, deployed=True)["lane"] == "verify"
+
+
+def test_a_lane_in_the_same_write_wins():
+    c = card(lane="verify")["id"]
+    assert core.update_card(c, "ann", description="typo fixed", lane="verify")["lane"] == "verify"
+    assert core.update_card(c, "ann", description="done with it", lane="done")["lane"] == "done"
+
+
+def test_an_unchanged_field_replans_nothing():
+    c = card(lane="verify", description="as asked")["id"]
+    after = core.update_card(c, "ann", description="as asked", title="a better title")
+    assert (after["lane"], after["assignee"]) == ("verify", None)
+
+
+@pytest.mark.parametrize("field, value", [("title", "renamed"), ("labels", ["ui"]),
+                                          ("plan", "step one"), ("questions", "- red?"),
+                                          ("attention", True), ("assignee", "bob")])
+def test_other_fields_leave_a_verified_card_where_it_is(field, value):
+    assert core.update_card(card(lane="verify")["id"], "ann", **{field: value})["lane"] == "verify"
+
+
+def test_a_replanned_card_is_rework_at_the_bottom_of_plan():
+    waiting = card(lane="plan")["id"]
+    c = core.update_card(shipped()["id"], "ann", description="a different ask")
+    assert (c["merged"], c["deployed"], c["attention"]) == (False, False, False)
+    assert c["pos"] > core.get_card(waiting)["pos"], "behind the card already waiting"
+
+
 # ---------- merged and deployed ----------
 
 def shipped(lane="verify"):
