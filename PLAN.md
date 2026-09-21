@@ -54,7 +54,7 @@ example found online needs translating.
 ```sql
 users(id, name UNIQUE)
 cards(id, project, title, description, lane, assignee, created_by,
-      created_at, updated_at, priority, labels, checklist, archived, auto_advance,
+      created_at, updated_at, pos, labels, checklist, archived, auto_advance,
       attention, plan, questions, answers, merged, deployed)
 events(id, card_id, actor, kind, detail, at)     -- append-only
 links(from_id, to_id, kind)                      -- kind: 'parent' | 'blocks'
@@ -99,8 +99,15 @@ checklist. It diffs old against new and writes one event per changed field — t
 what makes the audit trail free instead of something every caller must remember. Every
 card write goes through it; no route or tool writes SQL.
 
-Rejects: a lane not in `LANES`, a priority not in `low|med|high`, a link kind not in
+Rejects: a lane not in `LANES`, a `pos` that is not a number, a link kind not in
 `parent|blocks`, a self-link, an unknown field name, an unknown card id.
+
+`pos` is the card's place in its column (`REAL`, listed `ORDER BY pos, id`). Anything
+arriving in a lane — a new card, a card moved without an explicit `pos` — lands at the
+bottom of it, so the agent takes the top card and a card it moves queues behind the ones
+already waiting. A drop between two cards takes the midpoint of their `pos` values, so a
+reorder writes one row. A `pos`-only write is not history: it logs no event and does not
+count as the reply that clears the attention dot.
 
 **Idempotence rule.** "Already in that state" is a silent no-op that writes no event — a
 no-op update, a repeat link, an unlink of an absent link. "Not a valid thing" is a
@@ -301,11 +308,13 @@ leaves it off. Edits to a card with no dot never start the agent. Each field sav
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
 `drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: description,
-priority, labels, checklist, an "auto advance" checkbox (an `auto` pill on the
+labels, checklist, an "auto advance" checkbox (an `auto` pill on the
 board card), links, activity log, comment box. The board writes as `User`, a fixed
 name, and agents write under their own names. A project `<select>`
 (also persisted) filters the board — an agent and a human both scope to one project.
-A card shows its priority only by its colored left bar; the priority chip went in #48.
+Dragging inside a column reorders it: `dropBefore` finds the card the pointer is above
+(shown with a `.drop-at` insertion line) and `slots` gives the dropped cards their `pos`
+values between its neighbours.
 
 Once a card has a plan, questions or answers, the sheet shows each in its own box under
 the description: "plan" is a fixed 10 lines and scrolls, "open questions" and "your
@@ -451,6 +460,7 @@ no longer on the board.
 | 30 | #41 merged and deployed dots, set by the agent's deploy step, cleared on rework | done |
 | 31 | #46 one dot: the auto dot turns red for attention; the separate red dot top right is gone | done |
 | 32 | #50 the agent restarts itself when `agent.py` changes on disk, so a deploy that changes it takes effect | done |
+| 33 | #58 `priority` gone: free ordering per column (`cards.pos`), drag up and down to reorder, anything arriving in a lane lands at its bottom | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

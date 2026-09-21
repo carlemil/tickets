@@ -14,20 +14,24 @@ import pytest
 import core
 
 
-def drag(page, card_id, lane):
+def drag(page, card_id, lane, y=None):
     """Native HTML5 drag & drop: Playwright's drag_to() and raw mouse events do not
     produce it. Dispatching the three events with one shared DataTransfer does, because
     that object is exactly what cardNode's ondragstart writes to and the lane's ondrop
     reads from. This covers the handlers, not the browser's own gesture-to-event
-    synthesis — PLAN.md task 4 verified that once with a real mouse."""
-    page.evaluate("""([id, lane]) => {
+    synthesis — PLAN.md task 4 verified that once with a real mouse.
+
+    `y` is where in the column it is dropped (a client y, as a real drop carries): the
+    default is the bottom of it, which is where a card arriving in a lane belongs."""
+    page.evaluate("""([id, lane, y]) => {
         const card = document.querySelector(`.card[data-id="${id}"]`);
         const col = document.querySelector(`.lane[data-lane="${lane}"]`);
+        if (y === null) y = col.getBoundingClientRect().bottom;
         const dt = new DataTransfer();
         const fire = (el, type) => el.dispatchEvent(
-            new DragEvent(type, {bubbles: true, cancelable: true, dataTransfer: dt}));
+            new DragEvent(type, {bubbles: true, cancelable: true, dataTransfer: dt, clientY: y}));
         fire(card, "dragstart"); fire(col, "dragover"); fire(col, "drop");
-    }""", [card_id, lane])
+    }""", [card_id, lane, y])
 
 
 def type_into(page, selector, value):
@@ -94,6 +98,24 @@ def test_drag_moves_the_card_and_the_move_reaches_the_database(page):
     assert [e["kind"] for e in c["events"]].count("moved") == 1, c["events"]
 
 
+def test_dragging_a_card_up_its_column_reorders_it_and_the_order_is_saved(page):
+    top = add_card(page, "was on top")
+    close_sheet(page)
+    under = add_card(page, "was under it")
+    close_sheet(page)
+    order = lambda: page.locator('.lane[data-lane="todo"] .card').evaluate_all(
+        "ns => ns.map(n => +n.dataset.id)")
+    assert order() == [top, under], "a new card lands at the bottom of its column"
+    box = page.locator(f'.card[data-id="{top}"]').bounding_box()
+    drag(page, under, "todo", y=box["y"] + 1)          # above the top card's middle
+    page.wait_for_function("() => window.__inflight === 0")
+    assert order() == [under, top]
+    assert core.get_card(under)["pos"] < core.get_card(top)["pos"], "saved, not just drawn"
+    page.evaluate("load()")                            # as a reload would
+    page.wait_for_function("() => window.__inflight === 0")
+    assert order() == [under, top], "it stays where it was put"
+
+
 def test_a_rejected_move_puts_the_card_back(page):
     cid = add_card(page, "will not move")
     close_sheet(page)
@@ -112,11 +134,9 @@ def test_panel_edits_each_save_on_change(page):
     page.wait_for_selector("#panel.on")
     type_into(page, "#panel input[type=text] >> nth=0", "renamed in the panel")  # title
     wait_saved(page, cid, "title", "renamed in the panel")
-    page.select_option("#panel select >> nth=1", "high")          # priority
-    wait_saved(page, cid, "priority", "high")
     type_into(page, "#panel input[placeholder='comma, separated']", "ui, api")
     wait_saved(page, cid, "labels", ["ui", "api"])
-    page.select_option("#panel select >> nth=3", "test")          # lane
+    page.select_option("#panel select >> nth=2", "test")          # lane
     wait_saved(page, cid, "lane", "test")
     page.fill("#panel input[placeholder='+ checklist item (enter)']", "first item")
     page.press("#panel input[placeholder='+ checklist item (enter)']", "Enter")
@@ -128,7 +148,7 @@ def test_panel_edits_each_save_on_change(page):
     page.wait_for_selector("#panel .log li.comment")
 
     c = core.get_card(cid)
-    assert c["title"] == "renamed in the panel" and c["priority"] == "high", c
+    assert c["title"] == "renamed in the panel", c
     assert c["labels"] == ["ui", "api"] and c["lane"] == "test", c
     assert c["checklist"] == [{"text": "first item", "done": True}], c["checklist"]
     assert c["events"][-1]["detail"]["text"] == "looks good", c["events"][-1]
@@ -363,7 +383,7 @@ def test_assignee_and_links_from_the_panel(page):
     other = core.create_card("other", actor="ce", project="Home")
     page.evaluate("load()")
     cid = add_card(page, "linked one")
-    page.select_option("#panel select >> nth=2", "bob")           # assignee
+    page.select_option("#panel select >> nth=1", "bob")           # assignee
     wait_saved(page, cid, "assignee", "bob")
     page.fill("#panel input[type=number]", str(other["id"]))
     page.select_option("#panel .links select", "blocks")
@@ -376,7 +396,7 @@ def test_assignee_and_links_from_the_panel(page):
     page.wait_for_function("() => window.__inflight === 0")
     page.wait_for_selector("#panel button:text('unlink')", state="detached")
     assert core.get_card(cid)["links"] == []
-    page.select_option("#panel select >> nth=2", "")              # back to nobody
+    page.select_option("#panel select >> nth=1", "")              # back to nobody
     wait_saved(page, cid, "assignee", None)
 
 
@@ -409,8 +429,8 @@ def test_a_slow_patch_response_does_not_roll_back_a_newer_panel(page):
     page.evaluate("""const original = window.fetch;
         window.fetch = (url, opts) => original(url, opts).then(r => opts && opts.method === "PATCH"
             ? new Promise(ok => setTimeout(() => ok(r), 600)) : r)""")
-    page.evaluate("void patch({priority: 'high'})")
-    while core.get_card(cid)["priority"] != "high":   # written, response still held
+    page.evaluate("void patch({title: 'renamed slowly'})")
+    while core.get_card(cid)["title"] != "renamed slowly":   # written, response still held
         page.wait_for_timeout(20)
     page.evaluate(f"""api("POST", "/api/links", {{from_id: {cid}, to_id: {other['id']},
                                                    kind: "blocks"}}).then(() => openCard({cid}))""")
@@ -418,7 +438,7 @@ def test_a_slow_patch_response_does_not_roll_back_a_newer_panel(page):
     page.wait_for_function("() => window.__inflight === 0")   # the slow PATCH has landed
     assert page.locator("#panel button:text('unlink')").count() == 1, \
         "the late PATCH response rolled the panel back"
-    assert page.eval_on_selector("#panel select >> nth=1", "s => s.value") == "high"
+    assert page.input_value("#panel input[type=text] >> nth=0") == "renamed slowly"
 
 
 def test_a_stale_card_does_not_roll_back_the_board(page):
@@ -512,9 +532,8 @@ def test_every_field_in_the_new_card_panel_is_created(page):
     page.click("#add")
     page.fill("#panel input[type=text] >> nth=0", "  full card  ")
     page.fill("#panel textarea", "the long version")
-    page.select_option("#panel select >> nth=1", "high")
-    page.select_option("#panel select >> nth=2", "bob")
-    page.select_option("#panel select >> nth=3", "plan")
+    page.select_option("#panel select >> nth=1", "bob")
+    page.select_option("#panel select >> nth=2", "plan")
     page.fill("#panel input[placeholder='comma, separated']", "ui, api")
     item = "#panel input[placeholder='+ checklist item (enter)']"
     page.fill(item, "first")
@@ -525,8 +544,8 @@ def test_every_field_in_the_new_card_panel_is_created(page):
     assert core.list_cards() == [], "still a draft"
     close_sheet(page)
     c = core.get_card(created(page))
-    assert (c["title"], c["description"], c["priority"], c["assignee"], c["lane"]) == (
-        "full card", "the long version", "high", "bob", "plan"), c
+    assert (c["title"], c["description"], c["assignee"], c["lane"]) == (
+        "full card", "the long version", "bob", "plan"), c
     assert c["labels"] == ["ui", "api"] and c["project"] == "Tickets", c
     assert c["checklist"] == [{"text": "first", "done": True},
                               {"text": "second", "done": False}], c["checklist"]
@@ -814,12 +833,12 @@ def test_a_press_on_a_select_does_not_hold_back_renders(page):
     """A select's native popup can swallow the pointerup, so a pointerdown on one must not
     count as a held pointer, or the panel would stop re-rendering until the next click."""
     cid = add_card(page, "select press")
-    page.eval_on_selector("#panel select >> nth=1", """s => s.dispatchEvent(
+    page.eval_on_selector("#panel select >> nth=2", """s => s.dispatchEvent(
         new PointerEvent("pointerdown", {bubbles: true}))""")     # and no pointerup, ever
-    page.select_option("#panel select >> nth=1", "high")
-    wait_saved(page, cid, "priority", "high")
+    page.select_option("#panel select >> nth=2", "test")
+    wait_saved(page, cid, "lane", "test")
     page.wait_for_function(
-        "() => document.querySelector('#panel .log').textContent.includes('from med to high')")
+        "() => document.querySelector('#panel .log').textContent.includes('todo to test')")
 
 
 # ---------- auto advance ----------
@@ -1033,7 +1052,7 @@ def test_a_comment_left_in_the_box_is_posted_on_close(page):
 
 def test_an_empty_draft_just_closes(page):
     page.click("#add")
-    page.select_option("#panel select >> nth=1", "high")   # a default changed: still empty
+    page.select_option("#panel select >> nth=2", "plan")   # a default changed: still empty
     close_sheet(page)
     assert page.locator("#panel.on").count() == 0
     page.wait_for_timeout(300)
@@ -1071,8 +1090,8 @@ def test_clicks_inside_the_sheet_never_close_it(page):
     for target in ("#panel h3 >> nth=0", "#panel .sub", "#panel .log"):
         page.click(target)
         assert page.locator("#panel.on").count() == 1, target
-    page.select_option("#panel select >> nth=1", "low")   # a field whose save re-renders
-    wait_saved(page, cid, "priority", "low")
+    page.select_option("#panel select >> nth=2", "plan")   # a field whose save re-renders
+    wait_saved(page, cid, "lane", "plan")
     page.click("#panel h3 >> nth=0")
     assert page.locator("#panel.on").count() == 1
 
@@ -1148,7 +1167,7 @@ def test_the_tag_follows_a_card_moved_to_another_project(page):
 
 
 def test_the_auto_dot_leads_and_the_project_tag_sits_after_the_assignee(page):
-    plain = core.create_card("a", actor="ce", project="Home", priority="high",
+    plain = core.create_card("a", actor="ce", project="Home",
                              assignee="bob", labels=["ui"])["id"]
     auto = core.create_card("b", actor="ce", project="Home", auto_advance=True)["id"]
     page.evaluate("load()")
@@ -1157,9 +1176,7 @@ def test_the_auto_dot_leads_and_the_project_tag_sits_after_the_assignee(page):
     # the auto dot, then the merged and deployed dots
     assert chips(plain) == ["", "", "", f"#{plain}", "bob", "Home", "ui"], chips(plain)
     assert chips(auto) == ["", "", "", f"#{auto}", "Home"], chips(auto)
-    # no priority chip: the colored left bar shows it
-    assert page.locator(".card .pill.pri").count() == 0
-    assert "p-high" in page.locator(f'.card[data-id="{plain}"]').get_attribute("class").split()
+    assert page.locator(".card .pill.pri").count() == 0, "no priority chip: position is the signal"
     first = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').first
     assert first(auto).get_attribute("class") == "auto on"
     assert first(plain).get_attribute("class") == "auto"

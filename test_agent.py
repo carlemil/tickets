@@ -67,9 +67,9 @@ def tick():
     asyncio.run(go())
 
 
-def card(lane, assignee=agent.AGENT, project="Proj", auto=False, priority="med"):
+def card(lane, assignee=agent.AGENT, project="Proj", auto=False):
     id = core.create_card("t", "ce", lane=lane, assignee=assignee, project=project,
-                          auto_advance=auto, priority=priority)["id"]
+                          auto_advance=auto)["id"]
     path = core.get_project(project)["path"]
     if lane == "test" and path and (Path(path) / ".git").exists():   # developed: has a worktree
         agent.workspace({"id": id, "lane": "develop"}, Path(path))
@@ -96,6 +96,13 @@ def test_assigned_card_is_worked_moved_and_handed_back(ran, lane, nxt):
     assert ran == [(id, lane, at(id, lane))] + (
         [(id, "deploy", f"card-{id}")] if lane == "test" else []), "verify: then deployed"
     assert all(e["actor"] == agent.AGENT for e in c["events"][1:])
+
+
+def test_a_card_the_agent_moves_queues_behind_the_lane_it_lands_in(ran):
+    waiting = card("develop", assignee=None)
+    moved = card("plan")
+    tick()
+    assert [c["id"] for c in core.list_cards(lane="develop")] == [waiting, moved]
 
 
 def test_second_tick_does_not_retrigger_on_its_own_write(ran):
@@ -856,23 +863,25 @@ def test_a_project_runs_one_card_at_a_time_in_order(ran):
     assert worked() == [(a, "develop", f"card-{a}"), (b, "test", f"card-{b}")]
 
 
-def test_the_highest_priority_card_goes_first(ran):
-    low, high, med = card("develop", priority="low"), card("develop", priority="high"),         card("develop", priority="med")   # high in the middle: neither creation nor update order
-    for n, want in enumerate([high, med, low], 1):
+def test_the_top_card_of_the_column_goes_first(ran):
+    last, first, middle = card("develop"), card("develop"), card("develop")
+    core.update_card(first, "ce", pos=-1)    # dragged to the top, after everything was made
+    core.update_card(middle, "ce", pos=0)
+    for n, want in enumerate([first, middle, last], 1):
         tick()
         assert len(ran) == n and ran[-1][0] == want
 
 
-def test_a_high_card_that_cannot_run_does_not_block(ran):
-    card("develop", assignee=None, priority="high")
-    low = card("develop", priority="low")
+def test_a_top_card_that_cannot_run_does_not_block(ran):
+    core.update_card(card("develop", assignee=None), "ce", pos=-1)
+    below = card("develop")
     tick()
-    assert [r[0] for r in ran] == [low]
+    assert [r[0] for r in ran] == [below]
 
 
-def test_a_busy_projects_high_card_does_not_block_another_project(ran, repo):
-    card("develop", priority="high")
-    other = card("develop", project="Repo", priority="low")
+def test_a_busy_projects_top_card_does_not_block_another_project(ran, repo):
+    core.update_card(card("develop"), "ce", pos=-1)
+    other = card("develop", project="Repo")
     agent.running["proj"] = "busy"
     try:
         tick()

@@ -25,7 +25,8 @@ changed and a phone is connected (none connected: skipped). How is up to the pro
 instructions; either way the card stays in verify, with the result as a comment.
 
 Projects run side by side, but each project has one run at a time: a card waits while
-another card of its project is worked, and the highest-priority waiting card goes next.
+another card of its project is worked, and the waiting card nearest the top of its
+column goes next. A card the agent moves goes to the back of the next lane's queue.
 
 A deploy that changes agent.py takes effect on its own: between polls, with no run going,
 the agent sees the new file, frees its lock port and starts a fresh process of itself.
@@ -50,7 +51,7 @@ from pathlib import Path
 
 from mcp import Client
 
-from core import NO_PROJECT, PRIORITIES, number   # pure helpers only: the board is reached over MCP
+from core import NO_PROJECT, number   # pure helpers only: the board is reached over MCP
 
 AGENT = "claude-agent"
 SOURCE = Path(__file__).resolve()   # watched: a deploy that changes it restarts the agent
@@ -383,8 +384,9 @@ async def tick(client, connect):
         print("quota back, resuming", flush=True)
         await call(client, "set_activity", actor=AGENT)
     started = []
-    # highest priority first: it takes its project's one slot. Ties keep list_cards' order.
-    cards = sorted(await call(client, "list_cards"), key=lambda c: -PRIORITIES.index(c["priority"]))
+    # list_cards comes back in board order, so the first card eligible for a project is
+    # the one nearest the top of its column: that is the one that takes the project's slot
+    cards = await call(client, "list_cards")
     for c in cards:
         key = c["project"].lower()
         if key == NO_PROJECT.lower():
