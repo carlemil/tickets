@@ -204,6 +204,14 @@ one it started from; if it differs, and no run is in flight and no quota pause i
 process would exit as "already running" — starts `python -u agent.py` and exits. A run in
 progress simply defers the restart to a later poll.
 
+It happened again, for the one reason self-restart cannot cover: the agent that was
+running predated #50 itself, so it had no restart code to run and stayed on a `deploy()`
+older than the dots. Twenty-one verify cards collected a `deployed:` comment with both
+dots dark before anyone noticed. The symptom to look for is exactly that — a verify card
+whose last comment says `deployed:` and whose dots are dark — and the cure is one restart
+by hand; from then on the agent keeps itself current. #68 backfilled those dots from the
+deploy comments and `git merge-base`, the same two facts `deploy()` writes them from.
+
 **A git worktree per card.** Develop and test run in a worktree of the card's own, next
 to the project's repo: `<repo>.worktrees/card-<id>` on branch `card/<id>`, made from the
 repo's current branch on the card's first develop run and reused after that (rework, the
@@ -487,6 +495,7 @@ no longer on the board.
 | 34 | #60 a person's update or comment on a card in `verify` sends it back to `plan`, assigned to the agent, to be planned and built again | done |
 | 35 | #63 parallel work per project: the run slot is keyed by `(project, lane)`, so a project's plan, develop and test lanes run side by side, one card each | done |
 | 36 | #67 a deploy is local by default: the test backend or a connected phone, production only when a project's instructions say so | done |
+| 37 | #68 the verify column's dark dots backfilled from the deploy comments and `git merge-base`; an agent older than #50 cannot restart itself, so it needs one restart by hand | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
