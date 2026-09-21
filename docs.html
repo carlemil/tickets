@@ -57,15 +57,19 @@ hand coding tasks to an agent on your machine and review what comes back.</p>
 "User"; agents log under their own names. Never put it on a network, never host it online and never share it with a group.</p>
 
 <h2 id="run">2. Run it</h2>
-<p>Start the server (port 8000 is taken on this machine; any free port works if the MCP URL
-matches):</p>
+<p>You need Python 3.12 or newer and <code>uv</code>. Chrome too, but only for the browser
+tests.</p>
+<p>Start the server:</p>
 <pre>uv run uvicorn app:app --host 127.0.0.1 --port 8123</pre>
 <p>Start the agent, in a second terminal:</p>
 <pre>uv run python agent.py</pre>
 <p>Give Claude Code the board's tools:</p>
 <pre>claude mcp add --transport http tickets http://127.0.0.1:8123/mcp</pre>
-<p>Then open <a href="/">http://127.0.0.1:8123/</a> and create a project under
-"projects…". There is no default project, and a card needs one.</p>
+<p>8123 is the port the agent and the repo's scripts use. Any other free port works, but it
+is not a runtime setting: change <code>URL</code> at the top of <code>agent.py</code> and
+the <code>claude mcp add</code> URL to match.</p>
+<p>Then open <a href="/">the board</a> and create a project under "projects…". There is no
+default project, and a card needs one.</p>
 
 <h2 id="board">3. The board</h2>
 <h3>Lanes</h3>
@@ -112,6 +116,10 @@ again.</p>
     activity log, comments and "archive". Cards are never deleted, only archived.</li>
   <li>A card in <code>verify</code> also has a "move to done" button in its sheet, next to
     "close": the one click that ends the card.</li>
+  <li>Ctrl- (or &#8984;-) click toggles a card in the selection; shift-click takes the whole
+    run from there to the card, as long as both are in the same lane. Dragging one card of a
+    selection moves all of them; dragging an unselected card moves it alone. A plain click
+    clears the selection and opens the card, and Esc clears it.</li>
   <li>Cards in <code>done</code> have an "archive" button, and the <code>done</code> lane
     has "archive all" for every done card the board shows.</li>
 </ul>
@@ -127,7 +135,8 @@ again.</p>
     A click toggles auto advance; on a red dot it also clears the red and restarts the
     agent.</li>
   <li><span class="dot" style="background:#0052cc"></span> <b>blue dot</b>, next to it:
-    the card is on master, committed and pushed.
+    the card's branch is committed and pushed, and merged into the project's base branch on
+    <code>origin</code>.
     <span class="dot" style="background:#6554c0"></span> <b>purple dot</b>: it is deployed to
     the local test backend or a device. The agent's deploy sets them; moving the card back
     to plan, develop or test clears them.</li>
@@ -141,7 +150,12 @@ again.</p>
   <li>It picks up a card in <code>plan</code>, <code>develop</code> or <code>test</code> that
     has auto advance on or is assigned to <code>claude-agent</code>. It skips cards in "No
     Project".</li>
-  <li>It works one card per project at a time. Different projects run side by side.</li>
+  <li>It works one card per project and lane at a time: a project's <code>plan</code>,
+    <code>develop</code> and <code>test</code> cards run side by side, and so do different
+    projects.</li>
+  <li>Only one agent process runs at a time: a second one exits at once with "already
+    running". It restarts itself when <code>agent.py</code> changes on disk, once nothing is
+    running.</li>
   <li>While it works a card, it assigns the card to itself. Afterwards it gives it back to
     whoever had it.</li>
 </ul>
@@ -190,7 +204,8 @@ again.</p>
     the status bar and the comments.</li>
   <li>In <code>verify</code>: read the comments, look at the branch, try the deployed build.
     Then merge <code>card/&lt;id&gt;</code> yourself, run <code>git worktree remove</code> on
-    its worktree, and move the card to <code>done</code>.</li>
+    its worktree, and move the card to <code>done</code>. A project whose deploy instructions
+    do the merge leaves you only the last two.</li>
 </ol>
 <ul>
   <li><b>When the dot turns red, it's your turn.</b></li>
@@ -224,8 +239,6 @@ again.</p>
   <li>No live push: the board polls, so reload if in doubt.</li>
   <li>No search and no attachments.</li>
   <li>Cards are never deleted, only archived.</li>
-  <li>The one-run-per-project limit holds for one agent process, not for two started side by
-    side.</li>
 </ul>
 </main>
 </body>
