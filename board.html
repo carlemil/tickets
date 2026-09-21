@@ -582,10 +582,13 @@ for (const ev of ["pointerup", "pointercancel", "dragend"])
     if (renderPending) setTimeout(() => { renderPending = false; if (open) renderPanel(); });
   }, true);
 
-function hidePanel() { open = null; $("#panel").classList.remove("on"); }
+let shown = null;    // which card the sheet currently holds, so a re-render can keep the comment box
+const cardKey = c => c === PROJECTS ? "projects" : c?.id ?? "draft";
 
-// There is no save button: every field saves on change, and clicking outside the sheet
-// closes it. Closing blurs the field still focused, which fires its change -- the last
+function hidePanel() { open = shown = null; $("#panel").classList.remove("on"); }
+
+// "close" is the way out, and so is clicking outside the sheet: every field already
+// saved on its own change. Closing blurs the field still focused, which fires its change -- the last
 // edit saves too -- and text left in the comment box is posted rather than thrown away.
 // A new card is created on the way out. Returns false when the sheet has to stay: a
 // draft with things typed into it but no title, which cannot be created or discarded
@@ -640,6 +643,9 @@ async function createDraft(c, typed) {
 function renderPanel() {
   if (pointerHeld) { renderPending = true; return; }
   const p = $("#panel");
+  // a re-render must not eat a half-typed comment -- but a different card gets its own box
+  const typed = shown === cardKey(open) ? ($("#panel .say-box")?.value || "") : "";
+  shown = cardKey(open);
   p.textContent = "";
   p.classList.add("on");
   const c = open;
@@ -648,12 +654,24 @@ function renderPanel() {
 
   // closing saves: a card's pending edit and comment land, a draft is created
   const shut = Object.assign(document.createElement("button"),
-    { className: "close primary shut", textContent: "save" });
+    { className: "close primary shut", textContent: "close" });
   shut.onclick = () => closePanel();
   const title = Object.assign(document.createElement("input"),
     { type: "text", value: c.title, placeholder: "what needs doing?", title: FIELD_TIPS.title });
   title.onchange = () => patch({ title: title.value });
   title.onkeydown = ev => { if (!c.id && ev.key === "Enter") closePanel(); };
+  // closing without saving: the edit still being typed and the comment box are dropped,
+  // edits already saved stay
+  const cancel = Object.assign(document.createElement("button"),
+    { className: "close", textContent: "cancel",
+      title: c.id ? "close without saving what you are typing" : "throw this new card away" });
+  // keep focus in the field: a mousedown here would blur it, and the blur's change saves it
+  cancel.onmousedown = e => e.preventDefault();
+  cancel.onclick = () => {
+    const a = document.activeElement;
+    if (a && p.contains(a)) a.onchange = null;   // hiding the sheet blurs it: that must not save
+    dismiss();
+  };
   const head = Object.assign(document.createElement("div"), { className: "head" });
   p.append(head);
 
@@ -677,13 +695,10 @@ function renderPanel() {
                 Object.assign(document.createElement("span"),
                   { className: "when", textContent: "created " + ago(c.created_at),
                     title: new Date(c.created_at).toLocaleString() }),
-                arch, shut);
+                arch, cancel, shut);
     p.append(Object.assign(document.createElement("div"),
       { className: "sub", textContent: `${c.project} · ${c.lane} · created by ${c.created_by}` }));
   } else {
-    const cancel = Object.assign(document.createElement("button"),
-      { className: "close", textContent: "cancel", title: "throw this new card away" });
-    cancel.onclick = dismiss;
     head.append(Object.assign(document.createElement("span"), { className: "id", textContent: "new" }),
                 title, cancel, shut);
     p.append(Object.assign(document.createElement("div"),
@@ -823,16 +838,18 @@ function renderPanel() {
 
   const box = Object.assign(document.createElement("textarea"),
     { className: "say-box", placeholder: "comment… (ctrl+enter to send)" });
+  box.value = typed;
   const send = Object.assign(document.createElement("button"),
     { className: "primary", textContent: "comment" });
   const post = async () => {
     if (!box.value.trim()) return;
-    if (!c.id) { c.comments.push(box.value.trim()); return renderPanel(); }
+    if (!c.id) { c.comments.push(box.value.trim()); box.value = ""; return renderPanel(); }
     try {
       const card = await api("POST", `/api/cards/${c.id}/comment`, { text: box.value.trim() });
       replace(card);
       if (open?.id !== card.id || stale(card)) return;   // closed or switched meanwhile
       open = card;
+      box.value = "";
       renderPanel();
     } catch (e) { showErr(e.message); }
   };
@@ -1075,7 +1092,7 @@ const TIPS = [
   [".card .pill.checks", "checklist items done / total"],
   [".card", "click to open, drag to another lane to move it, or up and down to reorder — an agent takes the top card of a column; ctrl/shift-click to select several, then drag one of them to move them all"],
   ["#status", "what agents are doing right now"],
-  ["#panel .shut", "save and close; every field is already saved, and so is what you are still typing"],
+  ["#panel .shut", "close the sheet: every field saved as you changed it, and what you are still typing saves now too"],
   ["#panel .project input[type=text]:first-of-type", "the project's name, as cards show it"],
   ["#panel .project input[type=text]:nth-of-type(2)", "the folder the agent works in for this project's cards"],
   ["#panel .project textarea", "put in front of every agent prompt for this project's cards"],

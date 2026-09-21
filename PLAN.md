@@ -372,26 +372,29 @@ tall as the tallest one, so a full lane had no room left under its last card, an
 fixed status bar covered the bottom of the window: a drop there used to land on nothing.
 Only a card's drag counts (`.card.dragging`), not text or files dragged in.
 
-**The sheet covers the whole window; "save" closes it.** Every field saves on
-`change`, so "save" only closes. The sheet is full width, so there is no outside to
-click: the "save" button top right is the way out (the projects sheet's is "done").
+**The sheet covers the whole window; "close" is the way out.** Every field saves on
+its own `change`, so there never was a save button. The sheet is full width, so there is
+no outside to click: the "close" button top right is the way out (the projects sheet's
+is "done").
 The top of a card's sheet is one sticky header row that stays put while the sheet
 scrolls: the card number, the title (edited in place), "created <when>" (the full date on
-hover), "archive" and "save". A new card's row is "new", the title, "cancel", "save".
+hover), "archive", "cancel" and "close". A new card's row is "new", the title, "cancel", "close".
 The card number carries the auto dot, which pulses while an agent works the card.
 Project, lane and creator sit on the line under it.
 Closing blurs the focused field, so the edit still in progress saves too, and text left
-in the comment box is posted rather than dropped. The error bar is fixed above the sheet
+in the comment box is posted rather than dropped. "cancel" closes a card without saving the field
+being edited or posting the comment box; edits already saved stay. A comment being typed
+survives a re-render: the box is refilled with whatever was in it. The error bar is fixed above the sheet
 so its messages stay visible. The sheet keeps "archive".
 
 "New Card" opens the same panel on an unsaved draft (title focused, project from the
 filter). It shows everything a saved card does — links, activity, comment box. Nothing
-is written until the draft is closed with "save" (or Enter in the title), which
+is written until the draft is closed with "close" (or Enter in the title), which
 `POST`s the fields all at once (one `created` event), then the links and comments queued
 on the draft (links are checked to exist as they are added), plus any text left in the
 comment box, and hides the sheet. A draft with nothing typed just closes. A draft with
 content but no title stays open and says "a card needs a title". If the `POST` fails
-the sheet stays with everything in it and the next "save" retries; a double click makes one
+the sheet stays with everything in it and the next "close" retries; a double click makes one
 card. "cancel" discards the draft. The draft re-renders only for checklist edits and
 queued links and comments.
 
@@ -416,8 +419,8 @@ new card is always on screen. Renaming the filtered project carries the filter w
 
 **Lost clicks.** A field saves on `change`, which fires on the mousedown that leaves it;
 the save's response re-rendered the panel before mouseup, replacing the button under the
-pointer, and the browser dropped the click — typing a title and clicking the (since
-removed) "save" button left the panel open. `renderPanel()` therefore defers itself while a pointer is held and runs
+pointer, and the browser dropped the click — typing a title and clicking the header's
+closing button left the panel open. `renderPanel()` therefore defers itself while a pointer is held and runs
 after the release and its click. A `<select>` press does not count as held: its native
 popup can swallow the pointerup and would stall every later render. `page.click()`
 presses and releases at once, so it never saw this; `human_click()` in the tests holds
