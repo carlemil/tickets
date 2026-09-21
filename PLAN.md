@@ -175,13 +175,14 @@ still on, and commits its work on the card's own branch. The test stage runs wit
 and plan, runs the tests, and must end with a last line of `RESULT: PASS` (markdown
 `*`/`` ` `` around it tolerated) to move on; anything else is a failure.
 
-**One run per project at a time.** Each project has at most one run going — plan,
-develop or test — so two cards never run a project's tests, ports or database at once;
-a card waits while another card of its project is worked, and is started by the first
-poll after that run ends (failed or not). Different projects run side by side: each poll
-starts a run for every waiting card whose project is free, and each run has its own MCP
-client, as it outlives the poll. The status bar keeps one entry per actor, so each run
-shows as `claude-agent (<project>)`. The limit is kept in the agent process (`running`),
+**One run per project lane at a time.** Each `(project, lane)` pair has at most one run
+going, so two cards never run a lane's tests, ports or worktree at once; a card waits only
+while another card in the same lane of its project is worked, and is started by the first
+poll after that run ends (failed or not). A project's plan, develop and test lanes run
+side by side, and so do different projects: each poll starts a run for every waiting card
+whose project lane is free, and each run has its own MCP client, as it outlives the poll.
+The status bar keeps one entry per actor, so each run shows as
+`claude-agent (<project> <lane>)`. The limit is kept in the agent process (`running`),
 so it needs one agent process: `agent.py` holds 127.0.0.1:8124 while it runs (exclusive
 on Windows) and a second one exits at once with "already running", before it touches the
 board. Two agents did run side by side once (two sessions each started one): both
@@ -471,6 +472,7 @@ no longer on the board.
 | 32 | #50 the agent restarts itself when `agent.py` changes on disk, so a deploy that changes it takes effect | done |
 | 33 | #58 `priority` gone: free ordering per column (`cards.pos`), drag up and down to reorder, anything arriving in a lane lands at its bottom | done |
 | 34 | #60 a person's update or comment on a card in `verify` sends it back to `plan`, assigned to the agent, to be planned and built again | done |
+| 35 | #63 parallel work per project: the run slot is keyed by `(project, lane)`, so a project's plan, develop and test lanes run side by side, one card each | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

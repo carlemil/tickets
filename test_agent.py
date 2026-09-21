@@ -434,7 +434,7 @@ def test_activity_is_shown_while_claude_runs_and_cleared_after(ran, monkeypatch,
                         seen.append(core.list_activity()) or "x\nQUESTIONS: NONE\nRESULT: PASS")
     tick()
     assert [(r["actor"], r["card_id"], r["doing"]) for r in seen[0]] == \
-        [(agent.doer("Proj"), id, doing)]
+        [(agent.doer("Proj", lane), id, doing)]
     assert core.list_activity() == []
 
 
@@ -852,15 +852,15 @@ def test_a_push_that_fails_keeps_the_card_out_of_verify(repo, where):
     assert comments(id)[-1].startswith("agent failed: git push failed:")
 
 
-# ---------- one run per project at a time ----------
+# ---------- one run per project lane at a time ----------
 
-def test_a_project_runs_one_card_at_a_time_in_order(ran):
-    a, b = card("develop"), card("test")
+def test_a_lane_runs_one_card_at_a_time_in_order(ran):
+    a, b = card("develop"), card("develop")
     worked = lambda: sorted(r for r in ran if r[1] != "deploy")
     tick()
     assert len(worked()) == 1, "one waits for the other"
     tick()
-    assert worked() == [(a, "develop", f"card-{a}"), (b, "test", f"card-{b}")]
+    assert worked() == [(a, "develop", f"card-{a}"), (b, "develop", f"card-{b}")]
 
 
 def test_the_top_card_of_the_column_goes_first(ran):
@@ -882,21 +882,32 @@ def test_a_top_card_that_cannot_run_does_not_block(ran):
 def test_a_busy_projects_top_card_does_not_block_another_project(ran, repo):
     core.update_card(card("develop"), "ce", pos=-1)
     other = card("develop", project="Repo")
-    agent.running["proj"] = "busy"
+    agent.running[("proj", "develop")] = "busy"
     try:
         tick()
     finally:
-        del agent.running["proj"]
+        del agent.running[("proj", "develop")]
     assert [r[0] for r in ran] == [other]
 
 
-def test_a_card_waits_while_its_project_is_busy(ran):
-    id = card("develop")
-    agent.running["proj"] = "a run started by an earlier poll"
+def test_a_busy_lane_does_not_block_another_lane_of_the_project(ran):
+    core.update_card(card("develop"), "ce", pos=-1)
+    other = card("plan")
+    agent.running[("proj", "develop")] = "busy"
     try:
         tick()
     finally:
-        del agent.running["proj"]
+        del agent.running[("proj", "develop")]
+    assert [r[0] for r in ran] == [other]
+
+
+def test_a_card_waits_while_its_project_lane_is_busy(ran):
+    id = card("develop")
+    agent.running[("proj", "develop")] = "a run started by an earlier poll"
+    try:
+        tick()
+    finally:
+        del agent.running[("proj", "develop")]
     assert ran == [] and core.get_card(id)["lane"] == "develop"
     tick()
     assert core.get_card(id)["lane"] == "test"
@@ -909,11 +920,11 @@ def test_a_busy_project_is_matched_ignoring_case(ran, db):
     raw.execute("UPDATE cards SET project='PROJ' WHERE id=?", (id,))
     raw.commit()
     raw.close()
-    agent.running["proj"] = "busy"
+    agent.running[("proj", "develop")] = "busy"
     try:
         tick()
     finally:
-        del agent.running["proj"]
+        del agent.running[("proj", "develop")]
     assert ran == []
 
 
@@ -930,7 +941,25 @@ def test_different_projects_run_side_by_side(ran, repo, monkeypatch):
     assert agent.running == {}
 
 
-def test_a_project_is_free_again_after_a_failure(ran, monkeypatch):
+def test_two_lanes_of_one_project_run_side_by_side(ran, monkeypatch):
+    both = threading.Barrier(2, timeout=10)   # passes only if both runs are going at once
+    seen = []
+
+    def meet(c, cwd, i):
+        both.wait()
+        seen.append(core.list_activity())
+        return "did it\nQUESTIONS: NONE"
+    monkeypatch.setattr(agent, "run_claude", meet)
+    a, b = card("plan"), card("develop")
+    tick()
+    assert [core.get_card(x)["lane"] for x in (a, b)] == ["develop", "test"]
+    assert agent.running == {}
+    # one status bar row per run: distinct actors, distinct cards
+    want = [(agent.doer("Proj", "plan"), a), (agent.doer("Proj", "develop"), b)]
+    assert sorted((r["actor"], r["card_id"]) for r in max(seen, key=len)) == sorted(want)
+
+
+def test_a_project_lane_is_free_again_after_a_failure(ran, monkeypatch):
     bad, good = card("develop"), card("develop")
 
     def once(c, cwd, i):
