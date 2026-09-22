@@ -78,7 +78,7 @@ default project, and a card needs one.</p>
   <dt>todo</dt><dd>Your backlog: not started. Move a card on to plan to start it.</dd>
   <dt>plan</dt><dd>The agent writes a plan and any open questions.</dd>
   <dt>develop</dt><dd>The agent builds it, following the plan and your answers.</dd>
-  <dt>test</dt><dd>The agent reviews the changes and runs the tests.</dd>
+  <dt>test</dt><dd>The agent reviews the changes and runs the tests, fixing what it can.</dd>
   <dt>verify</dt><dd>The agent is done: you check the result.</dd>
   <dt>done</dt><dd>Finished: nothing more happens to it.</dd>
 </dl>
@@ -176,7 +176,8 @@ again.</p>
     starts by merging the base branch in, so the card is built on current code; if that
     merge conflicts it is left in the worktree for the run to resolve.</dd>
   <dt>test</dt>
-  <dd>Claude reviews the card's changes and runs the tests. Its reply must end in
+  <dd>Claude reviews the card's changes and runs the tests, and fixes what it finds and can
+    fix itself, on the card's branch; what needs you it leaves alone. Its reply must end in
     <code>RESULT: PASS</code>. The agent then commits anything left, pushes
     <code>card/&lt;id&gt;</code> to <code>origin</code> and moves the card to verify.</dd>
   <dt>deploy</dt>
@@ -184,7 +185,10 @@ again.</p>
     the card once, following the project's
     instructions &mdash; to the local test backend or a connected phone, not production
     unless the instructions say so &mdash; and comments with the result (deployed, skipped
-    or failed), and lights the blue and purple dots. The card stays in verify.</dd>
+    or failed), and lights the blue and purple dots. The card stays in verify. The card's
+    worktree is then removed: its branch, here and on <code>origin</code>, is the record, and
+    a card sent back to develop or test gets a fresh worktree from it &mdash; as does one
+    whose folder went missing.</dd>
 </dl>
 <h3>When things go wrong</h3>
 <ul>
@@ -213,9 +217,8 @@ again.</p>
   <li>No open questions: the card carries itself through develop and test to verify. Watch
     the status bar and the comments.</li>
   <li>In <code>verify</code>: read the comments, look at the branch, try the deployed build.
-    Then merge <code>card/&lt;id&gt;</code> yourself, run <code>git worktree remove</code> on
-    its worktree, and move the card to <code>done</code>. A project whose deploy instructions
-    do the merge leaves you only the last two.</li>
+    Then merge <code>card/&lt;id&gt;</code> yourself and move the card to <code>done</code>.
+    A project whose deploy instructions do the merge leaves you only the last one.</li>
 </ol>
 <ul>
   <li><b>When the dot turns red, it's your turn.</b></li>
