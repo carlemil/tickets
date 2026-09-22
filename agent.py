@@ -571,7 +571,8 @@ async def handle(client, card, back=""):
         # always one a person can pick up and check
         if nxt == "verify":
             # the deploy runs in the worktree; the worktree goes after it, its work pushed
-            if await deploy(client, card, repo, cwd, notes, base) and                     (left := await asyncio.to_thread(prune, repo, tree)):
+            if await deploy(client, card, repo, cwd, notes, base) and \
+                    (left := await asyncio.to_thread(prune, repo, tree)):
                 await call(client, "comment", id=id, actor=AGENT,
                            text=f"could not remove the worktree {tree}: {left}")
         # an auto-advancing card goes on to the next stage, which the next poll picks up
