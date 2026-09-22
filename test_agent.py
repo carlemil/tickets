@@ -587,6 +587,7 @@ def test_the_prompt_tells_claude_where_each_part_goes(monkeypatch, tmp_path):
     assert '"answers": "blue"' in got["input"]
     agent.run_claude({"lane": "develop"}, tmp_path)
     assert "`plan` the plan to follow" in got["input"]
+    assert "## Blocked by" in got["input"], "every lane is asked what stops it"
 
 
 def test_answering_open_questions_gets_the_card_replanned(ran, monkeypatch):
@@ -1134,6 +1135,7 @@ def test_run_claude_deploys_with_rights_and_skips_a_missing_phone(monkeypatch, t
     assert "Do not push or switch" not in p, "develop's rule is not the deploy's"
     assert "local test backend" in p and "unless the project's instructions" in p, \
         "deploy is local unless production is spelled out"
+    assert "## Blocked by" in p, "a deploy that cannot reach a thing says so too"
 
 
 # ---------- open questions are numbered from 1 ----------
@@ -1157,6 +1159,87 @@ def test_the_plan_prompt_asks_for_numbered_questions(monkeypatch, tmp_path):
                         subprocess.CompletedProcess(cmd, 0, stdout="ok"))
     agent.run_claude({"lane": "plan", "id": 7}, tmp_path)
     assert "numbered list starting at 1 (1. 2. 3.)" in got["input"]
+
+
+# ---------- what only a person can do becomes cards of its own ----------
+
+LONG = "x" * 120
+
+
+@pytest.mark.parametrize("out, left, items", [
+    ("built\nRESULT: PASS", "built\nRESULT: PASS", []),
+    ("built\n## Blocked by\n- Make an OAuth client\n  put the id in .env\n- Enable the API",
+     "built", [("Make an OAuth client", "put the id in .env"), ("Enable the API", "")]),
+    ("did it\n## Blocked by\n- Plug the phone in\n\nRESULT: PASS",   # the verdict stays last
+     "did it\nRESULT: PASS", [("Plug the phone in", "")]),
+    ("steps\n## Blocked by\n- Get a key\n## Open questions\n- red?\nQUESTIONS: OPEN",
+     "steps\n## Open questions\n- red?\nQUESTIONS: OPEN", [("Get a key", "")]),
+    ("steps\n### blocked by:\n1. Get a key\n2) And a secret\nQUESTIONS: NONE",
+     "steps\nQUESTIONS: NONE", [("Get a key", ""), ("And a secret", "")]),
+    ("steps\n## Blocked by\nNothing, it is all mine.\nRESULT: PASS",   # no bullets: untouched
+     "steps\n## Blocked by\nNothing, it is all mine.\nRESULT: PASS", []),
+    (f"## Blocked by\n- {LONG}", "", [(LONG[:99] + "…", "")]),
+])
+def test_blockers(out, left, items):
+    assert agent.blockers(out) == (left, items)
+
+
+def test_a_blocked_run_opens_a_card_for_the_person(ran, monkeypatch):
+    id = card("develop")
+    plan_with(monkeypatch, "built what I could\n## Blocked by\n"
+                           "- Create a Google OAuth client\n  put its id in .env")
+    tick()
+    [new] = core.list_cards(lane="todo", project="Proj")
+    assert (new["title"], new["assignee"], new["auto_advance"], new["created_by"]) == \
+        ("Create a Google OAuth client", None, False, agent.AGENT)
+    assert new["description"] == f"put its id in .env\n\n(blocks #{id} t)"
+    assert [(l["from_id"], l["to_id"], l["kind"]) for l in core.get_card(id)["links"]] == \
+        [(new["id"], id, "blocks")]
+    assert comments(id)[0] == f"blocked: opened #{new['id']} in todo for what a person has " \
+                              "to do first"
+    assert comments(id)[1].startswith("built what I could\n\n(worked in "), \
+        "the section is taken out of the run's own comment"
+    c = core.get_card(id)
+    assert (c["lane"], c["attention"], c["auto_advance"]) == ("develop", True, False)
+
+
+def test_a_blocked_card_waits_in_its_lane(ran, monkeypatch):
+    id = card("plan", auto=True)
+    plan_with(monkeypatch, "## Steps\n1. x\n## Blocked by\n- Get a Slack token\nQUESTIONS: NONE")
+    tick()
+    c = core.get_card(id)
+    assert (c["lane"], c["attention"], c["auto_advance"]) == ("plan", True, False)
+    assert c["plan"] == "## Steps\n1. x"
+    core.comment(id, "ce", "token is in .env now")
+    assert core.get_card(id)["auto_advance"] is True, "the person's reply restarts it"
+    plan_with(monkeypatch, "## Steps\n1. x\nQUESTIONS: NONE")
+    tick()
+    assert core.get_card(id)["lane"] == "develop"
+
+
+def test_the_same_blocker_is_not_opened_twice(ran, monkeypatch):
+    id = card("develop")
+    plan_with(monkeypatch, "## Blocked by\n- Get a Slack token")
+    tick()
+    core.update_card(id, "ce", assignee=agent.AGENT)   # a person sends it round again
+    tick()
+    assert [c["title"] for c in core.list_cards(lane="todo", project="Proj")] == \
+        ["Get a Slack token"]
+
+
+def test_a_deploy_that_is_blocked_opens_a_card(repo, monkeypatch):
+    id = card("test", project="Repo")
+    monkeypatch.setattr(agent, "run_claude", lambda c, cwd, i:
+                        "backend is up\n## Blocked by\n- Plug the phone in\nDEPLOY: OK"
+                        if c["lane"] == "deploy" else "fine\nRESULT: PASS")
+    tick()
+    c = core.get_card(id)
+    assert (c["lane"], c["attention"]) == ("verify", True), "a deploy has no next lane to stop"
+    assert comments(id)[-2] == "deployed: backend is up\nDEPLOY: OK", "the verdict still reads"
+    [new] = core.list_cards(lane="todo", project="Repo")
+    assert new["title"] == "Plug the phone in"
+    assert comments(id)[-1] == f"blocked: opened #{new['id']} in todo for what a person has " \
+                               "to do first"
 
 
 # ---------- only one agent runs ----------
