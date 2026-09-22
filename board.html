@@ -31,7 +31,7 @@
   .spacer { flex: 1; }
   header a { color: var(--accent); }
 
-  #err {   /* fixed above everything: the editor covers the whole window */
+  #err {   /* fixed above everything, the open editor included */
     display: none; padding: 8px 16px; background: #ffebe6; color: var(--warn);
     border-bottom: 1px solid #ffbdad; cursor: pointer;
     position: fixed; top: 0; left: 0; right: 0; z-index: 20;
@@ -96,8 +96,9 @@
   #panel {
     /* above the sticky header (z-index 5): below it, the panel's own close button sat
        under the header and every click on it hit "Add to todo" instead */
-    position: fixed; inset: 0; z-index: 10;   /* the whole window: close it with its button */
+    position: fixed; inset: 5%; z-index: 10;   /* a margin of board all round: click it to close */
     background: var(--panel); overflow-y: auto; padding: 16px 20px 40px; display: none;
+    border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(9,30,66,.25);
   }
   #panel.on { display: block; }
   #panel h3 { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase;
@@ -682,6 +683,15 @@ async function createDraft(c, typed) {
   if (open === c) hidePanel();      // unless cancelled or switched meanwhile
   await load();
 }
+
+// Capture phase, so the sheet closes before the click reaches what it landed on: a card
+// on the board then opens in its place, and "New Card" opens a fresh draft. A draft that
+// must stay open swallows the click, so it cannot be replaced out from under the person.
+// The error bar and the delete-project dialog sit outside the sheet but belong to it.
+addEventListener("click", e => {
+  if (!open || $("#panel").contains(e.target) || e.target.closest("#err, #delProject")) return;
+  if (!closePanel()) { e.stopPropagation(); e.preventDefault(); }
+}, true);
 
 function renderPanel() {
   if (pointerHeld) { renderPending = true; return; }
