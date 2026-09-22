@@ -441,10 +441,11 @@ tall as the tallest one, so a full lane had no room left under its last card, an
 fixed status bar covered the bottom of the window: a drop there used to land on nothing.
 Only a card's drag counts (`.card.dragging`), not text or files dragged in.
 
-**The sheet covers the whole window; "close" is the way out.** Every field saves on
-its own `change`, so there never was a save button. The sheet is full width, so there is
-no outside to click: the "close" button top right is the way out (the projects sheet's
-is "done").
+**The sheet is inset 5% on all sides; "close" or a click outside is the way out.**
+Every field saves on its own `change`, so there never was a save button. The board shows
+in the margin all round and stays live: click it and the sheet closes, click a card there
+and it opens in the sheet's place. The "close" button top right does the same (the
+projects sheet's is "done").
 The top of a card's sheet is one sticky header row that stays put while the sheet
 scrolls: the card number, the title (edited in place), "created <when>" (the full date on
 hover), "archive", "move to done" (only while the card is in `verify`) and "close". A new
@@ -628,4 +629,4 @@ everything else → `edited`.
 - ~~Native drag unverified~~ — **resolved in task 4.** A real `left_click_drag` in
   Chrome moved a card between lanes and the server recorded the `moved` event. The
   native gesture works.
-- The sheet is full width, so a card's fields stretch across a wide screen.
+- The sheet is 90% of the window, so a card's fields stretch across a wide screen.
