@@ -180,7 +180,8 @@ again.</p>
     <code>RESULT: PASS</code>. The agent then commits anything left, pushes
     <code>card/&lt;id&gt;</code> to <code>origin</code> and moves the card to verify.</dd>
   <dt>deploy</dt>
-  <dd>Once a card reaches verify, the agent deploys it once, following the project's
+  <dd>At the end of test, after the push and before the move to verify, the agent deploys
+    the card once, following the project's
     instructions &mdash; to the local test backend or a connected phone, not production
     unless the instructions say so &mdash; and comments with the result (deployed, skipped
     or failed), and lights the blue and purple dots. The card stays in verify.</dd>
