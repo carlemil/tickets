@@ -1747,6 +1747,8 @@ def test_out_of_quota_in_deploy_postpones_it(ran, monkeypatch):
     c = core.get_card(id)
     assert c["lane"] == "verify" and c["attention"] and not c["deployed"]
     assert comments(id)[-1].startswith(f"deploy postponed: out of quota, resuming at {at:%H:%M}")
+    assert comments(id)[-1].endswith(", not pushed)"), \
+        "a person redeploying knows the base branch holds an unpushed merge"
     assert agent.paused_until == at
     tree = Path(core.get_project("Proj")["path"])
     assert (tree.parent / "Proj.worktrees" / f"card-{id}").exists(), "redeploy by hand: in it"

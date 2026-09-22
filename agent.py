@@ -668,7 +668,8 @@ async def deploy(client, card, repo, cwd, notes, base):
         # not retried: verify cards are not polled, so a person runs the deploy again
         pause(e.at)
         await call(client, "comment", id=id, actor=AGENT, text=f"deploy postponed: out of "
-                   f"quota, resuming at {e.at:%H:%M}; redeploy by hand ({e})")
+                   f"quota, resuming at {e.at:%H:%M}; redeploy by hand ({e})\n\n({note}, "
+                   f"not pushed)")
         await call(client, "update_card", id=id, actor=AGENT, attention=True)
         return False
     except Exception as e:
