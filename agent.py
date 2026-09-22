@@ -286,7 +286,9 @@ def run_claude(card, cwd, instructions=""):
     except subprocess.CalledProcessError as e:
         text = e.stderr or e.stdout or ""
         if m := LIMIT.search(text):
-            raise OutOfQuota(text, resume_at(m[1], datetime.now())) from e
+            # m[0], not text: the limit line itself, since stderr's first line is whatever
+            # claude printed first — a SessionStart hook's json, say, which says nothing
+            raise OutOfQuota(m[0], resume_at(m[1], datetime.now())) from e
         raise RuntimeError(f"claude exited {e.returncode}: {(e.stderr or e.stdout)[-2000:]}") from e
 
 
@@ -611,6 +613,8 @@ running = {}
 working = set()
 # quota is the account's, not a project's: while it is out, no run starts anywhere
 paused_until = None
+# the longest a reset time is taken on trust before a run looks again (see pause)
+MAX_PAUSE = timedelta(hours=1)
 
 
 def log(msg):
@@ -619,8 +623,15 @@ def log(msg):
 
 
 def pause(at):
+    """When to try again. The runs in flight when the quota goes each report their own
+    session's reset, and those differ — three once said 17:21 and a fourth 22:31, and taking
+    the latest parked the loop for six hours with the quota back an hour in. So take the
+    earliest: the first moment work might be possible again. And never sit on a parsed time
+    for longer than MAX_PAUSE without looking, since nothing re-checks before it: a run that
+    is still out pauses again with a fresh reading, which costs one fast failure, where
+    trusting a bad reading costs hours."""
     global paused_until
-    paused_until = max(paused_until or at, at)
+    paused_until = min(paused_until or at, at, datetime.now() + MAX_PAUSE)
     log(f"out of quota until {paused_until:%Y-%m-%d %H:%M}")
 
 

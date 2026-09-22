@@ -1630,9 +1630,16 @@ def test_resume_at(text, now, want):
     assert got == datetime.fromisoformat(want)
 
 
-@pytest.mark.parametrize("out, err", [("", QUOTA), (QUOTA, ""),
-                                      ("", "You've hit your weekly limit\n")])
-def test_run_claude_raises_out_of_quota(monkeypatch, tmp_path, out, err):
+@pytest.mark.parametrize("out, err, says", [
+    ("", QUOTA, "hit your session limit · resets 10:30pm"),
+    (QUOTA, "", "hit your session limit · resets 10:30pm"),
+    ("", "You've hit your weekly limit\n", "hit your weekly limit"),
+    # the limit is what it says, wherever claude printed it: a SessionStart hook's json goes
+    # out first, and taking stderr's first line used to put that on the card instead (#109)
+    ("", '{"type":"system","subtype":"hook_started","hook_name":"SessionStart"}\n' + QUOTA,
+     "hit your session limit · resets 10:30pm"),
+])
+def test_run_claude_raises_out_of_quota(monkeypatch, tmp_path, out, err, says):
     from datetime import datetime
 
     def fail(*a, **k):
@@ -1640,13 +1647,15 @@ def test_run_claude_raises_out_of_quota(monkeypatch, tmp_path, out, err):
     monkeypatch.setattr(subprocess, "run", fail)
     with pytest.raises(agent.OutOfQuota) as e:
         agent.run_claude({"lane": "develop", "id": 1}, tmp_path)
-    assert str(e.value) == (out or err).strip() and e.value.at > datetime.now()
+    assert str(e.value) == says and e.value.at > datetime.now()
+    assert "hook_started" not in str(e.value)
 
 
 def quota(monkeypatch, lane=None):
-    """claude is out of quota for 2 hours: in every stage, or only in `lane`."""
+    """claude is out of quota for half an hour: in every stage, or only in `lane`. Under
+    agent.MAX_PAUSE, so these tests see the time they gave, not the cap (tested on its own)."""
     from datetime import datetime, timedelta
-    at = datetime.now() + timedelta(hours=2)
+    at = datetime.now() + timedelta(minutes=30)
 
     def out(card, cwd, instructions=""):
         if lane in (None, card["lane"]):
@@ -1654,6 +1663,43 @@ def quota(monkeypatch, lane=None):
         return "ok\nRESULT: PASS"
     monkeypatch.setattr(agent, "run_claude", out)
     return at
+
+
+def test_the_earliest_reset_wins(ran):
+    """#109: four runs were in flight when the quota went, and each reported its own
+    session's reset — three 17:21, one 22:31. Taking the latest parked the loop for six
+    hours with the quota already back an hour in."""
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    agent.pause(now + timedelta(minutes=20))
+    agent.pause(now + timedelta(minutes=50))     # a later report does not push it out
+    assert agent.paused_until == now + timedelta(minutes=20)
+    agent.pause(now + timedelta(minutes=10))     # an earlier one brings it in
+    assert agent.paused_until == now + timedelta(minutes=10)
+
+
+def test_a_pause_is_capped_so_a_bad_reset_costs_an_hour_not_a_day(ran):
+    """Nothing re-checks the quota before `paused_until`, so a far-off reading — a weekly
+    limit, a mis-parse — must not be taken on trust. It pauses again if it is still out."""
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    agent.pause(now + timedelta(days=3))
+    assert now + timedelta(minutes=55) < agent.paused_until <= now + agent.MAX_PAUSE
+
+
+def test_a_quota_still_out_at_the_cap_just_pauses_again(ran, monkeypatch):
+    """The cap is only useful if the retry re-pauses rather than burning the card."""
+    from datetime import datetime, timedelta
+    id = card("develop", assignee="ce", auto=True)
+    at = quota(monkeypatch)
+    tick()
+    assert agent.paused_until == at and core.get_card(id)["lane"] == "develop"
+    agent.paused_until = datetime.now() - timedelta(seconds=1)   # the cap ran out
+    at2 = quota(monkeypatch)                                     # still no quota
+    tick()
+    assert agent.paused_until == at2, "it paused again, with a fresh reading"
+    assert core.get_card(id)["lane"] == "develop" and not core.get_card(id)["attention"], \
+        "still not a failure"
 
 
 def test_out_of_quota_is_not_a_failure_and_pauses(ran, monkeypatch):
