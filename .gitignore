@@ -7,3 +7,4 @@ __pycache__/
 agent.log
 agent.err
 screenshots/
+restart-backend.log

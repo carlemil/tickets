@@ -38,6 +38,17 @@ Agent hookup: `claude mcp add --transport http tickets http://127.0.0.1:8123/mcp
 8123 is the port `agent.py`, `restart-backend.ps1` and the docs use; any free port works,
 as long as all three match.
 
+**The restart waits for the port.** `restart-backend.ps1` kills what holds 8123 and starts
+a new backend, and a deploy schedules one 30 s out (`-Delay 30`) so its own report gets
+through first. A delayed restart therefore lands on whatever is serving by then, including
+another restart: the start raced the dying process for the port, lost it to "address
+already in use", and left nothing serving — the board in the browser just refused to
+connect. So the script now waits for the port to go free before starting, waits for it to
+answer after, and retries up to three times. Success is "8123 is served", not "my uvicorn
+serves it", so two restarts that overlap both finish happy as soon as either backend is
+up. A detached restart has nowhere to report, so each run appends what it did to
+`restart-backend.log`.
+
 ### Why no FastAPI
 
 `mcp` 2.x's `MCPServer.streamable_http_app()` returns a Starlette app that already
@@ -520,6 +531,7 @@ no longer on the board.
 | 39 | #76 one run per card as well as per project lane: a card moved to another lane mid-run no longer starts a second run in the same worktree | done |
 | 40 | #89 every develop and test run first merges the base branch into the card's branch; a conflict is left in the worktree for the run to resolve, so the commit, push and deploy merge stay clean | done |
 | 41 | #81 every log row is timestamped: `log-config.json` for uvicorn, a `log()` helper in `agent.py` | done |
+| 42 | `restart-backend.ps1` waits for the port free and then served, retrying: a deploy's delayed restart landing on another restart no longer leaves the board unreachable | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
