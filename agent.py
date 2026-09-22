@@ -17,9 +17,12 @@ again to have it built) and the loop guard (the agent never re-triggers on its o
 Auto advance: the card keeps going, plan -> develop -> test -> verify, and stops at verify
 for a person. The test stage must end in RESULT: PASS to move on.
 
-Develop and test only ever run in the card's own git worktree. A test that passes
-commits everything left in the worktree and pushes the card's branch to origin before the
-card moves to verify, so what a person verifies is on the remote. Once it is in verify
+Develop and test only ever run in the card's own git worktree. The test stage fixes what
+it can and hands the card back when it cannot; a test that passes commits everything left
+in the worktree and pushes the card's branch to origin before the card moves to verify, so
+what a person verifies is on the remote. The worktree is removed once the deploy has run
+in it: the branch, here and on origin, is the record, and a card sent back to develop gets
+a fresh worktree from it. Once it is in verify
 the agent deploys it: the backend if the backend changed, the app to the phone if the app
 changed and a phone is connected (none connected: skipped). How is up to the project's
 instructions; either way the card stays in verify, with the result as a comment.
@@ -104,9 +107,13 @@ PROMPTS = {
     "test": "Check that this ticket card is done: review this card's changes (the workspace "
             "note below says where they are) against the card's request, plan and answers, "
             "and run the "
-            "project's tests. Do not edit any files, except to finish a merge the workspace "
-            "note says is unfinished. Reply with what you checked and what "
-            f"you found, and end with a last line of exactly {PASS} or RESULT: FAIL.",
+            "project's tests. Fix what you find and can fix yourself — a failing test, a "
+            "defect, a merge the workspace note says is unfinished — here on the card's "
+            "branch: a pass commits and pushes your fixes with the rest of the card. What is "
+            "out of your hands — work left unfinished, a fix that needs a person's decision "
+            "— you leave alone and end in RESULT: FAIL, and the card stops here for a "
+            "person. Reply with what you checked, what you found and what you fixed, and end "
+            f"with a last line of exactly {PASS} or RESULT: FAIL.",
     # not a lane: the last step of the test stage, before the card moves to verify
     "deploy": "This ticket card passed testing and is committed and pushed (the workspace "
               "note below says where its changes are). Deploy it. Deploy means the local "
@@ -364,6 +371,18 @@ def ship(card, tree):
     return git(tree, "rev-parse", "--short", "HEAD").stdout.strip()
 
 
+def prune(repo, tree):
+    """Remove the card's worktree once the test stage is done with it. Run from the repo,
+    not the worktree: git cannot delete the folder the call's own cwd is in. The branch
+    stays, here and on origin, so nothing is lost — a card sent back to develop gets a fresh
+    worktree from it (see workspace). Forced because `ship` has just committed and pushed
+    everything, so what is left is ignored build output. Returns git's complaint if the
+    folder would not go (a file held open, say), "" if it went: a worktree left behind does
+    not fail a card that passed."""
+    r = git(repo, "worktree", "remove", "--force", str(tree))
+    return "" if r.returncode == 0 else (r.stderr or r.stdout).strip()[-500:]
+
+
 def split_plan(out):
     """Claude's plan reply -> (plan, questions, open?). The verdict line is dropped, and the
     '## Open questions' section, which the prompt asks for last, becomes the questions."""
@@ -435,10 +454,10 @@ async def handle(client, card, back=""):
                      if p["name"].lower() == name), None)
         if not proj or not proj["path"]:
             raise RuntimeError(f"project {card['project']!r} has no path configured")
-        cwd = Path(proj["path"])
-        if not cwd.is_dir():
-            raise RuntimeError(f"no repo at {cwd}")
-        cwd, note, tree, base = workspace(card, cwd)
+        repo = Path(proj["path"])
+        if not repo.is_dir():
+            raise RuntimeError(f"no repo at {repo}")
+        cwd, note, tree, base = workspace(card, repo)
         notes = "\n\n".join(x for x in (proj["instructions"], note) if x)
         out = await asyncio.to_thread(run_claude, card, cwd, notes)
         cli = getattr(out, "cli", "")
@@ -495,7 +514,10 @@ async def handle(client, card, back=""):
         # the phone gets the build before the card reaches verify: a card in verify is
         # always one a person can pick up and check
         if nxt == "verify":
-            await deploy(client, card, cwd, notes, base)
+            # the deploy runs in the worktree; the worktree goes after it, its work pushed
+            if await deploy(client, card, cwd, notes, base) and                     (left := await asyncio.to_thread(prune, repo, tree)):
+                await call(client, "comment", id=id, actor=AGENT,
+                           text=f"could not remove the worktree {tree}: {left}")
         # an auto-advancing card goes on to the next stage, which the next poll picks up
         if card["auto_advance"] and nxt in NEXT:
             await call(client, "update_card", id=id, actor=AGENT, lane=nxt, assignee=back)
@@ -555,7 +577,8 @@ async def deploy(client, card, cwd, notes, base):
     lands in verify either way: the comment says what was deployed, or why the deploy failed.
     The card's merged dot is set from git, since a deploy can merge and push and still fail
     after; the deployed dot the board sets from the comment's first word (`core.comment`), so
-    it does not depend on this process being as new as the code."""
+    it does not depend on this process being as new as the code. Returns whether the deploy
+    ran: a deploy postponed by the quota is redone by hand in the worktree, so it keeps it."""
     id = card["id"]
     # the card is the test card: the deploy updates that run's row and holds its slot
     await call(client, "set_activity", actor=doer(card["project"], card["lane"]), card_id=id,
@@ -572,7 +595,7 @@ async def deploy(client, card, cwd, notes, base):
         await call(client, "comment", id=id, actor=AGENT, text=f"deploy postponed: out of "
                    f"quota, resuming at {e.at:%H:%M}; redeploy by hand ({e})")
         await call(client, "update_card", id=id, actor=AGENT, attention=True)
-        return
+        return False
     except Exception as e:
         out, verdict = f"{e}", []
     head = {(DEPLOYED,): DEPLOYED_HEAD, (SKIPPED,): SKIPPED_HEAD}.get(tuple(verdict),
@@ -586,6 +609,7 @@ async def deploy(client, card, cwd, notes, base):
         await open_blockers(client, card, blocked)
     # a comment is a reply and clears the dot: set it again, verify waits for a person
     await call(client, "update_card", id=id, actor=AGENT, attention=True, merged=merged)
+    return True
 
 
 async def tick(client, connect):

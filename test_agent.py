@@ -339,7 +339,9 @@ def test_run_claude_tests_with_rights_and_asks_for_a_verdict(monkeypatch, tmp_pa
                         subprocess.CompletedProcess(cmd, 0, stdout="ok"))
     agent.run_claude({"lane": "test", "id": 7}, tmp_path)
     assert "--dangerously-skip-permissions" in got["cmd"]
-    assert "RESULT: PASS" in got["input"] and "Do not edit" in got["input"]
+    p = got["input"]
+    assert "RESULT: PASS" in p and "Fix what you find and can fix yourself" in p
+    assert "out of your hands" in p and "stops here for a person" in p
 
 
 # ---------- the plan stage ----------
@@ -832,7 +834,8 @@ def test_the_test_stage_gets_the_base_as_it_is_now(repo, where):
     agent.git(repo, "commit", "-q", "-m", "two")
     tick()
     lane, cwd, _ = where[1]
-    assert lane == "test" and (cwd / "c.txt").exists()
+    assert lane == "test"
+    assert "c.txt" in agent.git(repo, "ls-tree", "--name-only", f"card/{id}").stdout
 
 
 def test_a_worktree_that_cannot_be_made_fails_the_card(repo, where):
@@ -853,10 +856,8 @@ def test_a_pass_commits_everything_and_pushes_before_verify(repo, where):
     tick()                                        # test: writes test.txt, then PASS
     c = core.get_card(id)
     assert c["lane"] == "verify"
-    head = agent.git(tree, "rev-parse", "HEAD").stdout.strip()
-    assert pushed(repo, id) == head, "origin has the card's branch at the new commit"
-    assert agent.git(tree, "status", "--porcelain").stdout == "", "nothing left out"
-    files = agent.git(tree, "show", "--name-only", "--format=%s", "HEAD").stdout.split()
+    assert pushed(repo, id) == agent.git(repo, "rev-parse", f"card/{id}").stdout.strip(),         "origin has the card's branch at the new commit"
+    files = agent.git(repo, "show", "--name-only", "--format=%s", f"card/{id}").stdout.split()
     assert files[:2] == [f"#{id}", "t"] and {"a.txt", "develop.txt", "test.txt"} <= set(files)
     assert comments(id)[-2].startswith(f"committed and pushed card/{id} to origin (")
     assert not (repo / "develop.txt").exists(), "the repo itself is untouched"
@@ -870,8 +871,8 @@ def test_commits_the_develop_stage_made_are_pushed_too(repo, where, monkeypatch)
     agent.git(tree, "commit", "-q", "-m", "developed")
     monkeypatch.setattr(agent, "run_claude", lambda c, cwd, i: "fine\nRESULT: PASS")
     tick()                                        # nothing left to commit: only a push
-    assert pushed(repo, id) == agent.git(tree, "rev-parse", "HEAD").stdout.strip()
-    assert agent.git(tree, "log", "-1", "--format=%s").stdout.strip() == "developed"
+    assert pushed(repo, id) == agent.git(repo, "rev-parse", f"card/{id}").stdout.strip()
+    assert agent.git(repo, "log", "-1", "--format=%s", f"card/{id}").stdout.strip() == "developed"
     assert core.get_card(id)["lane"] == "verify"
 
 
@@ -887,6 +888,7 @@ def test_a_failed_test_is_neither_committed_nor_pushed(repo, monkeypatch):
     assert core.get_card(id)["lane"] == "test"
     assert pushed(repo, id) is None
     assert "half.txt" in agent.git(tree, "status", "--porcelain").stdout
+    assert tree.exists(), "a card that did not pass keeps its worktree"
 
 
 def test_a_push_that_fails_keeps_the_card_out_of_verify(repo, where):
@@ -896,6 +898,29 @@ def test_a_push_that_fails_keeps_the_card_out_of_verify(repo, where):
     c = core.get_card(id)
     assert (c["lane"], c["auto_advance"], c["attention"]) == ("test", False, True)
     assert comments(id)[-1].startswith("agent failed: git push failed:")
+
+
+# ---------- the worktree goes when the card leaves test ----------
+
+def test_a_pass_removes_the_worktree_after_the_deploy(repo, where):
+    id = card("develop", project="Repo", auto=True)
+    tick()
+    tree = where[0][1]
+    tick()
+    assert where[-1][:2] == ("deploy", tree), "the deploy still ran in the worktree"
+    assert not tree.exists()
+    assert f"card-{id}" not in agent.git(repo, "worktree", "list").stdout
+    assert agent.git(repo, "rev-parse", "--verify", "--quiet", f"card/{id}").returncode == 0
+    assert pushed(repo, id), "the branch, here and on origin, is the record"
+
+
+def test_a_worktree_that_will_not_go_does_not_fail_the_card(repo, where, monkeypatch):
+    id = card("test", project="Repo", auto=True)
+    monkeypatch.setattr(agent, "prune", lambda r, t: "in use by another process")
+    tick()
+    assert core.get_card(id)["lane"] == "verify"
+    assert comments(id)[-1].startswith("could not remove the worktree")
+    assert comments(id)[-1].endswith("in use by another process")
 
 
 # ---------- one run per project lane at a time ----------
@@ -1493,6 +1518,8 @@ def test_out_of_quota_in_deploy_postpones_it(ran, monkeypatch):
     assert c["lane"] == "verify" and c["attention"] and not c["deployed"]
     assert comments(id)[-1].startswith(f"deploy postponed: out of quota, resuming at {at:%H:%M}")
     assert agent.paused_until == at
+    tree = Path(core.get_project("Proj")["path"])
+    assert (tree.parent / "Proj.worktrees" / f"card-{id}").exists(), "redeploy by hand: in it"
 
 
 # ---------- the run's CLI transcript ----------

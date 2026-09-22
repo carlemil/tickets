@@ -191,7 +191,9 @@ next poll after the pause takes it again. Development is a normal agent in auto 
 plan mode): it edits and runs the tests on its own, with Claude Code's auto-mode checks
 still on, and commits its work on the card's own branch. The test stage runs with
 `--dangerously-skip-permissions`, reviews the card's changes against the card
-and plan, runs the tests, and must end with a last line of `RESULT: PASS` (markdown
+and plan, runs the tests, and fixes what it finds and can fix itself on the card's branch
+(#101: a pass ships those fixes with the rest); what is out of its hands it leaves alone.
+It must end with a last line of `RESULT: PASS` (markdown
 `*`/`` ` `` around it tolerated) to move on; anything else is a failure.
 
 **One run per project lane at a time.** Each `(project, lane)` pair has at most one run
@@ -263,7 +265,7 @@ is built and tested on current code and the deploy's merge back is clean; a merg
 conflicts is left in the worktree with the run told to resolve and commit it, and anything
 else that stops the merge (no origin, offline, a dirty tree) just leaves the branch where
 it was. The prompt is told where it is and what the merge did: develop commits on its
-branch (never pushes or switches, merging the base in is fine), test reviews
+branch (never pushes or switches, merging the base in is fine), test reviews and fixes
 `git diff <base>...HEAD` plus anything uncommitted. The card's comment ends with the worktree's path and branch. Planning only
 reads and runs in the repo. Develop and test never run anywhere but the card's worktree:
 a project folder that is not a git repository fails the card (it can still be planned),
@@ -292,9 +294,15 @@ deploy never moves a card, and a card arriving in verify already has the build o
 phone. Only a test stage that is about to move the card to verify deploys; a card moved off
 test during its run, or a failed test, is not deployed. The deploy prompt lets the
 project's instructions merge, push or restart services (develop's "never merge" rule is
-not the deploy's), and forbids anything beyond them. Unless a project's deploy merges,
-merging `card/<id>` and removing
-the worktree (`git worktree remove`) is a person's job, after verify; a fresh worktree has
+not the deploy's), and forbids anything beyond them.
+
+**The worktree goes with the deploy.** Once the deploy has run in it, the agent removes the
+card's worktree (`git worktree remove --force`, run from the repo, since git cannot delete
+the folder its own cwd is in). The branch stays, here and on `origin`: that is the record,
+and a card sent back to develop gets a fresh worktree from it. One worktree is kept: a
+deploy postponed by the quota is redeployed by hand, in that worktree. A worktree that will
+not go (a file held open) is commented, not failed. Unless a project's deploy merges,
+merging `card/<id>` is a person's job, after verify; a fresh worktree has
 no build output or installed dependencies, so the project's instructions should say how to
 get them if the tests need them.
 
@@ -553,13 +561,14 @@ no longer on the board.
 | 41 | #81 every log row is timestamped: `log-config.json` for uvicorn, a `log()` helper in `agent.py` | done |
 | 42 | `restart-backend.ps1` waits for the port free and then served, retrying: a deploy's delayed restart landing on another restart no longer leaves the board unreachable | done |
 | 43 | #96 the deploy runs at the end of the test stage, before the card moves to verify: a card arriving in verify already has the build on the phone | done |
+| 44 | #101 the test stage fixes what it can, and the card's worktree is removed after the deploy: the branch in origin is the record | done |
 
-Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 622 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
 themselves if Playwright or Chrome is missing, so the gate still passes on a bare
-checkout — `66 passed, 11 skipped`.
+checkout — `487 passed, 135 skipped`.
 
 The suite shares one process on purpose: `core.DB_PATH` is re-read on every connect, so
 the temp database reaches the in-thread uvicorn server the browser talks to. That is what
