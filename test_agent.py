@@ -768,6 +768,32 @@ def test_a_card_in_test_with_no_worktree_fails_and_the_repo_is_untouched(repo, w
     assert where == [] and pushed(repo, id) is None
 
 
+def test_a_worktree_folder_deleted_by_hand_is_re_made(repo, where):
+    id = card("develop", project="Repo")
+    tick()
+    tree = repo.parent / "Repo.worktrees" / f"card-{id}"
+    shutil.rmtree(tree)   # git keeps the registration, and would refuse a second add
+    core.update_card(id, "ce", lane="develop", assignee=agent.AGENT)
+    tick()
+    assert where[1][1] == tree and tree.is_dir()
+    assert agent.git(tree, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == f"card/{id}"
+    assert comments(id)[-1].startswith("built"), "no 'already used by worktree' failure"
+
+
+def test_a_card_back_in_test_gets_a_worktree_from_its_branch(repo, where, monkeypatch):
+    id = card("develop", project="Repo", auto=True)
+    tick()                                   # develop
+    tick()                                   # test: ships, deploys, and the worktree goes
+    tree = repo.parent / "Repo.worktrees" / f"card-{id}"
+    assert not tree.exists()
+    monkeypatch.setattr(agent, "prune", lambda repo, tree: "")   # keep it, to look inside
+    core.update_card(id, "ce", lane="test", assignee=agent.AGENT)
+    tick()
+    assert where[-2][:2] == ("test", tree), "the run started, in a worktree of its own"
+    assert (tree / "develop.txt").exists(), "made from the branch, with what it committed"
+    assert agent.git(repo, "branch", "--list", f"card/{id}").stdout.count(f"card/{id}") == 1
+
+
 def test_planning_stays_in_the_repo(repo, where):
     card("plan", project="Repo")
     tick()
@@ -856,7 +882,8 @@ def test_a_pass_commits_everything_and_pushes_before_verify(repo, where):
     tick()                                        # test: writes test.txt, then PASS
     c = core.get_card(id)
     assert c["lane"] == "verify"
-    assert pushed(repo, id) == agent.git(repo, "rev-parse", f"card/{id}").stdout.strip(),         "origin has the card's branch at the new commit"
+    assert pushed(repo, id) == agent.git(repo, "rev-parse", f"card/{id}").stdout.strip(), \
+        "origin has the card's branch at the new commit"
     files = agent.git(repo, "show", "--name-only", "--format=%s", f"card/{id}").stdout.split()
     assert files[:2] == [f"#{id}", "t"] and {"a.txt", "develop.txt", "test.txt"} <= set(files)
     assert comments(id)[-2].startswith(f"committed and pushed card/{id} to origin (")

@@ -21,10 +21,10 @@ Develop and test only ever run in the card's own git worktree. The test stage fi
 it can and hands the card back when it cannot; a test that passes commits everything left
 in the worktree and pushes the card's branch to origin before the card moves to verify, so
 what a person verifies is on the remote. The worktree is removed once the deploy has run
-in it: the branch, here and on origin, is the record, and a card sent back to develop gets
-a fresh worktree from it. Once it is in verify
-the agent deploys it: the backend if the backend changed, the app to the phone if the app
-changed and a phone is connected (none connected: skipped). How is up to the project's
+in it: the branch, here and on origin, is the record, and a card sent back to develop or
+test gets a fresh worktree from it, as does one whose folder went missing. Once it is in
+verify the agent deploys it: the backend if the backend changed, the app to the phone if
+the app changed and a phone is connected (none connected: skipped). How is up to the project's
 instructions; either way the card stays in verify, with the result as a comment.
 
 Projects run side by side, and so do the lanes of one project: each project lane has one
@@ -134,7 +134,7 @@ PROMPTS = {
 # planning runs in plan mode (what /plan switches on): read-only by design.
 # development is a normal agent in auto mode: it edits and runs the tests on its own, with
 # Claude Code's auto-mode checks still on. Testing needs Bash for the tests and gets full
-# rights in the repo; its prompt asks for no edits, which is a request, not a sandbox.
+# rights in the repo: it fixes what it can on the card's branch and hands back the rest.
 FLAGS = {"plan": ["--permission-mode", "plan"], "develop": ["--permission-mode", "auto"],
          "test": ["--dangerously-skip-permissions"],
          "deploy": ["--dangerously-skip-permissions"]}   # deploy tools, adb: unattended
@@ -301,8 +301,9 @@ def workspace(card, path):
     one card's changes never mix with another's or with a person's work in the repo.
     Each run first merges the base branch in (see catch_up), so a card is built and tested
     on current code. Planning only reads, so it runs in the repo. Develop and test never
-    run anywhere but the worktree: a folder that is not a git repository, or a test with no worktree to
-    test, fails the card."""
+    run anywhere but the worktree: a folder that is not a git repository fails the card. A
+    worktree whose folder went missing is re-made from the card's branch, in either lane;
+    only a card in test with no branch at all fails, since nothing was ever built."""
     if card["lane"] == "plan":
         return path, "", None, None
     top = git(path, "rev-parse", "--show-toplevel")
@@ -314,10 +315,14 @@ def workspace(card, path):
     branch = f"card/{card['id']}"
     base = git(top, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     if not root.is_dir():
-        if card["lane"] == "test":
-            raise RuntimeError(f"there is no worktree at {root} to test: move the card back "
-                               "to develop to build it in one")
-        have = git(top, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}").returncode == 0
+        # a worktree folder deleted by hand leaves its registration behind, and git then
+        # refuses to make the card another one on the same branch
+        git(top, "worktree", "prune")
+        have = git(top, "rev-parse", "--verify", "--quiet",
+                   f"refs/heads/{branch}").returncode == 0
+        if card["lane"] == "test" and not have:
+            raise RuntimeError(f"there is no worktree at {root} and no branch {branch} to "
+                               "test: move the card back to develop to build it in one")
         made = git(top, "worktree", "add", str(root), branch) if have else \
             git(top, "worktree", "add", "-b", branch, str(root))
         if made.returncode:
@@ -466,7 +471,9 @@ async def handle(client, card, back=""):
         if blocked:
             await open_blockers(client, card, blocked)
         # so a person knows where to look, and what to merge
-        where = f"\n\n(worked in {tree}, branch card/{id})" if tree else ""
+        # in test the worktree goes with the deploy: name the branch, which stays
+        where = ((f"\n\n(worked in {tree}, branch card/{id})" if lane == "develop"
+                  else f"\n\n(branch card/{id})") if tree else "")
         # a run takes minutes; if a person moved the card meanwhile, their move wins: keep
         # the output as a comment, but do not move or switch off a card that is no longer
         # where this run found it. Only let go of it, unless a person took it meanwhile.
@@ -515,7 +522,8 @@ async def handle(client, card, back=""):
         # always one a person can pick up and check
         if nxt == "verify":
             # the deploy runs in the worktree; the worktree goes after it, its work pushed
-            if await deploy(client, card, cwd, notes, base) and                     (left := await asyncio.to_thread(prune, repo, tree)):
+            if await deploy(client, card, cwd, notes, base) and \
+                    (left := await asyncio.to_thread(prune, repo, tree)):
                 await call(client, "comment", id=id, actor=AGENT,
                            text=f"could not remove the worktree {tree}: {left}")
         # an auto-advancing card goes on to the next stage, which the next poll picks up
