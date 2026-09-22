@@ -55,9 +55,18 @@ def wait_saved(page, cid, field, value):
 
 
 def close_sheet(page):
-    """How a sheet is closed -- and a new card created. The sheet covers the whole window,
-    so its "close" button is the one way out."""
+    """How a sheet is closed -- and a new card created. Its "close" button; a click on the
+    board in the margin around the sheet does the same (click_outside)."""
     page.click("#panel .shut")
+
+
+def click_outside(page, y=None):
+    """The other way out: the sheet is inset 5%, so the board shows in the margin all
+    round and a click in the left margin lands on it. `y` (a client y) aims the click at
+    something in particular; the default is the middle of the window, where the lanes are
+    empty unless a test has filled them right down."""
+    box = page.locator("#panel").bounding_box()
+    page.mouse.click(box["x"] / 2, box["y"] + box["height"] / 2 if y is None else y)
 
 
 def created(page):
@@ -1041,10 +1050,14 @@ def test_a_failed_create_keeps_the_sheet_and_everything_in_it(page):
 
 # ---------- closing the sheet ----------
 
-def test_the_card_editor_covers_the_whole_window(page):
-    add_card(page, "wide")
+def test_the_card_editor_leaves_a_margin_around_it(page):
+    """5% of the window on all sides, so there is a board to click outside the sheet."""
+    add_card(page, "inset")
     box = page.locator("#panel").bounding_box()
-    assert (box["x"], box["width"]) == (0, page.viewport_size["width"])
+    w, h = page.viewport_size["width"], page.viewport_size["height"]
+    for got, want in ((box["x"], w * .05), (box["width"], w * .9),
+                      (box["y"], h * .05), (box["height"], h * .9)):
+        assert abs(got - want) <= 1, (box, w, h)   # subpixel layout rounding
     assert page.locator("#panel .shut").is_visible()
 
 
@@ -1110,10 +1123,46 @@ def test_a_draft_with_content_but_no_title_stays_open(page, fill):
     assert [c["title"] for c in core.list_cards()] == ["titled now"]
 
 
+def test_a_click_outside_closes_the_sheet_and_saves(page):
+    cid = add_card(page, "click away")
+    page.fill("#panel textarea >> nth=0", "typed, then clicked away")   # still focused
+    click_outside(page)
+    assert page.locator("#panel.on").count() == 0
+    wait_saved(page, cid, "description", "typed, then clicked away")
 
 
+def test_a_comment_left_in_the_box_is_posted_on_an_outside_click(page):
+    cid = add_card(page, "say it on the way out")
+    page.fill("#panel .say-box", "unsent, but not lost")
+    click_outside(page)
+    page.wait_for_function("() => window.__inflight === 0")
+    assert [e["detail"]["text"] for e in core.get_card(cid)["events"]
+            if e["kind"] == "comment"] == ["unsent, but not lost"]
 
 
+def test_a_click_on_another_card_opens_it_in_place(page):
+    """The click closes the sheet and then reaches the card it landed on."""
+    a, b = cards_in(page, "a", "b")
+    page.evaluate(f"openCard({a})")
+    page.wait_for_function(f"() => open && open.id === {a}")
+    box = page.locator(f'.card[data-id="{b}"]').bounding_box()
+    click_outside(page, y=box["y"] + box["height"] / 2)
+    page.wait_for_function(f"() => open && open.id === {b}")
+
+
+def test_a_titleless_draft_swallows_the_outside_click(page):
+    """A draft that cannot be saved stays open, and the click never reaches the board:
+    the card under it must not replace the draft."""
+    (a,) = cards_in(page, "not me")
+    page.click("#add")
+    page.fill("#panel textarea >> nth=0", "a description, but no title")
+    box = page.locator(f'.card[data-id="{a}"]').bounding_box()
+    click_outside(page, y=box["y"] + box["height"] / 2)
+    page.wait_for_selector("#err.on")
+    assert "needs a title" in page.text_content("#err")
+    assert page.locator("#panel.on").count() == 1
+    assert page.evaluate("open && !open.id"), "still the draft, not the card clicked"
+    assert [c["title"] for c in core.list_cards()] == ["not me"]
 
 
 def test_clicks_inside_the_sheet_never_close_it(page):
@@ -1132,8 +1181,6 @@ def test_clicking_the_error_bar_does_not_close_the_sheet(page):
     page.evaluate("showErr('something')")
     page.click("#err")
     assert page.locator("#panel.on").count() == 1
-
-
 
 
 # ---------- project colors ----------
@@ -1694,7 +1741,9 @@ def test_the_header_row_stays_at_the_top_while_the_sheet_scrolls(page):
     page.evaluate("document.querySelector('#panel').scrollTop = 1e6")
     page.wait_for_function("document.querySelector('#panel').scrollTop > 500")
     head = page.locator("#panel .head").bounding_box()
-    assert head["y"] == 0, "pinned to the top of the sheet"
+    # the top of the sheet, not of the window: the sheet is inset 5%, and its 1px border
+    panel = page.locator("#panel").bounding_box()
+    assert 0 <= head["y"] - panel["y"] <= 1, "pinned to the top of the sheet"
     assert page.locator("#panel .head input").is_visible()
     title = page.locator("#panel .head input").bounding_box()
     hit = page.evaluate(f"document.elementFromPoint({title['x'] + 5}, {title['y'] + title['height'] / 2})"
