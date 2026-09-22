@@ -107,7 +107,7 @@ PROMPTS = {
             "project's tests. Do not edit any files, except to finish a merge the workspace "
             "note says is unfinished. Reply with what you checked and what "
             f"you found, and end with a last line of exactly {PASS} or RESULT: FAIL.",
-    # not a lane: run on a card the agent just moved to verify
+    # not a lane: the last step of the test stage, before the card moves to verify
     "deploy": "This ticket card passed testing and is committed and pushed (the workspace "
               "note below says where its changes are). Deploy it. Deploy means the local "
               "test backend and a local install on a connected phone. Never deploy to "
@@ -492,6 +492,10 @@ async def handle(client, card, back=""):
             await call(client, "comment", id=id, actor=AGENT,
                        text=f"committed and pushed card/{id} to origin ({sha})")
         nxt = NEXT[lane]
+        # the phone gets the build before the card reaches verify: a card in verify is
+        # always one a person can pick up and check
+        if nxt == "verify":
+            await deploy(client, card, cwd, notes, base)
         # an auto-advancing card goes on to the next stage, which the next poll picks up
         if card["auto_advance"] and nxt in NEXT:
             await call(client, "update_card", id=id, actor=AGENT, lane=nxt, assignee=back)
@@ -500,8 +504,6 @@ async def handle(client, card, back=""):
             # is, since a forward move would switch it on, and this card is meant to stop
             await call(client, "update_card", id=id, actor=AGENT, lane=nxt, assignee=back,
                        attention=True, auto_advance=card["auto_advance"])
-        if nxt == "verify":
-            await deploy(client, card, cwd, notes, base)
     except OutOfQuota as e:   # not a failure: pause, and the card is taken again after
         pause(e.at)
         await call(client, "set_activity", actor=AGENT, card_id=id,
@@ -549,11 +551,11 @@ def doer(project, lane):
 
 
 async def deploy(client, card, cwd, notes, base):
-    """The last step, on a card just moved to verify. It stays in verify either way: the
-    comment says what was deployed, or why the deploy failed. The card's merged dot is set
-    from git, since a deploy can merge and push and still fail after; the deployed dot the
-    board sets from the comment's first word (`core.comment`), so it does not depend on
-    this process being as new as the code."""
+    """The last step of the test stage, just before the card is moved to verify. The card
+    lands in verify either way: the comment says what was deployed, or why the deploy failed.
+    The card's merged dot is set from git, since a deploy can merge and push and still fail
+    after; the deployed dot the board sets from the comment's first word (`core.comment`), so
+    it does not depend on this process being as new as the code."""
     id = card["id"]
     # the card is the test card: the deploy updates that run's row and holds its slot
     await call(client, "set_activity", actor=doer(card["project"], card["lane"]), card_id=id,

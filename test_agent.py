@@ -1043,7 +1043,7 @@ def test_a_project_lane_is_free_again_after_a_failure(ran, monkeypatch):
     assert core.get_card(good)["lane"] == "test" and agent.running == {}
 
 
-# ---------- deploy once in verify ----------
+# ---------- deploy at the end of test, before verify ----------
 
 def test_a_card_moved_to_verify_is_deployed_from_its_worktree(repo, where, monkeypatch):
     id = card("test", project="Repo")
@@ -1061,7 +1061,7 @@ def test_a_card_moved_to_verify_is_deployed_from_its_worktree(repo, where, monke
     assert [(lane, cwd) for lane, cwd, _ in where] == [("test", tree), ("deploy", tree)]
     assert f"branch card/{id}" in where[1][2], "told where the changes are"
     [(lane, sha, doing)] = during
-    assert (lane, doing) == ("verify", "deploying") and sha, "in verify, pushed, then deployed"
+    assert (lane, doing) == ("test", "deploying") and sha, "pushed and deployed, then moved"
     c = core.get_card(id)
     assert (c["lane"], c["attention"]) == ("verify", True)
     assert comments(id)[-1] == "deployed: shipped\nDEPLOY: OK"

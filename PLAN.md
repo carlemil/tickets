@@ -278,7 +278,8 @@ files too), commits it if there is anything (message `#<id> <title>`), and pushe
 commit pushed. If any git step fails — no `origin`, rejected, needs credentials — the card
 fails in test, with the git error, and is not moved. A failed test commits nothing.
 
-**Deploy once in verify.** Right after the agent moves a card to verify it runs one more
+**Deploy at the end of the test stage.** After the commit and push, and before the card is
+moved to verify, the agent runs one more
 `claude -p` in the worktree (`--dangerously-skip-permissions`, it runs deploy tools and
 `adb`): deploy the backend if the card changed it; install the mobile app on the phone if
 the card changed it and a phone is connected, and skip the phone otherwise; deploy
@@ -287,7 +288,8 @@ means the local test backend or a local install on a connected phone; it never g
 production, a public server or an app store unless the project's instructions clearly call
 for a production deploy. The reply must end in `DEPLOY: OK`; it becomes a comment `deployed: …`, anything else (or a crash)
 `deploy failed: …`. Either way the card stays in verify, handed back with the dot: a
-deploy never moves a card. Only the agent's own move to verify deploys; a card moved off
+deploy never moves a card, and a card arriving in verify already has the build on the
+phone. Only a test stage that is about to move the card to verify deploys; a card moved off
 test during its run, or a failed test, is not deployed. The deploy prompt lets the
 project's instructions merge, push or restart services (develop's "never merge" rule is
 not the deploy's), and forbids anything beyond them. Unless a project's deploy merges,
@@ -550,6 +552,7 @@ no longer on the board.
 | 40 | #89 every develop and test run first merges the base branch into the card's branch; a conflict is left in the worktree for the run to resolve, so the commit, push and deploy merge stay clean | done |
 | 41 | #81 every log row is timestamped: `log-config.json` for uvicorn, a `log()` helper in `agent.py` | done |
 | 42 | `restart-backend.ps1` waits for the port free and then served, retrying: a deploy's delayed restart landing on another restart no longer leaves the board unreachable | done |
+| 43 | #96 the deploy runs at the end of the test stage, before the card moves to verify: a card arriving in verify already has the build on the phone | done |
 
 Gate for every task: `uv run pytest -q` — 77 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
