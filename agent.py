@@ -19,10 +19,13 @@ for a person. The test stage must end in RESULT: PASS to move on.
 
 Develop and test only ever run in the card's own git worktree. A test that passes
 commits everything left in the worktree and pushes the card's branch to origin before the
-card moves to verify, so what a person verifies is on the remote. Once it is in verify
-the agent deploys it: the backend if the backend changed, the app to the phone if the app
-changed and a phone is connected (none connected: skipped). How is up to the project's
-instructions; either way the card stays in verify, with the result as a comment.
+card moves to verify, so what a person verifies is on the remote. The agent then merges
+the branch into the project's base branch itself, for every project, and pushes that once
+the deploy has run. Once it is in verify the agent deploys it: the backend if the backend
+changed, the app to the phone if the app changed and a phone is connected (none connected:
+skipped). How is up to the project's instructions; either way the card stays in verify,
+with the result as a comment. Every poll re-checks git and lights the merged dot of any
+card whose branch is on the base branch, however it got there.
 
 Projects run side by side, and so do the lanes of one project: each project lane has one
 run at a time, so a card waits only while another card in the same lane of its project is
@@ -55,8 +58,8 @@ from pathlib import Path
 
 from mcp import Client
 
-from core import (AGENT, DEPLOYED_HEAD, FAILED_HEAD, NO_PROJECT,   # the board is reached over MCP
-                  SKIPPED_HEAD, number)
+from core import (AGENT, AGENT_LANES, DEPLOYED_HEAD, FAILED_HEAD,   # the board is reached over MCP
+                  NO_PROJECT, SKIPPED_HEAD, number)
 
 SOURCE = Path(__file__).resolve()   # watched: a deploy that changes it restarts the agent
 URL = "http://127.0.0.1:8123/mcp"
@@ -73,6 +76,7 @@ LIMIT = re.compile(r"hit your [^\n]*?limit(?:[^\n]*?resets ([^(\n]*))?", re.I)
 QUESTIONS_HEAD = re.compile(r"^#+[ \t]*open questions[ \t]*:?[ \t]*$", re.I | re.M)
 BLOCKED_HEAD = re.compile(r"^#+[ \t]*blocked by[ \t]*:?[ \t]*$", re.I | re.M)
 BULLET = re.compile(r"(?:[-*+]|\d+[.)])\s+(.*)")
+CARD_BRANCH = re.compile(r"(?:.*/)?card/(\d+)")   # local or origin/, -> the card id
 CLI_CAP = 100_000   # the transcript goes in the DB, and a develop run can print megabytes
 # every lane gets this: what stops a card from outside the code becomes cards for a person
 BLOCKED_ASK = (
@@ -349,6 +353,51 @@ def catch_up(tree, base):
     return f"Could not merge {ref} in ({(r.stderr or r.stdout).strip()[-200:]}); your branch is behind it. "
 
 
+def landed(path):
+    """Card ids whose branch is on the project's base branch. The base is the repo's current
+    branch, as in `workspace`; the local ref and origin's both count, so a merge that has
+    not been pushed yet still counts as on the base. No fetch: no network on a poll, and a
+    merge done here is visible here."""
+    top = git(path, "rev-parse", "--show-toplevel")
+    if top.returncode:
+        return set()                      # no path, no repo: nothing to light
+    top = Path(top.stdout.strip())
+    base = git(top, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    ids = set()
+    for ref in ([base, f"origin/{base}"] if base else []):
+        if git(top, "rev-parse", "--verify", "--quiet", ref).returncode:
+            continue
+        out = git(top, "branch", "-a", "--merged", ref, "--list", "card/*", "*/card/*",
+                  "--format=%(refname:short)")
+        ids |= {int(m[1]) for b in out.stdout.split() if (m := CARD_BRANCH.fullmatch(b))}
+    return ids
+
+
+def land(repo, card, base):
+    """Merge the card's branch into the project's base branch in the main checkout, at the
+    end of the test stage (#106). Every project, not just the ones whose instructions say
+    so. Never touches a person's work: the repo must be on `base` with nothing uncommitted,
+    or the merge is skipped and the comment says why. Returns (merged?, the line to say).
+    ponytail: the merge can lose the .git/index.lock race a develop's `worktree add` can
+    lose too; it is then skipped with git's error and a person merges it by hand."""
+    top = git(repo, "rev-parse", "--show-toplevel")
+    if top.returncode:
+        return False, f"not merged: {repo} is not a git repository"
+    top, branch = Path(top.stdout.strip()), f"card/{card['id']}"
+    if card["id"] in landed(top):
+        return False, f"already on {base}"
+    on = git(top, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    if on != base:
+        return False, f"not merged: {top} is on {on}, not {base}"
+    if git(top, "status", "--porcelain", "--untracked-files=no").stdout.strip():
+        return False, f"not merged: {top} has uncommitted work on {base}"
+    r = git(top, "merge", "--no-ff", branch, "-m", f"Merge #{card['id']} {card['title']}")
+    if r.returncode:
+        git(top, "merge", "--abort")
+        return False, f"not merged: {branch} does not merge into {base} cleanly"
+    return True, f"merged {branch} into {base}"
+
+
 def ship(card, tree):
     """Commit everything left in the card's worktree and push its branch to origin: done
     before a card moves to verify. Returns the commit pushed."""
@@ -438,6 +487,7 @@ async def handle(client, card, back=""):
         cwd = Path(proj["path"])
         if not cwd.is_dir():
             raise RuntimeError(f"no repo at {cwd}")
+        repo = cwd            # the main checkout: the deploy merges the card's branch there
         cwd, note, tree, base = workspace(card, cwd)
         notes = "\n\n".join(x for x in (proj["instructions"], note) if x)
         out = await asyncio.to_thread(run_claude, card, cwd, notes)
@@ -495,7 +545,7 @@ async def handle(client, card, back=""):
         # the phone gets the build before the card reaches verify: a card in verify is
         # always one a person can pick up and check
         if nxt == "verify":
-            await deploy(client, card, cwd, notes, base)
+            await deploy(client, card, repo, cwd, notes, base)
         # an auto-advancing card goes on to the next stage, which the next poll picks up
         if card["auto_advance"] and nxt in NEXT:
             await call(client, "update_card", id=id, actor=AGENT, lane=nxt, assignee=back)
@@ -550,16 +600,22 @@ def doer(project, lane):
     return f"{AGENT} ({project} {lane})"
 
 
-async def deploy(client, card, cwd, notes, base):
+async def deploy(client, card, repo, cwd, notes, base):
     """The last step of the test stage, just before the card is moved to verify. The card
     lands in verify either way: the comment says what was deployed, or why the deploy failed.
-    The card's merged dot is set from git, since a deploy can merge and push and still fail
-    after; the deployed dot the board sets from the comment's first word (`core.comment`), so
-    it does not depend on this process being as new as the code."""
+
+    It merges the card's branch into the base branch first, for every project (#106), so
+    merging is code and not per-project prose, and the deploy run — which restarts a backend
+    or publishes a site — sees the merge. The push waits until after the run: a deploy that
+    tests on the base branch has to be able to `reset --hard ORIG_HEAD`. The card's merged
+    dot is read back from git; the deployed dot the board sets from the comment's first word
+    (`core.comment`), so it does not depend on this process being as new as the code."""
     id = card["id"]
     # the card is the test card: the deploy updates that run's row and holds its slot
     await call(client, "set_activity", actor=doer(card["project"], card["lane"]), card_id=id,
                doing="deploying")
+    done, note = await asyncio.to_thread(land, repo, card, base)
+    notes = f"{notes}\n\nThis card's branch: {note}. Do not merge it again."
     cli, blocked = "", []
     try:
         out = await asyncio.to_thread(run_claude, {**card, "lane": "deploy"}, cwd, notes)
@@ -577,15 +633,41 @@ async def deploy(client, card, cwd, notes, base):
         out, verdict = f"{e}", []
     head = {(DEPLOYED,): DEPLOYED_HEAD, (SKIPPED,): SKIPPED_HEAD}.get(tuple(verdict),
                                                                       FAILED_HEAD)
-    # the worktree shares refs with the repo, so the deploy's push is already in origin/<base>
-    merged = git(cwd, "merge-base", "--is-ancestor", f"card/{id}", f"origin/{base}").returncode == 0
+    if done and head != FAILED_HEAD:   # a failed deploy may have undone it: leave it local
+        r = await asyncio.to_thread(git, repo, "push", "origin", base)
+        note += "; pushed" if r.returncode == 0 else \
+            f"; push failed ({(r.stderr or r.stdout).strip()[-200:]})"
+    merged = card["id"] in await asyncio.to_thread(landed, repo)
     # the head sets the deployed dot on the way in; this write only adds what git knows
-    await call(client, "comment", id=id, actor=AGENT, text=head + (out or "(no output)"),
-               output=cli)
+    await call(client, "comment", id=id, actor=AGENT,
+               text=f"{head}{out or '(no output)'}\n\n({note})", output=cli)
     if blocked:   # after the deploy's own result: a deploy has no next lane to stop
         await open_blockers(client, card, blocked)
     # a comment is a reply and clears the dot: set it again, verify waits for a person
     await call(client, "update_card", id=id, actor=AGENT, attention=True, merged=merged)
+
+
+async def light_merged(client, cards):
+    """The blue dot follows git on every poll, not just at deploy time: a card merged by
+    hand, or merged after its deploy ran, stayed dark forever (#106). Only ever lights the
+    dot — a move back into an agent lane is what clears it (`core.update_card`), and a
+    branch deleted after its merge must not darken a card that is on the base branch."""
+    dark = [c for c in cards if not c["merged"] and c["lane"] not in AGENT_LANES]
+    if not dark:
+        return
+    # ponytail: one git call per project per poll, forever, for cards that will never be
+    # merged; key a cache on the base branch's sha if it ever shows up in the log
+    paths = {p["name"].lower(): p["path"] for p in await call(client, "list_projects")}
+    seen = {}
+    for c in dark:
+        proj = c["project"].lower()
+        if proj not in seen:
+            path = paths.get(proj)
+            seen[proj] = await asyncio.to_thread(landed, Path(path)) if path else set()
+        if c["id"] in seen[proj]:
+            # attention passed as it is: this is git catching up, not a reply to a person
+            await call(client, "update_card", id=c["id"], actor=AGENT, merged=True,
+                       attention=c["attention"])
 
 
 async def tick(client, connect):
@@ -612,6 +694,7 @@ async def tick(client, connect):
             working.add(c["id"])   # here, not in work(): the task may not have run by the next poll
             running[key] = asyncio.create_task(work(connect, c, key))
             started.append(running[key])
+    await light_merged(client, cards)
     return started
 
 

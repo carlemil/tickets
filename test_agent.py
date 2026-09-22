@@ -859,7 +859,8 @@ def test_a_pass_commits_everything_and_pushes_before_verify(repo, where):
     files = agent.git(tree, "show", "--name-only", "--format=%s", "HEAD").stdout.split()
     assert files[:2] == [f"#{id}", "t"] and {"a.txt", "develop.txt", "test.txt"} <= set(files)
     assert comments(id)[-2].startswith(f"committed and pushed card/{id} to origin (")
-    assert not (repo / "develop.txt").exists(), "the repo itself is untouched"
+    assert agent.git(repo, "log", "-1", "--format=%s").stdout.strip() == f"Merge #{id} t", \
+        "the repo itself is only ever touched by the deploy's merge at the end"
 
 
 def test_commits_the_develop_stage_made_are_pushed_too(repo, where, monkeypatch):
@@ -1064,7 +1065,8 @@ def test_a_card_moved_to_verify_is_deployed_from_its_worktree(repo, where, monke
     assert (lane, doing) == ("test", "deploying") and sha, "pushed and deployed, then moved"
     c = core.get_card(id)
     assert (c["lane"], c["attention"]) == ("verify", True)
-    assert comments(id)[-1] == "deployed: shipped\nDEPLOY: OK"
+    assert comments(id)[-1] == \
+        f"deployed: shipped\nDEPLOY: OK\n\n(merged card/{id} into main; pushed)"
     assert core.list_activity() == [] and agent.running == {}
 
 
@@ -1076,7 +1078,7 @@ def test_a_failed_deploy_leaves_the_card_in_verify_and_says_so(repo, monkeypatch
     tick()
     c = core.get_card(id)
     assert (c["lane"], c["attention"], c["auto_advance"]) == ("verify", True, True)
-    assert comments(id)[-1] == "deploy failed: " + (out or "(no output)")
+    assert comments(id)[-1].startswith("deploy failed: " + (out or "(no output)"))
     tick()
     assert len([x for x in comments(id) if x.startswith("deploy")]) == 1, "deployed once"
 
@@ -1091,7 +1093,7 @@ def test_a_deploy_that_crashes_leaves_the_card_in_verify(repo, monkeypatch):
     monkeypatch.setattr(agent, "run_claude", run)
     tick()
     assert core.get_card(id)["lane"] == "verify"
-    assert comments(id)[-1] == "deploy failed: claude exited 1: adb not found"
+    assert comments(id)[-1].startswith("deploy failed: claude exited 1: adb not found")
 
 
 @pytest.mark.parametrize("lane", ["plan", "develop"])
@@ -1235,7 +1237,8 @@ def test_a_deploy_that_is_blocked_opens_a_card(repo, monkeypatch):
     tick()
     c = core.get_card(id)
     assert (c["lane"], c["attention"]) == ("verify", True), "a deploy has no next lane to stop"
-    assert comments(id)[-2] == "deployed: backend is up\nDEPLOY: OK", "the verdict still reads"
+    assert comments(id)[-2].startswith("deployed: backend is up\nDEPLOY: OK"), \
+        "the verdict still reads"
     [new] = core.list_cards(lane="todo", project="Repo")
     assert new["title"] == "Plug the phone in"
     assert comments(id)[-1] == f"blocked: opened #{new['id']} in todo for what a person has " \
@@ -1320,18 +1323,17 @@ def test_the_restart_frees_the_lock_before_starting_the_new_agent(monkeypatch):
 
 # ---------- the merged and deployed dots ----------
 
-def deploys(repo, monkeypatch, out, merge=False):
-    """A card in test whose deploy replies `out`, after merging it into main and pushing
-    that if `merge`."""
-    id = card("test", project="Repo")
+def deploys(repo, monkeypatch, out, told=None, id=None):
+    """A card in test whose deploy replies `out` (or raises it). The agent does the merge
+    itself, so the fake deploy run merges nothing; `told` collects what it was told."""
+    id = id or card("test", project="Repo")
 
     def run(c, cwd, i):
         if c["lane"] != "deploy":
             (cwd / "t.txt").write_text("x")
             return "fine\nRESULT: PASS"
-        if merge:
-            agent.git(repo, "merge", "-q", "--no-ff", f"card/{id}", "-m", "merge")
-            agent.git(repo, "push", "-q", "origin", "main")
+        if told is not None:
+            told.append(i)
         if isinstance(out, Exception):
             raise out
         return out
@@ -1340,46 +1342,201 @@ def deploys(repo, monkeypatch, out, merge=False):
     return core.get_card(id)
 
 
-def test_a_merged_and_deployed_card_lights_both(repo, monkeypatch):
-    c = deploys(repo, monkeypatch, "backend restarted\nDEPLOY: OK", merge=True)
+def on(repo, id, ref="main"):
+    """Is card/<id> on `ref`?"""
+    return agent.git(repo, "merge-base", "--is-ancestor", f"card/{id}", ref).returncode == 0
+
+
+def test_a_deployed_card_is_merged_pushed_and_lights_both(repo, monkeypatch):
+    c = deploys(repo, monkeypatch, "backend restarted\nDEPLOY: OK")
+    id = c["id"]
     assert (c["lane"], c["attention"], c["merged"], c["deployed"]) == ("verify", True, True, True)
+    assert on(repo, id) and on(repo, id, "origin/main"), "merged locally and pushed"
+    assert agent.git(repo, "log", "-1", "--format=%s", "main").stdout.strip() == f"Merge #{id} t"
+    assert comments(id)[-1].endswith(f"(merged card/{id} into main; pushed)")
 
 
-def test_a_deploy_without_a_merge_is_not_on_master(repo, monkeypatch):
-    c = deploys(repo, monkeypatch, "installed on the phone\nDEPLOY: OK")
-    assert (c["merged"], c["deployed"]) == (False, True)
+def test_the_deploy_run_is_told_the_merge_is_done(repo, monkeypatch):
+    told = []
+    c = deploys(repo, monkeypatch, "shipped\nDEPLOY: OK", told)
+    assert f"This card's branch: merged card/{c['id']} into main. Do not merge it " \
+           "again." in told[0]
+    assert agent.git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "main"
 
 
 def test_a_skipped_deploy_is_not_a_failure(repo, monkeypatch):
-    c = deploys(repo, monkeypatch, "no phone connected\n**DEPLOY: SKIPPED**", merge=True)
+    c = deploys(repo, monkeypatch, "no phone connected\n**DEPLOY: SKIPPED**")
     assert (c["lane"], c["attention"], c["merged"], c["deployed"]) == ("verify", True, True, False)
-    assert comments(c["id"])[-1] == "deploy skipped: no phone connected\n**DEPLOY: SKIPPED**"
+    assert comments(c["id"])[-1].startswith(
+        "deploy skipped: no phone connected\n**DEPLOY: SKIPPED**\n\n(merged ")
 
 
-def test_a_deploy_that_fails_after_the_merge_is_still_on_master(repo, monkeypatch):
-    c = deploys(repo, monkeypatch, "restart failed\nDEPLOY: FAILED", merge=True)
+def test_a_failed_deploy_keeps_the_merge_local(repo, monkeypatch):
+    c = deploys(repo, monkeypatch, "restart failed\nDEPLOY: FAILED")
     assert (c["merged"], c["deployed"]) == (True, False)
+    assert on(repo, c["id"]) and not on(repo, c["id"], "origin/main"), "not pushed"
     assert comments(c["id"])[-1].startswith("deploy failed: ")
 
 
-def test_a_deploy_that_crashes_lights_neither(repo, monkeypatch):
+def test_a_deploy_that_crashes_keeps_the_merge_and_lights_only_blue(repo, monkeypatch):
     c = deploys(repo, monkeypatch, RuntimeError("claude exited 1"))
-    assert (c["merged"], c["deployed"]) == (False, False)
-    assert comments(c["id"])[-1] == "deploy failed: claude exited 1"
+    assert (c["merged"], c["deployed"]) == (True, False)
+    assert comments(c["id"])[-1].startswith("deploy failed: claude exited 1\n\n(merged ")
 
 
-def test_merged_only_once_the_merge_is_pushed(repo, monkeypatch):
+def test_a_merge_that_cannot_be_pushed_still_lights_the_dot(repo, monkeypatch):
     id = card("test", project="Repo")
 
     def run(c, cwd, i):
-        if c["lane"] == "deploy":   # merged locally, never pushed: not on origin
-            agent.git(repo, "merge", "-q", "--no-ff", f"card/{id}", "-m", "merge")
-            return "DEPLOY: OK"
-        (cwd / "t.txt").write_text("x")
-        return "fine\nRESULT: PASS"
+        if c["lane"] != "deploy":
+            (cwd / "t.txt").write_text("x")
+            return "fine\nRESULT: PASS"
+        agent.git(repo, "remote", "remove", "origin")   # after the merge, before the push
+        return "ok\nDEPLOY: OK"
     monkeypatch.setattr(agent, "run_claude", run)
     tick()
-    assert core.get_card(id)["merged"] is False
+    c = core.get_card(id)
+    assert (c["merged"], c["deployed"]) == (True, True), "on main here, whatever origin knows"
+    assert "push failed" in comments(id)[-1]
+
+
+def test_a_dirty_base_branch_is_never_merged_into(repo, monkeypatch):
+    id = card("test", project="Repo")
+    (repo / "a.txt").write_text("someone is working here")
+    c = deploys(repo, monkeypatch, "ok\nDEPLOY: OK", id=id)
+    assert (c["lane"], c["merged"]) == ("verify", False)
+    assert (repo / "a.txt").read_text() == "someone is working here", "never touched"
+    assert "has uncommitted work on main" in comments(id)[-1]
+
+
+def test_a_repo_on_another_branch_is_never_merged_into(repo, monkeypatch):
+    id = card("test", project="Repo")
+
+    def run(c, cwd, i):
+        if c["lane"] != "deploy":                       # someone checks another branch out
+            (cwd / "t.txt").write_text("x")             # while the test stage is running
+            agent.git(repo, "checkout", "-q", "-b", "elsewhere")
+            return "fine\nRESULT: PASS"
+        return "ok\nDEPLOY: OK"
+    monkeypatch.setattr(agent, "run_claude", run)
+    tick()
+    c = core.get_card(id)
+    assert (c["lane"], c["merged"]) == ("verify", False)
+    assert "is on elsewhere, not main" in comments(id)[-1]
+
+
+def test_a_merge_that_conflicts_is_aborted(repo, monkeypatch):
+    id = card("test", project="Repo")
+    was = []
+
+    def run(c, cwd, i):
+        if c["lane"] != "deploy":
+            # main moves after the run has caught up with it: the one way to conflict
+            (cwd / "t.txt").write_text("ours")
+            (repo / "t.txt").write_text("theirs")
+            agent.git(repo, "add", ".")
+            agent.git(repo, "commit", "-q", "-m", "theirs")
+            was.append(agent.git(repo, "rev-parse", "main").stdout.strip())
+            return "fine\nRESULT: PASS"
+        return "ok\nDEPLOY: OK"
+    monkeypatch.setattr(agent, "run_claude", run)
+    tick()
+    c = core.get_card(id)
+    assert (c["lane"], c["merged"]) == ("verify", False)
+    assert agent.git(repo, "rev-parse", "main").stdout.strip() == was[0], "main unmoved"
+    assert agent.git(repo, "rev-parse", "--verify", "--quiet", "MERGE_HEAD").returncode, "aborted"
+    assert f"not merged: card/{id} does not merge into main cleanly" in comments(id)[-1]
+
+
+def test_a_second_merge_is_a_no_op(repo, monkeypatch):
+    c = deploys(repo, monkeypatch, "ok\nDEPLOY: OK")
+    log = agent.git(repo, "log", "--oneline", "main").stdout
+    assert agent.land(repo, c, "main") == (False, "already on main")
+    assert agent.git(repo, "log", "--oneline", "main").stdout == log
+
+
+def test_merging_outside_a_git_repository_only_says_so(tmp_path):
+    assert agent.land(tmp_path, {"id": 1, "title": "t"}, "main") == \
+        (False, f"not merged: {tmp_path} is not a git repository")
+
+
+# ---------- the merged dot follows git on every poll ----------
+
+def branch(repo, id, merged=True, base="main"):
+    """card/<id> with a commit of its own, merged into `base` by hand if `merged`."""
+    agent.git(repo, "checkout", "-q", "-b", f"card/{id}")
+    (repo / f"{id}.txt").write_text("x")
+    agent.git(repo, "add", ".")
+    agent.git(repo, "commit", "-q", "-m", f"#{id}")
+    agent.git(repo, "checkout", "-q", base)
+    if merged:
+        agent.git(repo, "merge", "-q", "--no-ff", f"card/{id}", "-m", f"Merge #{id}")
+
+
+@pytest.mark.parametrize("lane", ["verify", "done"])
+def test_a_card_merged_by_hand_lights_up_on_the_next_poll(ran, tmp_path, lane):
+    id = card(lane, assignee=None)
+    branch(tmp_path / "Proj", id)
+    tick()
+    assert core.get_card(id)["merged"] is True
+
+
+def test_a_card_that_is_not_merged_stays_dark(ran, tmp_path):
+    unmerged, no_branch = card("verify", assignee=None), card("verify", assignee=None)
+    branch(tmp_path / "Proj", unmerged, merged=False)
+    tick()
+    assert [core.get_card(i)["merged"] for i in (unmerged, no_branch)] == [False, False]
+
+
+def test_a_merge_only_on_origin_lights_up(ran, tmp_path):
+    id = card("verify", assignee=None)
+    repo = tmp_path / "Proj"
+    branch(repo, id)
+    agent.git(repo, "push", "-q", "origin", "main")
+    agent.git(repo, "reset", "-q", "--hard", "HEAD~1")   # only origin/main has the merge
+    tick()
+    assert core.get_card(id)["merged"] is True
+
+
+def test_a_card_back_in_an_agent_lane_stays_dark(ran, tmp_path):
+    id = card("develop", assignee=None)
+    branch(tmp_path / "Proj", id)
+    tick()
+    assert core.get_card(id)["merged"] is False, "rework: core cleared the dot on purpose"
+
+
+def test_a_branch_of_the_same_id_in_another_project_does_not_light_it(ran, tmp_path):
+    core.create_project("Other", path=str(make_repo(tmp_path / "Other")))
+    id = card("verify", assignee=None)
+    branch(tmp_path / "Other", id)
+    tick()
+    assert core.get_card(id)["merged"] is False, "card ids are global, branches are per repo"
+
+
+def test_lighting_the_dot_keeps_attention_and_auto_advance(ran, tmp_path):
+    id = card("verify", assignee=None, auto=True)
+    core.update_card(id, "ce", attention=True)
+    branch(tmp_path / "Proj", id)
+    tick()
+    c = core.get_card(id)
+    assert (c["merged"], c["attention"], c["auto_advance"]) == (True, True, True)
+
+
+def test_a_project_with_no_repo_breaks_nothing(ran, tmp_path):
+    (tmp_path / "Plain").mkdir()
+    core.create_project("Plain", path=str(tmp_path / "Plain"))
+    ids = [card("verify", assignee=None, project=p) for p in ("Plain", "Pathless")]
+    tick()
+    assert [core.get_card(i)["merged"] for i in ids] == [False, False]
+
+
+def test_a_lit_card_stays_lit_when_its_branch_is_deleted(ran, tmp_path):
+    id = card("verify", assignee=None)
+    branch(tmp_path / "Proj", id)
+    core.update_card(id, agent.AGENT, merged=True)
+    agent.git(tmp_path / "Proj", "branch", "-D", f"card/{id}")
+    tick()
+    assert core.get_card(id)["merged"] is True
 
 
 def test_the_deploy_prompt_knows_the_skipped_verdict(monkeypatch, tmp_path):

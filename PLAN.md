@@ -414,18 +414,26 @@ tooltip still gives the auto state. Clicking a red dot toggles auto advance, and
 write clears attention: on a failed card it means "go again".
 
 **On master, deployed (#41).** After the auto dot come two more, on the board card and in
-the sheet header: blue when `merged` (the card's branch is on the base branch on origin),
-purple when `deployed` (on the local test backend or a device), rings when not. Not
-clickable. The deploy step sets `merged` from `git merge-base --is-ancestor card/<id>
-origin/<base>` after the run, whatever its verdict, in the same write as `attention=True`.
+the sheet header: blue when `merged` (the card's branch is on the base branch, locally or
+on origin), purple when `deployed` (on the local test backend or a device), rings when not.
+Not clickable. The deploy step merges the card's branch into the base branch itself (#106),
+in the main checkout, for every project — `agent.land`, before the deploy run, so a deploy
+that restarts a backend or publishes a site sees the merge; it is skipped, with the reason
+in the comment, unless the repo is on the base branch with nothing uncommitted, and a
+conflict aborts. The push waits until after the run, since a deploy that tests on the base
+branch has to be able to `reset --hard ORIG_HEAD`. `merged` is then read back from git
+(`agent.landed`), in the same write as `attention=True`.
 `deployed` the board sets itself, from the head of the deploy comment: `core.comment`
 lights it on `deployed: ` from `claude-agent` and darkens it on `deploy skipped: ` or
 `deploy failed: ` (a skip — nothing to deploy, or no phone — is not a failure). The head
 comes from the verdict line (`DEPLOY: OK`, `DEPLOY: SKIPPED`, anything else), so the dot
 says what the comment says, whatever version of `agent.py` wrote it (#68). A move from
 todo/verify/done back into plan, develop or test is rework and clears both, unless the
-same write sets them. A card merged or deployed by hand stays dark; MCP `update_card`
-takes both.
+same write sets them. A card deployed by hand stays dark, but `merged` is not one-shot:
+every poll `agent.light_merged` re-checks git for the cards outside the agent lanes that
+are still dark and lights the ones whose branch has landed, whoever merged it and whenever
+(#106). It only ever lights: deleting the branch after a merge must not darken the card.
+MCP `update_card` takes both.
 
 **Hover help.** Every control has a `title`. Panel fields get theirs from `FIELD_TIPS` in
 `field()`, lane headings from `LANE_TIPS`; everything else from one `TIPS` list of
