@@ -33,7 +33,10 @@ A deploy that changes agent.py takes effect on its own: between polls, with no r
 the agent sees the new file, frees its lock port and starts a fresh process of itself.
 
 Any failure comments why, unassigns and turns auto advance off, so the card sits in its
-lane until a person looks: no retry loop. Running out of quota is not a failure: the
+lane until a person looks: no retry loop. A run stopped by something only a person can do
+(a credential to create, a service to enable) says so under '## Blocked by': each task
+becomes a card of its own in `todo`, linked as blocking this one, and this card waits in
+its lane like one with open questions. Running out of quota is not a failure: the
 agent comments when it will resume, pauses all runs until the limit resets, then picks the
 card up again where it was.
 """
@@ -68,7 +71,18 @@ DOING = {"plan": "planning", "develop": "developing", "test": "testing"}   # the
 # claude -p's "You've hit your session limit · resets 10:30pm (Europe/Stockholm)"
 LIMIT = re.compile(r"hit your [^\n]*?limit(?:[^\n]*?resets ([^(\n]*))?", re.I)
 QUESTIONS_HEAD = re.compile(r"^#+[ \t]*open questions[ \t]*:?[ \t]*$", re.I | re.M)
+BLOCKED_HEAD = re.compile(r"^#+[ \t]*blocked by[ \t]*:?[ \t]*$", re.I | re.M)
+BULLET = re.compile(r"(?:[-*+]|\d+[.)])\s+(.*)")
 CLI_CAP = 100_000   # the transcript goes in the DB, and a develop run can print megabytes
+# every lane gets this: what stops a card from outside the code becomes cards for a person
+BLOCKED_ASK = (
+    "\n\nIf something outside the code stops this card — a credential or account that has "
+    "to be created, a service to enable, a device to plug in, a file only a person can "
+    "supply — end your reply with a section headed exactly '## Blocked by', one short "
+    "bullet per task, written as a task in a person's words, with the details indented "
+    "under it. Each bullet is opened as a card on the board for them, and the card you are "
+    "on stops until they are done, so put nothing there about work you can do yourself. "
+    "If you also have '## Open questions', put this section before it.")
 
 PROMPTS = {
     "plan": "Plan the implementation of this ticket card. Its `description` is the request. "
@@ -246,7 +260,7 @@ def reply(out):
 def run_claude(card, cwd, instructions=""):
     lane = card["lane"]
     project = f"Project instructions (follow them):\n{instructions}\n\n" if instructions else ""
-    prompt = (f"{PROMPTS[lane]}\n\n{project}"
+    prompt = (f"{PROMPTS[lane]}{BLOCKED_ASK}\n\n{project}"
               f"Card:\n{json.dumps(card, indent=2, ensure_ascii=False)}")
     try:
         # stream-json prints an event per step, so the run's whole transcript is kept, not
@@ -362,6 +376,55 @@ def split_plan(out):
     return plan.strip(), number(questions.strip()) if is_open else "", is_open
 
 
+def blockers(out):
+    """A reply -> (the reply with its '## Blocked by' section taken out, [(title, body)…]).
+    The section is the bullet list under the heading: a top-level bullet starts a task, the
+    lines indented under it are its details, and the first other non-blank line ends it —
+    the next heading, or the run's verdict line, which stays last in the reply where the
+    lane checks look for it. A heading with no bullets under it takes nothing out."""
+    m = BLOCKED_HEAD.search(out)
+    if not m:
+        return out, []
+    rest, items, used = out[m.end():], [], 0
+    for ln in rest.splitlines(keepends=True):
+        if not ln[:1].isspace() and (b := BULLET.match(ln)):
+            items.append([b[1].strip(" *`"), []])
+        elif ln.strip() and ln[:1].isspace() and items:
+            items[-1][1].append(ln.strip())
+        elif ln.strip():
+            break                      # the next heading or the verdict: the section ends
+        used += len(ln)
+    if not items:
+        return out, []
+    return (out[:m.start()] + rest[used:]).strip(), \
+        [(t if len(t) <= 100 else t[:99] + "…", "\n".join(body)) for t, body in items]
+
+
+async def open_blockers(client, card, items):
+    """Cards for what a person has to do before this card can go on: in `todo`, unassigned,
+    auto advance off — where `core.setup_cards` puts what only a person can fix, and a lane
+    the agent never polls — each linked as blocking the card it came from.
+    ponytail: a task already on the board under that title in the project is skipped, so a
+    rerun does not open it twice; reworded on the next run, it opens twice. Good enough for
+    a board one person reads."""
+    have = {c["title"].casefold()
+            for c in await call(client, "list_cards", project=card["project"])}
+    opened = []
+    for title, body in items:
+        if title.casefold() in have:
+            continue
+        new = await call(client, "create_card", title=title, actor=AGENT,
+                         project=card["project"],
+                         description=f"{body}\n\n(blocks #{card['id']} {card['title']})".strip())
+        await call(client, "link_cards", from_id=new["id"], to_id=card["id"], kind="blocks",
+                   actor=AGENT)
+        opened.append(new["id"])
+    if opened:
+        await call(client, "comment", id=card["id"], actor=AGENT,
+                   text="blocked: opened " + ", ".join(f"#{i}" for i in opened)
+                        + " in todo for what a person has to do first")
+
+
 async def handle(client, card, back=""):
     """`back` is who had the card before the agent took it: every way out gives it back."""
     lane, id = card["lane"], card["id"]
@@ -379,6 +442,10 @@ async def handle(client, card, back=""):
         notes = "\n\n".join(x for x in (proj["instructions"], note) if x)
         out = await asyncio.to_thread(run_claude, card, cwd, notes)
         cli = getattr(out, "cli", "")
+        # the tasks for a person are opened whatever happened to this card meanwhile
+        out, blocked = blockers(out)
+        if blocked:
+            await open_blockers(client, card, blocked)
         # so a person knows where to look, and what to merge
         where = f"\n\n(worked in {tree}, branch card/{id})" if tree else ""
         # a run takes minutes; if a person moved the card meanwhile, their move wins: keep
@@ -414,6 +481,10 @@ async def handle(client, card, back=""):
         else:
             await call(client, "comment", id=id, actor=AGENT, text=(out or "(no output)") + where,
                        output=cli)
+        if blocked:   # only a person can do it: the card waits here, like one with questions
+            await call(client, "update_card", id=id, actor=AGENT, assignee=back, attention=True,
+                       auto_advance=False)
+            return
         if lane == "test":
             if [ln.strip(" *`") for ln in out.splitlines()[-1:]] != [PASS]:
                 raise RuntimeError(f"the test stage did not end in {PASS}")
@@ -487,10 +558,11 @@ async def deploy(client, card, cwd, notes, base):
     # the card is the test card: the deploy updates that run's row and holds its slot
     await call(client, "set_activity", actor=doer(card["project"], card["lane"]), card_id=id,
                doing="deploying")
-    cli = ""
+    cli, blocked = "", []
     try:
         out = await asyncio.to_thread(run_claude, {**card, "lane": "deploy"}, cwd, notes)
         cli = getattr(out, "cli", "")
+        out, blocked = blockers(out)
         verdict = [ln.strip(" *`") for ln in out.splitlines()[-1:]]
     except OutOfQuota as e:
         # not retried: verify cards are not polled, so a person runs the deploy again
@@ -508,6 +580,8 @@ async def deploy(client, card, cwd, notes, base):
     # the head sets the deployed dot on the way in; this write only adds what git knows
     await call(client, "comment", id=id, actor=AGENT, text=head + (out or "(no output)"),
                output=cli)
+    if blocked:   # after the deploy's own result: a deploy has no next lane to stop
+        await open_blockers(client, card, blocked)
     # a comment is a reply and clears the dot: set it again, verify waits for a person
     await call(client, "update_card", id=id, actor=AGENT, attention=True, merged=merged)
 

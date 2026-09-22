@@ -235,6 +235,24 @@ deployed one now follows the comment instead, set by `core.comment` on the way i
 the dots below). `merged` still comes from the agent, because only git knows it; an agent
 started from here on carries #50, so it cannot fall behind the code again.
 
+**What only a person can do becomes cards of its own.** Every lane's prompt ends with a
+request: if something outside the code stops the card — a credential to create, a service
+to enable, a device to plug in — say so under a last `## Blocked by` heading, one bullet
+per task with its details indented under it. `blockers()` takes that section out of the
+reply (the verdict line stays last, where the lane checks look for it) and `open_blockers`
+opens a card per bullet: in `todo`, unassigned, auto advance off — where `setup_cards`
+puts what only a person can fix, and a lane the agent never polls, so nothing loops — each
+linked `blocks` back to the card it came from, with one comment on that card naming them.
+A title already on the board in that project is skipped, so a rerun does not open it
+twice. The card itself then waits in its lane with the red dot on, exactly as a plan with
+open questions does, and the same reply (a comment or an edit) restarts it; without that
+stop a run would declare the card impossible and send it on to develop and test anyway.
+The parse is in Python, not board MCP tools inside the run: planning is read-only
+(`--permission-mode plan`), the `tickets` server is registered for the Tickets project
+scope only, and a run with board writes could move and edit any card. #92 is why: its plan
+found a missing Google OAuth client, two blank `.env` values and a Photos API nobody had
+enabled, wrote all of it into one card's `plan`, and nothing happened.
+
 **A git worktree per card.** Develop and test run in a worktree of the card's own, next
 to the project's repo: `<repo>.worktrees/card-<id>` on branch `card/<id>`, made from the
 repo's current branch on the card's first develop run and reused after that (rework, the
