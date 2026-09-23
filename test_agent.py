@@ -947,8 +947,91 @@ def test_a_worktree_that_will_not_go_does_not_fail_the_card(repo, where, monkeyp
     monkeypatch.setattr(agent, "prune", lambda r, t: "in use by another process")
     tick()
     assert core.get_card(id)["lane"] == "verify"
-    assert comments(id)[-1].startswith("could not remove the worktree")
-    assert comments(id)[-1].endswith("in use by another process")
+    assert comments(id)[-2].startswith("could not remove the worktree")
+    assert comments(id)[-2].endswith("in use by another process")
+    [job] = core.list_cards(lane="todo", project="Repo")
+    assert job["title"].startswith("remove the worktree"), "a folder nobody reads a comment about"
+
+
+def test_prune_takes_a_folder_down_when_git_will_not(repo, monkeypatch):
+    """Windows: one file held open and `worktree remove` refuses outright (#106)."""
+    id = card("verify", project="Repo")
+    tree = left_over(repo, id)
+    real = agent.git
+    monkeypatch.setattr(agent, "git", lambda path, *a: (
+        subprocess.CompletedProcess(a, 1, "", "fatal: ...: Permission denied")
+        if a[:2] == ("worktree", "remove") else real(path, *a)))
+    assert agent.prune(repo, tree) == ""
+    assert not tree.exists()
+
+
+def test_prune_clears_a_folder_git_no_longer_knows_about(repo):
+    """What #106 actually left behind: git dropped its own entry and the folder stayed, so
+    `worktree remove` says it is not a working tree and nothing ever cleared it."""
+    id = card("verify", project="Repo")
+    tree = left_over(repo, id)
+    shutil.rmtree(repo / ".git" / "worktrees" / f"card-{id}")
+    assert agent.prune(repo, tree) == ""
+    assert not tree.exists()
+
+
+def test_prune_says_so_when_the_folder_really_will_not_go(repo, monkeypatch):
+    id = card("verify", project="Repo")
+    tree = left_over(repo, id)
+    real = agent.git
+    monkeypatch.setattr(agent, "git", lambda path, *a: (
+        subprocess.CompletedProcess(a, 1, "", "fatal: ...: Permission denied")
+        if a[:2] == ("worktree", "remove") else real(path, *a)))
+    monkeypatch.setattr(agent.shutil, "rmtree", lambda *a, **k: None)
+    assert "Permission denied" in agent.prune(repo, tree)
+    assert tree.exists()
+
+
+# ---------- worktrees no run is coming back for ----------
+
+def left_over(repo, id, merge=True):
+    """A card's worktree as one is left behind: committed, pushed, and on main unless said
+    otherwise. `card("test", ...)` has already made the folder; workspace reuses it."""
+    agent.workspace({"id": id, "lane": "develop"}, repo)
+    tree = repo.parent / "Repo.worktrees" / f"card-{id}"
+    (tree / "t.txt").write_text("x")
+    agent.ship({"id": id, "title": "t"}, tree)
+    if merge:
+        agent.git(repo, "merge", "--no-ff", f"card/{id}", "-m", f"Merge #{id}")
+    return tree
+
+
+@pytest.mark.parametrize("lane", ["verify", "done"])
+def test_a_merged_worktree_past_the_agents_lanes_is_swept_up(repo, lane):
+    id = card(lane, project="Repo")
+    tree = left_over(repo, id)
+    tick()
+    assert not tree.exists(), "dragged out of test by hand: nothing else would remove it"
+
+
+def test_an_unmerged_worktree_is_left_where_it_is(repo):
+    id = card("verify", project="Repo")
+    tree = left_over(repo, id, merge=False)
+    tick()
+    assert tree.exists(), "its work never reached main: the folder is the sign of it"
+
+
+def test_a_worktree_is_left_while_its_card_is_still_in_an_agent_lane(repo):
+    id = card("test", assignee="ce", project="Repo")      # not the agent's: no run starts
+    tree = left_over(repo, id)
+    tick()
+    assert tree.exists(), "develop and test are still using it"
+
+
+def test_a_worktree_a_run_is_holding_is_left_alone(repo):
+    id = card("verify", project="Repo")
+    tree = left_over(repo, id)
+    agent.working.add(id)
+    try:
+        tick()
+    finally:
+        agent.working.discard(id)
+    assert tree.exists(), "a run has it open"
 
 
 # ---------- one run per project lane at a time ----------
@@ -1423,11 +1506,34 @@ def test_a_skipped_deploy_is_not_a_failure(repo, monkeypatch):
         "deploy skipped: no phone connected\n**DEPLOY: SKIPPED**\n\n(merged ")
 
 
-def test_a_failed_deploy_keeps_the_merge_local(repo, monkeypatch):
+def test_a_failed_deploy_still_pushes_the_merge_it_left_standing(repo, monkeypatch):
     c = deploys(repo, monkeypatch, "restart failed\nDEPLOY: FAILED")
-    assert (c["merged"], c["deployed"]) == (True, False)
-    assert on(repo, c["id"]) and not on(repo, c["id"], "origin/main"), "not pushed"
+    assert (c["lane"], c["merged"], c["deployed"]) == ("verify", True, False)
+    assert on(repo, c["id"], "origin/main"), "the merge is not the deploy verdict's to hold"
     assert comments(c["id"])[-1].startswith("deploy failed: ")
+    assert not (repo.parent / "Repo.worktrees" / f"card-{c['id']}").exists(), \
+        "a failed deploy is re-run from the repo, not from a folder kept for it"
+
+
+def test_a_deploy_that_undoes_the_merge_keeps_the_card_in_test(repo, monkeypatch):
+    """The one thing the old `head != FAILED_HEAD` guard was really after: a deploy that
+    tests on main and resets it. Git is asked, so nothing is pushed and the card waits."""
+    id = card("test", project="Repo")
+
+    def run(c, cwd, i):
+        if c["lane"] != "deploy":
+            (cwd / "t.txt").write_text("x")
+            return "fine\nRESULT: PASS"
+        agent.git(repo, "reset", "--hard", "ORIG_HEAD")
+        return "ok\nDEPLOY: OK"
+    monkeypatch.setattr(agent, "run_claude", run)
+    tick()
+    c = core.get_card(id)
+    assert c["lane"] == "test" and not on(repo, id)
+    assert not on(repo, id, "origin/main"), "nothing to push, and nothing pushed"
+    [job] = core.list_cards(lane="todo", project="Repo")
+    assert job["title"] == f"merge card/{id} into main by hand"
+    assert (repo.parent / "Repo.worktrees" / f"card-{id}").exists(), "the retry needs it"
 
 
 def test_a_deploy_that_crashes_keeps_the_merge_and_lights_only_blue(repo, monkeypatch):
@@ -1436,7 +1542,7 @@ def test_a_deploy_that_crashes_keeps_the_merge_and_lights_only_blue(repo, monkey
     assert comments(c["id"])[-1].startswith("deploy failed: claude exited 1\n\n(merged ")
 
 
-def test_a_merge_that_cannot_be_pushed_still_lights_the_dot(repo, monkeypatch):
+def test_a_merge_that_cannot_be_pushed_keeps_the_card_in_test(repo, monkeypatch):
     id = card("test", project="Repo")
 
     def run(c, cwd, i):
@@ -1448,17 +1554,49 @@ def test_a_merge_that_cannot_be_pushed_still_lights_the_dot(repo, monkeypatch):
     monkeypatch.setattr(agent, "run_claude", run)
     tick()
     c = core.get_card(id)
-    assert (c["merged"], c["deployed"]) == (True, True), "on main here, whatever origin knows"
-    assert "push failed" in comments(id)[-1]
+    assert (c["lane"], c["merged"], c["deployed"]) == ("test", True, True), \
+        "on main here, whatever origin knows, but not away until origin knows too"
+    assert "push failed" in comments(id)[-3]
+    [job] = core.list_cards(lane="todo", project="Repo")
+    assert job["title"] == f"push main for #{id}"
+    assert (repo.parent / "Repo.worktrees" / f"card-{id}").exists(), "the retry needs it"
+
+
+def test_a_card_held_for_a_push_goes_on_when_the_push_works(repo, monkeypatch):
+    """The merge is already made on the second run, and `land` now says so rather than
+    reporting no merge of its own — which is what used to leave it unpushed forever."""
+    id = card("test", project="Repo")
+    origin = repo.parent / "Repo.origin.git"
+    cut = []
+
+    def run(c, cwd, i):
+        if c["lane"] != "deploy":
+            (cwd / "t.txt").write_text("x")
+            return "fine\nRESULT: PASS"
+        if not cut:
+            cut.append(agent.git(repo, "remote", "remove", "origin"))
+        return "ok\nDEPLOY: OK"
+    monkeypatch.setattr(agent, "run_claude", run)
+    tick()
+    assert core.get_card(id)["lane"] == "test"
+    agent.git(repo, "remote", "add", "origin", str(origin))
+    core.update_card(id, "ce", assignee=agent.AGENT)
+    tick()
+    c = core.get_card(id)
+    assert (c["lane"], c["merged"]) == ("verify", True)
+    assert on(repo, id, "origin/main"), "pushed on the run that found it already merged"
+    assert not (repo.parent / "Repo.worktrees" / f"card-{id}").exists(), "and the folder goes"
 
 
 def test_a_dirty_base_branch_is_never_merged_into(repo, monkeypatch):
     id = card("test", project="Repo")
     (repo / "a.txt").write_text("someone is working here")
     c = deploys(repo, monkeypatch, "ok\nDEPLOY: OK", id=id)
-    assert (c["lane"], c["merged"]) == ("verify", False)
+    assert (c["lane"], c["merged"]) == ("test", False)
     assert (repo / "a.txt").read_text() == "someone is working here", "never touched"
-    assert "has uncommitted work on main" in comments(id)[-1]
+    assert "has uncommitted work on main" in comments(id)[-2]
+    [job] = core.list_cards(lane="todo", project="Repo")
+    assert job["title"] == f"merge card/{id} into main by hand"
 
 
 def test_a_repo_on_another_branch_is_never_merged_into(repo, monkeypatch):
@@ -1473,8 +1611,9 @@ def test_a_repo_on_another_branch_is_never_merged_into(repo, monkeypatch):
     monkeypatch.setattr(agent, "run_claude", run)
     tick()
     c = core.get_card(id)
-    assert (c["lane"], c["merged"]) == ("verify", False)
-    assert "is on elsewhere, not main" in comments(id)[-1]
+    assert (c["lane"], c["merged"]) == ("test", False)
+    assert "is on elsewhere, not main" in comments(id)[-2]
+    assert (repo.parent / "Repo.worktrees" / f"card-{id}").exists(), "kept for the retry"
 
 
 def test_a_merge_that_conflicts_is_aborted(repo, monkeypatch):
@@ -1494,16 +1633,18 @@ def test_a_merge_that_conflicts_is_aborted(repo, monkeypatch):
     monkeypatch.setattr(agent, "run_claude", run)
     tick()
     c = core.get_card(id)
-    assert (c["lane"], c["merged"]) == ("verify", False)
+    assert (c["lane"], c["merged"]) == ("test", False)
     assert agent.git(repo, "rev-parse", "main").stdout.strip() == was[0], "main unmoved"
     assert agent.git(repo, "rev-parse", "--verify", "--quiet", "MERGE_HEAD").returncode, "aborted"
-    assert f"not merged: card/{id} does not merge into main cleanly" in comments(id)[-1]
+    assert f"not merged: card/{id} does not merge into main cleanly" in comments(id)[-2]
+    [job] = core.list_cards(lane="todo", project="Repo")
+    assert job["title"] == f"merge card/{id} into main by hand"
 
 
 def test_a_second_merge_is_a_no_op(repo, monkeypatch):
     c = deploys(repo, monkeypatch, "ok\nDEPLOY: OK")
     log = agent.git(repo, "log", "--oneline", "main").stdout
-    assert agent.land(repo, c, "main") == (False, "already on main")
+    assert agent.land(repo, c, "main") == (True, "already on main"), "on main is on main"
     assert agent.git(repo, "log", "--oneline", "main").stdout == log
 
 
@@ -1746,12 +1887,15 @@ def test_out_of_quota_in_deploy_postpones_it(ran, monkeypatch):
     tick()
     c = core.get_card(id)
     assert c["lane"] == "verify" and c["attention"] and not c["deployed"]
-    assert comments(id)[-1].startswith(f"deploy postponed: out of quota, resuming at {at:%H:%M}")
-    assert comments(id)[-1].endswith(", not pushed)"), \
-        "a person redeploying knows the base branch holds an unpushed merge"
+    assert comments(id)[-2].startswith(f"deploy postponed: out of quota, resuming at {at:%H:%M}")
+    assert comments(id)[-2].endswith("; pushed)"), \
+        "the merge goes to origin even when the deploy it was made for never ran"
     assert agent.paused_until == at
+    [job] = core.list_cards(lane="todo", project="Proj")
+    assert job["title"] == f"redeploy #{id} by hand"
     tree = Path(core.get_project("Proj")["path"])
-    assert (tree.parent / "Proj.worktrees" / f"card-{id}").exists(), "redeploy by hand: in it"
+    assert not (tree.parent / "Proj.worktrees" / f"card-{id}").exists(), \
+        "the redeploy is a card now, not a folder kept on the chance someone comes back"
 
 
 # ---------- the run's CLI transcript ----------

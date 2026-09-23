@@ -80,6 +80,7 @@ QUESTIONS_HEAD = re.compile(r"^#+[ \t]*open questions[ \t]*:?[ \t]*$", re.I | re
 BLOCKED_HEAD = re.compile(r"^#+[ \t]*blocked by[ \t]*:?[ \t]*$", re.I | re.M)
 BULLET = re.compile(r"(?:[-*+]|\d+[.)])\s+(.*)")
 CARD_BRANCH = re.compile(r"(?:.*/)?card/(\d+)")   # local or origin/, -> the card id
+CARD_DIR = re.compile(r"card-(\d+)")       # the worktree folder name, -> the card id
 CLI_CAP = 100_000   # the transcript goes in the DB, and a develop run can print megabytes
 # every lane gets this: what stops a card from outside the code becomes cards for a person
 BLOCKED_ASK = (
@@ -391,7 +392,11 @@ def land(repo, card, base):
     """Merge the card's branch into the project's base branch in the main checkout, at the
     end of the test stage (#106). Every project, not just the ones whose instructions say
     so. Never touches a person's work: the repo must be on `base` with nothing uncommitted,
-    or the merge is skipped and the comment says why. Returns (merged?, the line to say).
+    or the merge is skipped and the comment says why.
+
+    Returns (is the branch on `base` now?, the line to say) — not whether this call was the
+    one that merged it. A branch merged by hand answered False to that and so was never
+    pushed (#108), and the end of the test stage now asks the only question it cares about.
     ponytail: the merge can lose the .git/index.lock race a develop's `worktree add` can
     lose too; it is then skipped with git's error and a person merges it by hand."""
     top = git(repo, "rev-parse", "--show-toplevel")
@@ -399,7 +404,7 @@ def land(repo, card, base):
         return False, f"not merged: {repo} is not a git repository"
     top, branch = Path(top.stdout.strip()), f"card/{card['id']}"
     if card["id"] in landed(top):
-        return False, f"already on {base}"
+        return True, f"already on {base}"
     on = git(top, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     if on != base:
         return False, f"not merged: {top} is on {on}, not {base}"
@@ -410,6 +415,26 @@ def land(repo, card, base):
         git(top, "merge", "--abort")
         return False, f"not merged: {branch} does not merge into {base} cleanly"
     return True, f"merged {branch} into {base}"
+
+
+def push_base(repo, card, base, note):
+    """Push the merge `land` made. After the deploy run, never before: a deploy that tests on
+    the base branch has to be able to `reset --hard ORIG_HEAD`, and if it did, the card is no
+    longer on the base branch and there is nothing to push. Asking git that, instead of
+    trusting the deploy's own verdict, is also what gets a branch merged by hand pushed at
+    last (#108). Returns (the line to say, the job for a person) — the job None if it went."""
+    id = card["id"]
+    if id not in landed(repo):
+        return note, (f"merge card/{id} into {base} by hand",
+                      f"The deploy left card/{id} off {base}. It waits in test until its "
+                      f"work is on {base} at origin.")
+    r = git(repo, "push", "origin", base)
+    if r.returncode:
+        why = (r.stderr or r.stdout).strip()[-200:]
+        return f"{note}; push failed ({why})", \
+            (f"push {base} for #{id}",
+             f"#{id} is merged into {base} in the local repo only: {why}")
+    return f"{note}; pushed", None
 
 
 def ship(card, tree):
@@ -433,10 +458,19 @@ def prune(repo, tree):
     stays, here and on origin, so nothing is lost — a card sent back to develop gets a fresh
     worktree from it (see workspace). Forced because `ship` has just committed and pushed
     everything, so what is left is ignored build output. Returns git's complaint if the
-    folder would not go (a file held open, say), "" if it went: a worktree left behind does
-    not fail a card that passed."""
+    folder would not go, "" if it went: a worktree left behind does not fail a card.
+
+    On Windows `worktree remove` fails outright when a single file is held open — a watcher,
+    an editor, a .venv — and git drops its own admin entry anyway, leaving a folder it no
+    longer knows about (#106 left one). So take the folder down by hand when git will not,
+    and `worktree prune` after, which is also what clears an orphan like that one."""
     r = git(repo, "worktree", "remove", "--force", str(tree))
-    return "" if r.returncode == 0 else (r.stderr or r.stdout).strip()[-500:]
+    if r.returncode == 0:
+        return ""
+    why = (r.stderr or r.stdout).strip()[-500:]
+    shutil.rmtree(tree, ignore_errors=True)
+    git(repo, "worktree", "prune")
+    return why if Path(tree).exists() else ""
 
 
 def split_plan(out):
@@ -498,6 +532,20 @@ async def open_blockers(client, card, items):
         await call(client, "comment", id=card["id"], actor=AGENT,
                    text="blocked: opened " + ", ".join(f"#{i}" for i in opened)
                         + " in todo for what a person has to do first")
+
+
+async def hold(client, card, back, task):
+    """Keep a card in its lane, say why, and open the card in todo for what a person has to
+    do about it. What the end of the test stage does when the merge or the push it now
+    insists on did not happen (#108): the worktree stays, since the run that resumes here
+    needs it, and the work itself is already on origin under the card's own branch. The dot
+    is set last, because `open_blockers` leaves a comment, and a comment is a reply, which
+    clears it."""
+    await call(client, "comment", id=card["id"], actor=AGENT,
+               text=f"held in {card['lane']}: {task[1]}")
+    await open_blockers(client, card, [task])
+    await call(client, "update_card", id=card["id"], actor=AGENT, assignee=back,
+               attention=True, auto_advance=False)
 
 
 async def handle(client, card, back=""):
@@ -572,11 +620,25 @@ async def handle(client, card, back=""):
         # the phone gets the build before the card reaches verify: a card in verify is
         # always one a person can pick up and check
         if nxt == "verify":
-            # the deploy runs in the worktree; the worktree goes after it, its work pushed
-            if await deploy(client, card, repo, cwd, notes, base) and \
-                    (left := await asyncio.to_thread(prune, repo, tree)):
+            # a card only leaves test merged and pushed (#108). The merge is the gate: one
+            # that will not go waits here, in its worktree, for the person who has to
+            # untangle it. The deploy then runs on the merge, and the worktree goes after
+            # it whatever the deploy made of it, since `ship` has put it all on origin: the
+            # folder holds nothing of its own, and cards kept theirs for months.
+            on_base, note = await asyncio.to_thread(land, repo, card, base)
+            if not on_base:
+                await hold(client, card, back,
+                           (f"merge card/{id} into {base} by hand",
+                            f"{note}. The branch is on origin, so nothing is lost, but #{id} "
+                            f"waits in test until its work is on {base}."))
+                return
+            if todo := await deploy(client, card, repo, cwd, notes, note, base):
+                await hold(client, card, back, todo)
+                return
+            if left := await asyncio.to_thread(prune, repo, tree):
                 await call(client, "comment", id=id, actor=AGENT,
                            text=f"could not remove the worktree {tree}: {left}")
+                await open_blockers(client, card, [(f"remove the worktree {tree}", left)])
         # an auto-advancing card goes on to the next stage, which the next poll picks up
         if card["auto_advance"] and nxt in NEXT:
             await call(client, "update_card", id=id, actor=AGENT, lane=nxt, assignee=back)
@@ -640,23 +702,21 @@ def doer(project, lane):
     return f"{AGENT} ({project} {lane})"
 
 
-async def deploy(client, card, repo, cwd, notes, base):
-    """The last step of the test stage, just before the card is moved to verify. The card
-    lands in verify either way: the comment says what was deployed, or why the deploy failed.
+async def deploy(client, card, repo, cwd, notes, note, base):
+    """The last step of the test stage, just before the card is moved to verify.
 
-    It merges the card's branch into the base branch first, for every project (#106), so
-    merging is code and not per-project prose, and the deploy run — which restarts a backend
-    or publishes a site — sees the merge. The push waits until after the run: a deploy that
-    tests on the base branch has to be able to `reset --hard ORIG_HEAD`. The card's merged
-    dot is read back from git; the deployed dot the board sets from the comment's first word
-    (`core.comment`), so it does not depend on this process being as new as the code. Returns
-    whether the deploy ran: a deploy postponed by the quota is redone by hand in the
-    worktree, so it keeps it."""
+    The branch is already merged into the base branch when this runs — `handle` does that,
+    and keeps the card in test if it would not go (#108) — so the deploy run, which restarts
+    a backend or publishes a site, sees the merge. `note` is the line `land` wrote about it,
+    passed to the run so that it does not merge again, and pushed here once the run is done.
+    The card's merged dot is read back from git; the deployed dot the board sets from the
+    comment's first word (`core.comment`), so it does not depend on this process being as new
+    as the code. Returns the job keeping the card in test, None if there is none: a deploy
+    that failed is not one, and its comment says so either way."""
     id = card["id"]
     # the card is the test card: the deploy updates that run's row and holds its slot
     await call(client, "set_activity", actor=doer(card["project"], card["lane"]), card_id=id,
                doing="deploying")
-    done, note = await asyncio.to_thread(land, repo, card, base)
     notes = f"{notes}\n\nThis card's branch: {note}. Do not merge it again."
     cli, blocked = "", []
     try:
@@ -665,21 +725,24 @@ async def deploy(client, card, repo, cwd, notes, base):
         out, blocked = blockers(out)
         verdict = [ln.strip(" *`") for ln in out.splitlines()[-1:]]
     except OutOfQuota as e:
-        # not retried: verify cards are not polled, so a person runs the deploy again
+        # not retried: verify cards are not polled, so a person runs the deploy again.
+        # The merge is pushed all the same and the worktree still goes: it used to be kept
+        # on the chance someone came back to it, and four were still there days later (#108)
         pause(e.at)
+        note, todo = await asyncio.to_thread(push_base, repo, card, base, note)
         await call(client, "comment", id=id, actor=AGENT, text=f"deploy postponed: out of "
-                   f"quota, resuming at {e.at:%H:%M}; redeploy by hand ({e})\n\n({note}, "
-                   f"not pushed)")
+                   f"quota, resuming at {e.at:%H:%M}; redeploy by hand ({e})\n\n({note})")
+        await open_blockers(client, card, [(f"redeploy #{id} by hand",
+                                            f"The deploy ran out of quota, resuming at "
+                                            f"{e.at:%H:%M}. {note}, so the redeploy runs in "
+                                            f"the repo.")])
         await call(client, "update_card", id=id, actor=AGENT, attention=True)
-        return False
+        return todo
     except Exception as e:
         out, verdict = f"{e}", []
     head = {(DEPLOYED,): DEPLOYED_HEAD, (SKIPPED,): SKIPPED_HEAD}.get(tuple(verdict),
                                                                       FAILED_HEAD)
-    if done and head != FAILED_HEAD:   # a failed deploy may have undone it: leave it local
-        r = await asyncio.to_thread(git, repo, "push", "origin", base)
-        note += "; pushed" if r.returncode == 0 else \
-            f"; push failed ({(r.stderr or r.stdout).strip()[-200:]})"
+    note, todo = await asyncio.to_thread(push_base, repo, card, base, note)
     merged = card["id"] in await asyncio.to_thread(landed, repo)
     # the head sets the deployed dot on the way in; this write only adds what git knows
     await call(client, "comment", id=id, actor=AGENT,
@@ -688,7 +751,43 @@ async def deploy(client, card, repo, cwd, notes, base):
         await open_blockers(client, card, blocked)
     # a comment is a reply and clears the dot: set it again, verify waits for a person
     await call(client, "update_card", id=id, actor=AGENT, attention=True, merged=merged)
-    return True
+    return todo
+
+
+async def sweep(client, cards):
+    """Remove worktrees no run is coming back for. The end of the test stage takes down the
+    one it made, but a card dragged from test to verify by hand never reaches that, and the
+    folders pile up: four were sitting in Tickets.worktrees, the oldest for days (#108).
+
+    Only ever removes a folder whose card is past the agent's lanes and whose branch is on
+    the base branch, so the work is both on origin and on master and the folder is holding
+    nothing. Everything else is left where it is — an unmerged folder is the visible sign
+    that its work never landed, and the folder of a card moved back is about to be used.
+    Says so in the log, not on the card: this is sweeping up, not news."""
+    past = {c["id"] for c in cards if c["lane"] not in AGENT_LANES
+            and c["lane"] != "todo" and c["id"] not in working}
+    if not past:
+        return
+    for p in await call(client, "list_projects"):
+        if not p.get("path"):
+            continue
+        top = await asyncio.to_thread(git, Path(p["path"]), "rev-parse", "--show-toplevel")
+        if top.returncode:
+            continue
+        top = Path(top.stdout.strip())
+        root = top.parent / f"{top.name}.worktrees"
+        if not root.is_dir():
+            continue
+        mine = [(d, int(m[1])) for d in root.iterdir()
+                if d.is_dir() and (m := CARD_DIR.fullmatch(d.name)) and int(m[1]) in past]
+        if not mine:
+            continue
+        on = await asyncio.to_thread(landed, top)
+        for tree, id in mine:
+            if id not in on:
+                continue                      # not on the base branch: leave it in sight
+            left = await asyncio.to_thread(prune, top, tree)
+            log(f"#{id}: worktree {tree} " + (f"would not go: {left}" if left else "removed"))
 
 
 async def light_merged(client, cards):
@@ -739,6 +838,7 @@ async def tick(client, connect):
             running[key] = asyncio.create_task(work(connect, c, key))
             started.append(running[key])
     await light_merged(client, cards)
+    await sweep(client, cards)
     return started
 
 
