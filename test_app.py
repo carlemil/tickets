@@ -41,8 +41,10 @@ def test_root_serves_the_board(client):
 def test_docs_page_is_served_and_covers_the_essentials(client):
     r = client.get("/docs")
     assert r.status_code == 200 and "text/html" in r.headers["content-type"]
-    for text in ["127.0.0.1", "claude-agent", "RESULT: PASS", "worktree", *core.LANES]:
+    for text in ["127.0.0.1", "claude-agent", "/tickets", "worktree", *core.LANES]:
         assert text in r.text, text
+    for text in ["python agent", "auto advance"]:   # the retired agent and its switch
+        assert text not in r.text, text
     for text in ["this machine", "8000 is taken", "on master"]:   # nothing about one setup
         assert text not in r.text, text
 
@@ -303,12 +305,6 @@ def test_the_mcp_endpoint_serves_the_tools(db):
         assert done["isError"] is False, done
         assert core.get_card(cid)["archived"] is True and core.list_cards() == []
 
-        on = call({"method": "tools/call",
-                   "params": {"name": "update_card",
-                              "arguments": {"id": cid, "actor": "agent", "auto_advance": True}}})
-        assert on["isError"] is False, on
-        assert core.get_card(cid)["auto_advance"] is True
-
 
 def test_archived_query_param_switches_the_list(client):
     c = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home"}).json()
@@ -406,21 +402,13 @@ def test_create_card_tool_rejects_an_unconfigured_project():
         app.create_card(title="x", actor="bot", project="Nowhere")
 
 
-def test_auto_advance_over_rest_and_the_tools(client):
-    c = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home", "auto_advance": True}).json()
-    assert c["auto_advance"] is True
-    r = client.patch(f"/api/cards/{c['id']}", json={"auto_advance": "on", "actor": "ann"})
-    assert r.status_code == 400 and "auto_advance" in r.json()["error"], r.text
-    assert app.update_card(c["id"], "bot", auto_advance=False)["auto_advance"] is False
-    assert app.update_card(c["id"], "bot", title="b")["auto_advance"] is False, "omitted = untouched"
-    assert app.create_card(title="t", actor="bot", project="Home", auto_advance=True)["auto_advance"] is True
-    assert app.create_card(title="u", actor="bot", project="Home")["auto_advance"] is False
-
-
-def test_attention_set_by_the_tool_cleared_by_other_changes():
-    c = core.create_card("a", actor="ann", project="Home")
-    assert app.update_card(c["id"], "bot", attention=True)["attention"] is True
-    assert app.update_card(c["id"], "bot", title="b")["attention"] is False
+def test_the_retired_agent_fields_are_gone_from_rest_and_the_tools(client):
+    c = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home"}).json()
+    for f in core.LEGACY_COLUMNS:
+        assert f not in c
+        r = client.patch(f"/api/cards/{c['id']}", json={f: True, "actor": "ann"})
+        assert r.status_code == 400 and f in r.json()["error"], r.text
+        assert f not in app.update_card.__doc__ and f not in app.create_card.__doc__
 
 
 def test_pos_reorders_over_http_and_must_be_a_number(client):
@@ -440,18 +428,6 @@ def test_plan_fields_over_the_tool_and_what_it_tells_agents():
     doc = app.update_card.__doc__
     for said in ("`description` is the request", "`plan` is the", "`answers` is the person"):
         assert said in doc
-
-
-def test_a_new_request_on_a_verified_card_replans_it_over_the_tool_and_http(client):
-    c = core.create_card("a", actor="ann", project="Home", lane="verify")
-    back = app.update_card(c["id"], "ce", description="a different ask")
-    assert (back["lane"], back["assignee"]) == ("plan", core.AGENT)
-    v = core.update_card(back["id"], "ce", lane="verify")["id"]
-    r = client.post(f"/api/cards/{v}/comment", json={"actor": "ce", "text": "not this"})
-    assert r.status_code == 200, r.text
-    assert r.json()["lane"] == "plan"
-    assert "A card in verify is finished work" in app.update_card.__doc__
-    assert "A person's comment on a card in verify" in app.comment.__doc__
 
 
 def test_project_colors_over_rest(client):

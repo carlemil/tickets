@@ -175,8 +175,7 @@ def get_card(id: int) -> dict:
 @tool
 def create_card(title: str, actor: str, project: str, description: str = "",
                 lane: str = core.LANES[0], assignee: str | None = None,
-                labels: list[str] | None = None, checklist: list[dict] | None = None,
-                auto_advance: bool = False) -> dict:
+                labels: list[str] | None = None, checklist: list[dict] | None = None) -> dict:
     """Create a card. `actor` is you: pass your own agent name, it is recorded as the author.
 
     `lane` is one of todo -> plan -> develop -> test -> verify -> done, and normally starts
@@ -187,12 +186,10 @@ def create_card(title: str, actor: str, project: str, description: str = "",
     `description` is the request: what needs doing and why. A plan, its open questions and
     their answers have fields of their own, set later with update_card.
     `checklist` items are {"text": str, "done": bool}. `assignee` is a person's name.
-    `auto_advance=True` lets the board agent carry the card plan -> develop -> test ->
-    verify on its own once it reaches plan.
     """
     return core.create_card(title=title, actor=actor, description=description, lane=lane,
                             assignee=assignee, labels=labels,
-                            checklist=checklist, project=project, auto_advance=auto_advance)
+                            checklist=checklist, project=project)
 
 
 @tool
@@ -200,7 +197,6 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
                 lane: str | None = None, assignee: str | None = None,
                 labels: list[str] | None = None, checklist: list[dict] | None = None,
                 project: str | None = None, archived: bool | None = None,
-                auto_advance: bool | None = None, attention: bool | None = None,
                 plan: str | None = None, questions: str | None = None,
                 answers: str | None = None, merged: bool | None = None,
                 deployed: bool | None = None) -> dict:
@@ -211,29 +207,16 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
 
     `lane` moves the card, in order todo -> plan -> develop -> test -> verify -> done.
     It lands at the bottom of the lane it arrives in, behind the cards already waiting there.
-    Moving a card forward (except into done), or back into plan, also turns auto_advance
-    on, so the board agent takes it up; pass auto_advance=False (or its current value) in
-    the same call to move it without that.
-    A card in verify is finished work, so a person's update to its `description`,
-    `answers` or `checklist` (or a comment on it) is a new request: the card goes back
-    to plan, assigned to the agent, to be planned and built again. Pass `lane` in the
-    same call to write to a verify card without that.
     `assignee` assigns it to a person or an agent, by name; pass "" to unassign. A name
-    not yet on the board is registered as a user by assigning it. When you start work on a
-    card, assign it to yourself so the board shows who is on it; when you are done, give it
-    back to whoever had it before (or "" if nobody did).
+    not yet on the board is registered as a user by assigning it.
     `checklist` REPLACES the whole list, so send every item back, not just the one you
     ticked: get_card first, flip the `done` you want, send the full list. `labels` likewise
     replaces the whole list. `archived=True` takes the card off the board without deleting
-    it; `archived=False` puts it back. `auto_advance` switches the board agent's hands-off
-    plan -> develop -> test -> verify run on or off.
-    `attention=True` puts a dot on the card meaning "waiting for your input": set it when
-    you hand the card back to a person. Any later change or comment clears it.
+    it; `archived=False` puts it back.
     `merged` (the card's branch is on the base branch on origin) and `deployed` (deployed
     to the local test backend or a device) are the board agent's to set after a deploy.
 
-    Where text goes — each field REPLACES what is there: `description` is the request,
-    and rewriting it on a verified card asks for the work again (see `lane`);
+    Where text goes — each field REPLACES what is there: `description` is the request;
     leave it to the person who asked, do not put a plan in it. `plan` is the
     implementation plan (markdown), the planning agent's to write. `questions` holds only
     what a person must decide before the work can go on, as a list numbered from 1
@@ -244,7 +227,7 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     fields = {k: v for k, v in dict(
         title=title, description=description, lane=lane, assignee=assignee,
         labels=labels, checklist=checklist, project=project, archived=archived,
-        auto_advance=auto_advance, attention=attention, plan=plan, questions=questions,
+        plan=plan, questions=questions,
         answers=answers, merged=merged, deployed=deployed).items()
         if v is not None}
     if fields.get("assignee") == "":
@@ -295,10 +278,7 @@ def comment(id: int, actor: str, text: str, output: str = "") -> dict:
     """Add a comment to a card's activity log. `actor` is you — it is who the comment is from.
 
     `output` is optional: the raw CLI transcript of the run this comment reports, which the
-    board shows under the comment in a box that starts closed.
-
-    A person's comment on a card in verify asks for the work again: the card goes back to
-    plan, assigned to the agent. The agent's own comments (its deploy result) do not."""
+    board shows under the comment in a box that starts closed."""
     return core.comment(id, actor, text, output)
 
 

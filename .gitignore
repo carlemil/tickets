@@ -4,7 +4,5 @@
 __pycache__/
 .venv/
 .pytest_cache/
-agent.log
-agent.err
 screenshots/
 restart-backend.log

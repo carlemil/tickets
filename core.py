@@ -13,11 +13,13 @@ LINK_KINDS = ["parent", "blocks"]
 DB_PATH = "tickets.db"  # reassign core.DB_PATH to point elsewhere (tests, alt board)
 
 CARD_FIELDS = ("project", "title", "description", "lane", "assignee", "pos", "labels", "checklist",
-               "archived", "auto_advance", "attention", "plan", "questions", "answers",
-               "merged", "deployed")
+               "archived", "plan", "questions", "answers", "merged", "deployed")
 # merged: on the base branch on origin, set by the agent's deploy step from git.
 # deployed: on the local test backend or a device, set here from the deploy comment.
-BOOL_FIELDS = ("archived", "auto_advance", "attention", "merged", "deployed")   # stored as 0/1, surfaced as true/false
+BOOL_FIELDS = ("archived", "merged", "deployed")   # stored as 0/1, surfaced as true/false
+# columns of the retired board agent: still created and added to an older tickets.db so it
+# opens, but never read, written or returned
+LEGACY_COLUMNS = ("auto_advance", "attention")
 JSON_FIELDS = ("labels", "checklist")
 # the planning round, kept apart from the request in `description`: the agent's plan, its
 # open questions, a person's answers
@@ -31,13 +33,7 @@ PALETTE = ["#0052cc", "#00875a", "#ff991f", "#6554c0", "#de350b", "#00a3bf", "#c
            "#5e4db2", "#b65c02", "#216e4e"]
 # lane/assignee get their own event kind; everything else is an `edited`
 EVENT_KIND = {"lane": "moved", "assignee": "assigned", "archived": "archived"}
-# the lanes the board agent works: a person's reply to a card waiting there hands it back
-AGENT_LANES = ("plan", "develop", "test")
-AGENT = "claude-agent"   # the board agent's name: its own writes never restart a card
-# a person's update to one of these on a verified card is a new request: the card is
-# planned again (#60). A comment counts too, see `comment`.
-REPLAN_FIELDS = ("description", "answers", "checklist")
-REPLIED = {"field": "auto_advance", "from": False, "to": True}
+AGENT = "claude-agent"   # the agent's name: only its deploy comment moves the deployed dot
 # how the agent's deploy comment starts: the deployed dot follows it, see `comment`
 DEPLOYED_HEAD, SKIPPED_HEAD, FAILED_HEAD = "deployed: ", "deploy skipped: ", "deploy failed: "
 DEPLOY_HEADS = (DEPLOYED_HEAD, SKIPPED_HEAD, FAILED_HEAD)
@@ -111,7 +107,7 @@ def connect():
     # columns added after the live board already held real cards: add them to an older
     # tickets.db rather than make the user delete the file
     have = {r["name"] for r in db.execute("PRAGMA table_info(cards)")}
-    for col in BOOL_FIELDS:
+    for col in BOOL_FIELDS + LEGACY_COLUMNS:
         if col not in have:
             db.execute(f"ALTER TABLE cards ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
     for col in PLAN_FIELDS:
@@ -159,6 +155,8 @@ def _now():
 
 def _card(row):
     card = dict(row)
+    for f in LEGACY_COLUMNS:
+        del card[f]
     for f in JSON_FIELDS:
         card[f] = json.loads(card[f])
     for f in BOOL_FIELDS:
@@ -417,8 +415,8 @@ steps into the instructions under "projects…" on the board. Archive this card 
 
 def setup_cards(name):
     """Cards for what a new project still needs before an agent can work a card in it: a
-    folder, and instructions covering tests and deploying. Unassigned, in `todo`, auto
-    advance off -- a person has to fix them: agents cannot configure a project.
+    folder, and instructions covering tests and deploying. Unassigned, in `todo` -- a
+    person has to fix them: agents cannot configure a project.
     ponytail: "the instructions cover tests/deploying" is a word match. It asks once, on a
     new project, and a wrong guess costs one archived card."""
     p = get_project(name)          # NotFound for an unknown name; gives the stored spelling
@@ -443,20 +441,19 @@ def create_card(
     labels=None,
     checklist=None,
     project=None,   # required in practice: _project refuses a missing one with a reason
-    auto_advance=False,
 ):
-    _validate({"lane": lane, "auto_advance": auto_advance})
+    _validate({"lane": lane})
     now = _now()
     with closing(connect()) as db, db:
         project = _project(db, project)
         id = db.execute(
             "INSERT INTO cards (project, title, description, lane, assignee, created_by,"
-            " created_at, updated_at, pos, labels, checklist, auto_advance)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            " created_at, updated_at, pos, labels, checklist)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
                 project, title, description, lane, assignee, actor, now, now,
                 _bottom(db, lane),
-                json.dumps(labels or []), json.dumps(checklist or []), int(auto_advance),
+                json.dumps(labels or []), json.dumps(checklist or []),
             ),
         ).lastrowid
         _event(db, id, actor, "created", {"title": title, "lane": lane})
@@ -525,50 +522,29 @@ def update_card(id, actor, **fields):
             fields["project"] = _project(db, fields["project"])
         if isinstance(fields.get("questions"), str):   # every writer's questions: 1. 2. 3.
             fields["questions"] = number(fields["questions"])
-        # a person's update to a verified card is a new request: it goes back to plan,
-        # assigned to the agent, and round the loop again (#60). The agent's own writes
-        # (its deploy result) do not, nor does an explicit lane in the same write.
-        if (old["lane"] == "verify" and actor != AGENT
-                and any(f in fields and fields[f] != old[f] for f in REPLAN_FIELDS)):
-            fields.setdefault("lane", "plan")
-            fields.setdefault("assignee", AGENT)
-        # moving a card forward, or back into plan to replan it, is the go signal: it
-        # switches auto advance on, unless the same write says otherwise (the agent's own
-        # moves do). Into done is the end, so no; nor another move back, nor a card already
-        # in its lane, so one the agent stopped stays stopped.
         frm, to = LANES.index(old["lane"]), LANES.index(fields.get("lane", old["lane"]))
         # a card arriving in a lane queues behind the ones already there, unless the
         # writer said where it goes (the board's drag does; an agent's move does not)
         if to != frm:
             fields.setdefault("pos", _bottom(db, LANES[to]))
-        if to != frm and (to > frm or LANES[to] == "plan") and LANES[to] != "done":
-            fields.setdefault("auto_advance", True)
-        # back into an agent lane is rework: the new work is neither on master nor deployed
-        if to != frm and LANES[to] in AGENT_LANES and LANES[frm] not in AGENT_LANES:
+        # back into plan, develop or test is rework: the new work is neither on master
+        # nor deployed
+        work = ("plan", "develop", "test")
+        if to != frm and LANES[to] in work and LANES[frm] not in work:
             fields.setdefault("merged", False)
             fields.setdefault("deployed", False)
-        sets, args, evs, changed = [], [], [], set()
+        sets, args, evs = [], [], []
         for f, new in fields.items():
             if new == old[f]:
                 continue
             sets.append(f"{f}=?")
             args.append(json.dumps(new) if f in JSON_FIELDS else new)
-            changed.add(f)
-            if f in ("attention", "pos"):
-                continue   # a notification and a place in the queue: neither is history
+            if f == "pos":
+                continue   # a place in the queue is not history
             if f == "checklist":
                 evs += _checklist_events(old[f], new)
             else:
                 evs.append((EVENT_KIND.get(f, "edited"), {"field": f, "from": old[f], "to": new}))
-        # attention is "waiting for you": any other change to the card is the reply. It
-        # clears the dot and, unless the same write says otherwise, gets the agent back on
-        # it. Tidying a column is not a reply, so a pos-only write leaves both alone.
-        if changed - {"pos"} and "attention" not in fields and old["attention"]:
-            sets.append("attention=0")
-            if ("auto_advance" not in fields and not old["auto_advance"]
-                    and fields.get("lane", old["lane"]) in AGENT_LANES):
-                sets.append("auto_advance=1")
-                evs.append(("edited", REPLIED))
         if sets:
             db.execute(
                 f"UPDATE cards SET {', '.join(sets)}, updated_at=? WHERE id=?", args + [_now(), id]
@@ -585,18 +561,11 @@ def comment(id, actor, text, output=""):
     rides along on the event, so every run keeps its own, and the board shows it in a box
     that starts closed. Nothing to show -> the key is not there at all."""
     with closing(connect()) as db, db:
-        old = _load(db, id)
+        _load(db, id)
         _event(db, id, actor, "comment", {"text": text, **({"output": output} if output else {})})
-        if old["attention"]:   # a reply, as in update_card
-            db.execute("UPDATE cards SET attention=0 WHERE id=?", (id,))
-            if not old["auto_advance"] and old["lane"] in AGENT_LANES:
-                db.execute("UPDATE cards SET auto_advance=1 WHERE id=?", (id,))
-                _event(db, id, actor, "edited", REPLIED)
-    if old["lane"] == "verify" and actor != AGENT:   # a new request, as in update_card (#60)
-        return update_card(id, actor, lane="plan", assignee=AGENT)
-    # the deployed dot follows the deploy comment, so it is right whatever version of
-    # agent.py wrote it: #41's dots never reached the board through 59 deploys, because
-    # the one agent process running them all was older than the code that set them
+    # the deployed dot follows the deploy comment, so it is right whoever wrote the deploy
+    # step: #41's dots never reached the board through 59 deploys, because the one agent
+    # process running them all was older than the code that set them
     if actor == AGENT and text.startswith(DEPLOY_HEADS):
         return update_card(id, actor, deployed=text.startswith(DEPLOYED_HEAD))
     return get_card(id)

@@ -864,61 +864,6 @@ def test_a_press_on_a_select_does_not_hold_back_renders(page):
         "() => document.querySelector('#panel .log').textContent.includes('todo to test')")
 
 
-# ---------- auto advance ----------
-
-AUTO = "#panel .auto-sw input"
-
-
-def test_auto_advance_switch_saves_shows_a_pill_and_logs(page):
-    cid = add_card(page, "hands off")
-    assert page.locator(AUTO).is_checked() is False
-    page.check(AUTO)
-    wait_saved(page, cid, "auto_advance", True)
-    assert page.locator(f'.card[data-id="{cid}"] .auto.on').count() == 1
-    assert "turned auto advance on" in page.text_content("#panel .log")
-    assert page.locator(AUTO).is_checked(), "the re-render keeps it ticked"
-    page.uncheck(AUTO)
-    wait_saved(page, cid, "auto_advance", False)
-    assert page.locator(f'.card[data-id="{cid}"] .auto.on').count() == 0
-    assert "turned auto advance off" in page.text_content("#panel .log")
-
-
-def test_a_new_card_can_start_with_auto_advance(page):
-    page.click("#add")
-    assert page.locator(AUTO).is_checked() is False, "off by default"
-    page.fill("#panel input[type=text] >> nth=0", "auto from the start")
-    page.check(AUTO)
-    close_sheet(page)
-    created(page)
-    [c] = core.list_cards()
-    assert (c["title"], c["auto_advance"]) == ("auto from the start", True)
-
-
-def test_a_new_card_without_the_switch_is_created_off(page):
-    cid = add_card(page, "plain")
-    assert core.get_card(cid)["auto_advance"] is False
-
-
-def test_the_switch_shows_what_the_agent_left(page):
-    """The agent turns it off when a stage fails; the panel must show that, not a stale tick."""
-    cid = core.create_card("x", actor="ce", project="Home", auto_advance=True)["id"]
-    core.update_card(cid, "claude-agent", auto_advance=False)
-    page.evaluate("load()")
-    page.click(f'.card[data-id="{cid}"]')
-    page.wait_for_selector(AUTO)
-    assert page.locator(AUTO).is_checked() is False
-    assert page.locator(f'.card[data-id="{cid}"] .auto.on').count() == 0
-    assert "claude-agent turned auto advance off" in page.text_content("#panel .log")
-
-
-def test_ticking_auto_right_after_typing_a_title_keeps_both(page):
-    cid = add_card(page, "first")
-    page.fill("#panel input[type=text] >> nth=0", "renamed")   # still focused
-    human_click(page, AUTO)          # blurs the title (a save) and ticks, in one press
-    wait_saved(page, cid, "auto_advance", True)
-    assert core.get_card(cid)["title"] == "renamed"
-
-
 # ---------- no default project ----------
 
 @pytest.mark.no_home
@@ -1244,20 +1189,19 @@ def test_the_tag_follows_a_card_moved_to_another_project(page):
     assert tag(page, cid).evaluate("e => getComputedStyle(e).backgroundColor") == rgb(core.PALETTE[1])
 
 
-def test_the_auto_dot_leads_and_the_project_tag_sits_after_the_assignee(page):
+def test_the_work_dot_leads_and_the_project_tag_sits_after_the_assignee(page):
     plain = core.create_card("a", actor="ce", project="Home",
                              assignee="bob", labels=["ui"])["id"]
-    auto = core.create_card("b", actor="ce", project="Home", auto_advance=True)["id"]
+    auto = core.create_card("b", actor="ce", project="Home")["id"]
     page.evaluate("load()")
     page.wait_for_selector(f'.card[data-id="{auto}"]')
     chips = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').all_text_contents()
-    # the auto dot, then the merged and deployed dots
+    # the work dot, then the merged and deployed dots
     assert chips(plain) == ["", "", "", f"#{plain}", "bob", "Home", "ui"], chips(plain)
     assert chips(auto) == ["", "", "", f"#{auto}", "Home"], chips(auto)
     assert page.locator(".card .pill.pri").count() == 0, "no priority chip: position is the signal"
     first = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').first
-    assert first(auto).get_attribute("class") == "auto on"
-    assert first(plain).get_attribute("class") == "auto"
+    assert first(auto).get_attribute("class") == first(plain).get_attribute("class") == "work"
 
 
 # ---------- status bar ----------
@@ -1298,64 +1242,53 @@ def test_an_agent_finishing_reloads_the_board(page):
 
 
 
-# ---------- the auto dot pulses while an agent works the card ----------
+# ---------- the work dot pulses while an agent works the card ----------
 
 def pulsing(page, sel):
-    return page.locator(sel + " .auto.working").count()
+    return page.locator(sel + " .work.working").count()
 
 
 def test_the_board_dot_pulses_while_an_agent_works_the_card(page):
-    busy = core.create_card("busy", actor="ce", project="Home", auto_advance=True)["id"]
+    busy = core.create_card("busy", actor="ce", project="Home")["id"]
     idle = core.create_card("idle", actor="ce", project="Home")["id"]
     page.evaluate("load()")
     page.wait_for_selector(f'.card[data-id="{idle}"]')
     core.set_activity("claude-agent", busy, "planning")
     page.evaluate("loadStatus()")
-    page.wait_for_selector(f'.card[data-id="{busy}"] .auto.working')
+    page.wait_for_selector(f'.card[data-id="{busy}"] .work.working')
     assert pulsing(page, f'.card[data-id="{idle}"]') == 0
-    title = page.get_attribute(f'.card[data-id="{busy}"] .auto', "title")
-    assert title.endswith(" · an agent is working on it now"), title
+    title = page.get_attribute(f'.card[data-id="{busy}"] .work', "title")
+    assert title == "an agent is working on it now", title
     core.set_activity("claude-agent")
     page.evaluate("loadStatus()")
-    page.wait_for_function(f"() => !document.querySelector('.card[data-id=\"{busy}\"] .auto.working')")
-    assert "working on it now" not in page.get_attribute(f'.card[data-id="{busy}"] .auto', "title")
+    page.wait_for_function(f"() => !document.querySelector('.card[data-id=\"{busy}\"] .work.working')")
+    assert "working on it now" not in page.get_attribute(f'.card[data-id="{busy}"] .work', "title")
 
 
 def test_the_pulse_survives_a_board_reload(page):
     cid = core.create_card("busy", actor="ce", project="Home")["id"]
     core.set_activity("claude-agent", cid, "planning")
     page.evaluate("loadStatus()")
-    page.wait_for_selector(f'.card[data-id="{cid}"] .auto.working')
+    page.wait_for_selector(f'.card[data-id="{cid}"] .work.working')
     page.evaluate("load()")   # rebuilt cards pulse without waiting for the next poll
     assert pulsing(page, f'.card[data-id="{cid}"]') == 1
 
 
-def test_the_editor_shows_the_auto_dot_and_it_pulses_without_a_rerender(page):
+def test_the_editor_shows_the_work_dot_and_it_pulses_without_a_rerender(page):
     page.click("#add")
-    assert page.locator("#panel .auto").count() == 0, "a card not yet created has no dot"
+    assert page.locator("#panel .work").count() == 0, "a card not yet created has no dot"
     close_sheet(page)
     cid = add_card(page, "watch me")
-    dot = page.locator("#panel .head .auto")
-    assert dot.get_attribute("class") == "auto", "a ring while auto advance is off"
+    dot = page.locator("#panel .head .work")
+    assert dot.get_attribute("class") == "work", "a ring while no agent is on it"
     page.fill("#panel input[type=text] >> nth=0", "half typed")   # not committed yet
     core.set_activity("claude-agent", cid, "developing")
     page.evaluate("loadStatus()")
-    page.wait_for_selector("#panel .head .auto.working")
+    page.wait_for_selector("#panel .head .work.working")
     assert page.input_value("#panel input[type=text] >> nth=0") == "half typed", "no re-render"
     core.set_activity("claude-agent")
     page.evaluate("loadStatus()")
-    page.wait_for_function("() => !document.querySelector('#panel .auto.working')")
-    page.fill("#panel input[type=text] >> nth=0", "watch me")
-    page.check(AUTO)
-    wait_saved(page, cid, "auto_advance", True)
-    assert page.locator("#panel .head .auto.on").count() == 1, "ticking the switch lights it"
-
-
-def test_the_editor_dot_is_lit_for_an_auto_advance_card(page):
-    cid = core.create_card("auto", actor="ce", project="Home", auto_advance=True)["id"]
-    page.evaluate("load()")
-    page.click(f'.card[data-id="{cid}"]')
-    page.wait_for_selector("#panel .head .auto.on")
+    page.wait_for_function("() => !document.querySelector('#panel .work.working')")
 
 
 def test_work_on_a_card_off_the_board_pulses_nothing(page):
@@ -1370,7 +1303,7 @@ def test_work_on_a_card_off_the_board_pulses_nothing(page):
     core.set_activity("claude-agent", away, "planning")
     page.evaluate("loadStatus()")
     page.locator("#status .job").wait_for()
-    assert page.locator(".auto.working").count() == 0
+    assert page.locator(".work.working").count() == 0
     assert errors == []
 
 
@@ -1470,17 +1403,6 @@ def test_the_sheet_buttons_have_a_gap_between_them(page):
     assert gap >= 8, f"archive and close are {gap:.1f}px apart"
 
 
-def test_dragging_a_card_into_plan_ticks_auto_advance(page):
-    cid = core.create_card("go", actor="ce", project="Home")["id"]
-    page.evaluate("load()")
-    page.wait_for_selector(f'.card[data-id="{cid}"]')
-    drag(page, cid, "plan")
-    page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{cid}"] .auto.on')
-    assert core.get_card(cid)["auto_advance"] is True
-    page.click(f'.card[data-id="{cid}"]')
-    assert page.locator("#panel .auto-sw input[type=checkbox]").is_checked()
-
-
 def test_lanes_run_to_the_bottom_of_the_window_even_when_empty(page):
     core.create_card("one", actor="ce", project="Home")
     page.evaluate("load()")
@@ -1504,49 +1426,6 @@ def test_a_tall_lane_still_grows_past_the_window(page):
     assert plan["height"] == todo["height"], "and the empty lanes match it"
 
 
-def test_an_agent_hand_back_shows_a_dot_that_an_edit_clears(page):
-    cid = core.create_card("asks", actor="ce", project="Home")["id"]
-    quiet = core.create_card("quiet", actor="ce", project="Home")["id"]
-    core.update_card(cid, "claude-agent", attention=True)
-    page.evaluate("load()")
-    dot = page.locator(f'.card[data-id="{cid}"] .auto.attn')
-    dot.wait_for()
-    assert dot.get_attribute("title").startswith("waiting for your input")
-    assert page.locator(f'.card[data-id="{cid}"] .dot').count() == 0, "one dot, not two"
-    assert page.locator(f'.card[data-id="{quiet}"] .auto.attn').count() == 0
-    page.click(f'.card[data-id="{cid}"]')
-    page.wait_for_function(f"() => open && open.id === {cid}")
-    assert core.get_card(cid)["attention"] is True, "opening alone does not clear it"
-    type_into(page, "#panel input[type=text] >> nth=0", "answered")
-    wait_saved(page, cid, "title", "answered")
-    assert core.get_card(cid)["attention"] is False
-    close_sheet(page)
-    page.wait_for_function(f"""() => document.querySelector('.card[data-id="{cid}"]')
-                                     && !document.querySelector('.card[data-id="{cid}"] .auto.attn')""")
-
-
-def test_one_dot_shows_waiting_over_auto_and_a_click_restarts(page):
-    failed = core.create_card("failed", actor="ce", project="Home", lane="plan")["id"]
-    core.update_card(failed, "claude-agent", attention=True)
-    ver = core.create_card("ver", actor="ce", project="Home", lane="verify", auto_advance=True)["id"]
-    core.update_card(ver, "claude-agent", attention=True)
-    page.evaluate("load()")
-    dot = f'.card[data-id="{failed}"] .auto'
-    page.wait_for_selector(dot + ".attn")
-    assert page.locator(dot + ".on").count() == 0
-    assert page.locator(".card .dot").count() == 0, "no second dot anywhere"
-    tip = page.get_attribute(f'.card[data-id="{ver}"] .auto.attn', "title")
-    assert tip.startswith("waiting for your input") and "auto advance is on" in tip
-    page.click(dot)
-    page.wait_for_function(f"""() => {{ const d = document.querySelector('{dot}');
-        return d && d.matches('.on') && !d.matches('.attn'); }}""")
-    c = core.get_card(failed)
-    assert (c["auto_advance"], c["attention"]) == (True, False), "the click is a go-again"
-    page.click(f'.card[data-id="{ver}"]')
-    page.wait_for_function(f"() => open && open.id === {ver}")
-    assert page.locator("#panel .head .auto.attn").count() == 1, "the sheet's dot is red too"
-
-
 def test_plan_questions_and_answers_get_their_own_boxes_once_planned(page):
     fresh = core.create_card("fresh", actor="ce", project="Home")["id"]
     page.evaluate("load()")
@@ -1558,7 +1437,6 @@ def test_plan_questions_and_answers_get_their_own_boxes_once_planned(page):
     cid = core.create_card("asks", actor="ce", project="Home", lane="plan",
                            description="the ask")["id"]
     core.update_card(cid, "claude-agent", plan="step\n" * 30, questions="- red?")
-    core.update_card(cid, "claude-agent", attention=True)
     page.evaluate("load()")
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
@@ -1566,23 +1444,6 @@ def test_plan_questions_and_answers_get_their_own_boxes_once_planned(page):
     assert page.locator("#panel textarea.questions").input_value() == "1. red?", "numbered from 1"
     type_into(page, "#panel textarea.answers", "blue")
     wait_saved(page, cid, "answers", "blue")
-    c = core.get_card(cid)
-    assert (c["attention"], c["auto_advance"]) == (False, True), "the reply restarts the agent"
-
-
-def test_a_new_request_on_a_verified_card_sends_it_back_to_plan(page):
-    cid = core.create_card("shipped", actor="ce", project="Home", lane="verify",
-                           description="the ask")["id"]
-    core.update_card(cid, "claude-agent", attention=True, merged=True, deployed=True)
-    page.evaluate("load()")
-    page.click(f'.card[data-id="{cid}"]')
-    page.wait_for_function(f"() => open && open.id === {cid}")
-    type_into(page, "#panel textarea.desc", "a different ask")
-    wait_saved(page, cid, "description", "a different ask")
-    close_sheet(page)
-    page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{cid}"] .auto.on')
-    c = core.get_card(cid)
-    assert (c["assignee"], c["merged"], c["deployed"]) == ("claude-agent", False, False)
 
 
 def test_the_plan_box_is_ten_lines_whatever_its_text(page):
@@ -1645,18 +1506,18 @@ def test_only_a_card_drag_is_dropped(page):
 def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     cid = core.create_card("tipped", actor="ce", project="Home", lane="plan", labels=["ui"],
                            checklist=[{"text": "a", "done": False}], assignee="ce")["id"]
-    core.update_card(cid, "claude-agent", plan="p", questions="q?", attention=True)
+    core.update_card(cid, "claude-agent", plan="p", questions="q?")
     core.create_card("done", actor="ce", project="Home", lane="done")   # its archive buttons
     page.evaluate("load()")
-    page.wait_for_selector(f'.card[data-id="{cid}"] .auto.attn')
+    page.wait_for_selector(f'.card[data-id="{cid}"] .work')
     page.wait_for_selector(".lane[data-lane=done] h2 .arch")
     untitled = """sel => [...document.querySelectorAll(sel)]
         .filter(e => e.offsetParent !== null && !e.closest('[title]'))
         .map(e => e.outerHTML.slice(0, 80))"""
     board = "header select, header button, header input, header a, .lane h2, .card, .card *, #status"
     assert page.evaluate(untitled, board) == []
-    tip = page.get_attribute(f'.card[data-id="{cid}"] .auto', "title")
-    assert tip.startswith("waiting for your input") and "auto advance is off" in tip
+    tip = page.get_attribute(f'.card[data-id="{cid}"] .work', "title")
+    assert tip.startswith("pulses while an agent is working on this card"), tip
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
     assert page.evaluate(untitled, "#panel input, #panel select, #panel textarea, #panel button, #panel h3") == []
@@ -1671,32 +1532,6 @@ def test_the_header_links_to_the_docs_in_a_new_tab(page):
     assert link.get_attribute("href").endswith("/docs")
     assert link.get_attribute("target") == "_blank"
     assert link.get_attribute("title")
-
-
-def test_the_auto_dot_is_lit_only_when_auto_advance_is_on(page):
-    on = core.create_card("on", actor="ce", project="Home", auto_advance=True)["id"]
-    off = core.create_card("off", actor="ce", project="Home")["id"]
-    page.evaluate("load()")
-    page.wait_for_selector(f'.card[data-id="{off}"]')
-    assert page.locator(f'.card[data-id="{on}"] .auto.on').count() == 1
-    assert page.locator(f'.card[data-id="{off}"] .auto').count() == 1
-    assert page.locator(f'.card[data-id="{off}"] .auto.on').count() == 0
-
-
-def test_clicking_the_card_dot_toggles_auto_advance_without_opening_it(page):
-    cid = core.create_card("dot", actor="ce", project="Home")["id"]
-    page.evaluate("load()")
-    dot = f'.card[data-id="{cid}"] .auto'
-    page.click(dot)
-    wait_saved(page, cid, "auto_advance", True)
-    page.wait_for_selector(dot + ".on")
-    assert page.locator("#panel.on").count() == 0, "the sheet stayed shut"
-    assert page.evaluate("open") is None
-    assert core.get_card(cid)["lane"] == "todo"
-    page.click(dot)
-    wait_saved(page, cid, "auto_advance", False)
-    page.wait_for_selector(dot + ":not(.on)")
-    assert page.locator("#panel.on").count() == 0
 
 
 # ---------- the sheet's sticky header row ----------
@@ -1761,33 +1596,18 @@ def test_the_title_in_the_header_still_saves(page):
     wait_saved(page, cid, "title", "after")
 
 
-# ---------- the auto dot in the sheet header, and a busy board dot ----------
+# ---------- the work dot in the sheet header ----------
 
 def test_the_editor_dot_sits_in_the_header_number_and_clicking_it_does_nothing(page):
     cid = add_card(page, "dotted")
-    assert page.locator("#panel .head .id .auto").count() == 1
-    assert page.locator("#panel .sub .auto").count() == 0
+    assert page.locator("#panel .head .id .work").count() == 1
+    assert page.locator("#panel .sub .work").count() == 0
     assert page.text_content("#panel .head .id") == f"#{cid}"
-    page.click("#panel .head .auto")
+    before = core.get_card(cid)
+    page.click("#panel .head .work")
     page.wait_for_timeout(300)
-    assert core.get_card(cid)["auto_advance"] is False, "only the switch changes it in the sheet"
+    assert core.get_card(cid) == before, "not a control: nothing is written"
     assert page.locator("#panel.on").count() == 1, "the sheet stays open"
-
-
-def test_a_busy_board_dot_says_click_and_working_and_still_toggles(page):
-    cid = core.create_card("busy", actor="ce", project="Home")["id"]
-    core.set_activity("claude-agent", cid, "developing")
-    page.evaluate("load()")
-    page.evaluate("loadStatus()")
-    dot = f'.card[data-id="{cid}"] .auto'
-    page.wait_for_selector(dot + ".working")
-    tip = page.get_attribute(dot, "title")
-    assert "Click to turn it on." in tip and tip.endswith(" · an agent is working on it now")
-    page.click(dot)
-    wait_saved(page, cid, "auto_advance", True)
-    page.wait_for_selector(dot + ".on.working")
-    assert page.locator("#panel.on").count() == 0
-    core.set_activity("claude-agent")
 
 
 # ---------- selecting several cards ----------
@@ -1922,7 +1742,7 @@ def test_merged_and_deployed_dots_on_the_board_and_in_the_editor(page):
     wait_saved(page, lit, "title", "renamed")
     close_sheet(page)
     c = core.get_card(lit)
-    assert (c["merged"], c["deployed"], c["auto_advance"]) == (True, True, False)
+    assert (c["merged"], c["deployed"]) == (True, True)
 
 
 # ---------- the folded activity log ----------

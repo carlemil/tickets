@@ -24,7 +24,7 @@ accounts — users are just names, nothing is enforced. Never put it on a networ
 ## Setup
 
 You need Python 3.12+, [uv](https://docs.astral.sh/uv/), `git`, and the Claude Code CLI
-(`claude` on PATH — `agent.py` shells out to it). Chrome too, but only for the browser
+(`claude` on PATH). Chrome too, but only for the browser
 tests.
 
 1. Install the dependencies:
@@ -47,21 +47,15 @@ tests.
 
        claude mcp add --transport http tickets http://127.0.0.1:8123/mcp
 
-5. Start the board agent, in a second terminal:
-
-       uv run python agent.py
-
-   Only ever one: it holds a lock on `127.0.0.1:8124`, and a second one exits.
-
-8123 is not a runtime setting. Any free port works, but `URL` at the top of `agent.py`,
-`restart-backend.ps1` and the `claude mcp add` URL must all match.
+8123 is not a runtime setting. Any free port works, but `restart-backend.ps1` and the
+`claude mcp add` URL must match.
 
 ## Your first card
 
-Create a card in `todo`, then drag it to `plan`. The agent writes its `plan` and, if
-anything is unclear, `questions` — the card's dot turns red when it is your turn. Fill in
-your answers and the agent replans with them. With no open questions and auto advance on,
-the card carries itself through `develop` and `test` and stops in `verify` for you.
+Create a card in `todo`, then drag it to `plan`. Open a Claude Code session in the
+project's folder and run the `/tickets` skill: it works every ready card of that project
+in `plan`, `develop` and `test` through to `verify`, writing its plan, comments and moves
+onto the board as `claude-agent`.
 
 ## Layout
 
@@ -69,9 +63,8 @@ the card carries itself through `develop` and `test` and stops in `verify` for y
     app.py         MCP tools + HTTP routes, both thin wrappers over core
     board.html     the board, vanilla JS
     docs.html      the user manual, served at /docs
-    agent.py       the board agent: plans, develops and tests cards, over MCP
     conftest.py    fixtures: temp DB, TestClient, uvicorn thread, Chrome page
-    test_*.py      the suite: core, app, board, agent, end-to-end
+    test_*.py      the suite: core, app, board, end-to-end
     PLAN.md        the design document
 
 ## Tests

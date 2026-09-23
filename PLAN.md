@@ -27,16 +27,16 @@ test_core.py   core operations, rejections and no-ops
 test_app.py    status codes, the actor rule, both error mappings, ToolError, the MCP wire
 test_board.py  the board in a real browser, plus one lock per bug that shipped
 test_e2e.py    one card, browser and MCP, one attributed history
-agent.py       board agent: plans, develops and tests cards, over MCP
-test_agent.py  the agent against the real tools in-process, claude faked
+skill/SKILL.md the /tickets Claude Code skill: works a project's cards, over MCP
 log-config.json uvicorn log format: a timestamp per row
 ```
 
 Run: `uv run uvicorn app:app --host 127.0.0.1 --port 8123 --log-config log-config.json`
-Agent hookup: `claude mcp add --transport http tickets http://127.0.0.1:8123/mcp`
+Agent hookup, once, at user scope so every project's session sees the board:
+`claude mcp add --scope user --transport http tickets http://127.0.0.1:8123/mcp`
 
-8123 is the port `agent.py`, `restart-backend.ps1` and the docs use; any free port works,
-as long as all three match.
+8123 is the port the MCP registration, `restart-backend.ps1` and the docs use; any free
+port works, as long as all three match.
 
 **The restart waits for the port.** `restart-backend.ps1` kills what holds 8123 and starts
 a new backend, and a deploy schedules one 30 s out (`-Delay 30`) so its own report gets
@@ -65,8 +65,9 @@ example found online needs translating.
 ```sql
 users(id, name UNIQUE)
 cards(id, project, title, description, lane, assignee, created_by,
-      created_at, updated_at, pos, labels, checklist, archived, auto_advance,
-      attention, plan, questions, answers, merged, deployed)
+      created_at, updated_at, pos, labels, checklist, archived,
+      plan, questions, answers, merged, deployed)
+      -- plus auto_advance, attention: the retired agent's, created but never read
 events(id, card_id, actor, kind, detail, at)     -- append-only
 links(from_id, to_id, kind)                      -- kind: 'parent' | 'blocks'
 projects(name PRIMARY KEY COLLATE NOCASE, path, instructions, color)
@@ -92,7 +93,7 @@ activity(actor PRIMARY KEY, card_id, doing, since)   -- what agents are doing no
   spelling. Filters match ignoring case.
 - **Adding a project opens a card for whatever its setup is missing.** `POST
   /api/projects` calls `setup_cards(name)`, which puts a `todo` card in the new project —
-  authored by `board`, unassigned, auto advance off — for each of: no `path`, and
+  authored by `board`, unassigned — for each of: no `path`, and
   instructions that do not mention testing or deploying (a word match). A person fixes
   them and archives them; agents cannot configure a project. The check sits on the route,
   not in `create_project`, so scripted setup and the test fixtures do not spawn cards.
@@ -124,8 +125,7 @@ Rejects: a lane not in `LANES`, a `pos` that is not a number, a link kind not in
 arriving in a lane — a new card, a card moved without an explicit `pos` — lands at the
 bottom of it, so the agent takes the top card and a card it moves queues behind the ones
 already waiting. A drop between two cards takes the midpoint of their `pos` values, so a
-reorder writes one row. A `pos`-only write is not history: it logs no event and does not
-count as the reply that clears the attention dot.
+reorder writes one row. A `pos`-only write is not history: it logs no event.
 
 **Idempotence rule.** "Already in that state" is a silent no-op that writes no event — a
 no-op update, a repeat link, an unlink of an absent link. "Not a valid thing" is a
@@ -174,228 +174,54 @@ same core exceptions to `ToolError`, which is what puts the reason in front of t
 Without it the SDK masks a `ValueError` as a bare "Error executing tool X" — useless to
 an agent expected to correct itself.
 
-## Agent (`agent.py`)
+## The skill (`skill/SKILL.md`)
 
-Run: `uv run python agent.py` (needs the server on 8123). Polls `list_cards` over MCP every
-15s — there is no push channel. **Assignment is the go signal:** a card assigned to
-`claude-agent` in `plan`, `develop` or `test` gets headless `claude -p` run on it in its
-project's configured `path`, with the project's `instructions` placed before the card in
-the prompt; a project with no path fails the card with "has no path configured". The
-output becomes a comment, and the card moves on
-(`plan → develop`, `develop → test`, `test → verify`) and is unassigned. Unassigning is both the human gate
-(read the plan, reassign to have it built) and the loop guard (no re-trigger on its own
-write, no state file). On any failure it comments `agent failed: …` and unassigns, lane
-unchanged. Running out of quota is not a failure: it comments `out of quota: resuming
-at HH:MM`, pauses all runs until the limit resets, and leaves the card as it was, so the
-next poll after the pause takes it again. Development is a normal agent in auto mode (`--permission-mode auto`, never
-plan mode): it edits and runs the tests on its own, with Claude Code's auto-mode checks
-still on, and commits its work on the card's own branch. The test stage runs with
-`--dangerously-skip-permissions`, reviews the card's changes against the card
-and plan, runs the tests, and fixes what it finds and can fix itself on the card's branch
-(#101: a pass ships those fixes with the rest); what is out of its hands it leaves alone.
-It must end with a last line of `RESULT: PASS` (markdown
-`*`/`` ` `` around it tolerated) to move on; anything else is a failure.
+**Nothing works a card until a person asks.** Work is started by hand: `/tickets` in a
+Claude Code session opened in a project's folder. The board is the picture and the
+record — what is queued, what is being worked, what was done, and ideas for what next —
+not a dispatcher. There is no polling agent, no lock and no quota handling: the session
+is the agent, and its own permission mode is the user's choice (auto mode suits an
+unattended run).
 
-**One run per project lane at a time.** Each `(project, lane)` pair has at most one run
-going, so two cards never run a lane's tests, ports or worktree at once; a card waits only
-while another card in the same lane of its project is worked, and is started by the first
-poll after that run ends (failed or not). A project's plan, develop and test lanes run
-side by side, and so do different projects: each poll starts a run for every waiting card
-whose project lane is free, and each run has its own MCP client, as it outlives the poll.
-**And one run per card**, whatever lane it is in (`working`). The slot is the lane, so a
-card moved while its run was going came up again under the new lane's key and got a second
-run, in the same worktree as the first: #76 was planned and developed at the same moment
-because a person moved it back mid-run, and #33 hit it before that. The run in flight owns
-the card until it ends; the move still wins when it does (`handle` keeps the output as a
-comment and leaves the card where the person put it).
+It replaced `agent.py` (a process polling the board every 15 s and running headless
+`claude -p` on any card assigned to it or set to auto advance), and with it the board's
+handshake machinery: auto advance, the attention dot, a reply restarting a run, a
+comment on a verify card sending it back to plan (#60), the 8124 one-agent lock,
+self-restart on a changed `agent.py`, and the periodic `light_merged` git check. Their
+`cards` columns `auto_advance` and `attention` are still created (and added to an older
+database) so it opens, but `core.LEGACY_COLUMNS` are never read, written or returned.
+The history of why each rule existed is in git, before this change.
 
-The status bar keeps one entry per actor, so each run shows as
-`claude-agent (<project> <lane>)`. The limit is kept in the agent process (`running`),
-so it needs one agent process: `agent.py` holds 127.0.0.1:8124 while it runs (exclusive
-on Windows) and a second one exits at once with "already running", before it touches the
-board. Two agents did run side by side once (two sessions each started one): both
-worked card #32 at the same moment — double test runs, a worktree edited under a run.
+One global skill, versioned here and linked into `~/.claude/skills/tickets` (a junction:
+`New-Item -ItemType Junction "$HOME\.claude\skills\tickets" -Target
+D:\source\Tickets\skill`). It uses only the existing MCP tools, as `claude-agent`:
 
-**It restarts itself when `agent.py` changes.** Python does not reload code while it
-runs, so a deploy that changed the agent used to need a person to restart it — the #41
-merged and deployed dots stayed dark for a day because the agent running was older than
-the code that sets them. After each poll the agent compares `agent.py`'s mtime with the
-one it started from; if it differs, and no run is in flight and no quota pause is on
-(both live in this process and would be lost), it closes the lock port — or the new
-process would exit as "already running" — starts `python -u agent.py` and exits. A run in
-progress simply defers the restart to a later poll.
-
-It happened again, for the one reason self-restart cannot cover: the agent that was
-running predated #50 itself, so it had no restart code to run and stayed on a `deploy()`
-older than the dots. Twenty-one verify cards collected a `deployed:` comment with both
-dots dark before anyone noticed. #68 backfilled those dots from the deploy comments and
-`git merge-base`, the same two facts `deploy()` writes them from — and then the same
-agent went on deploying, so five more cards went dark and needed a third backfill. The
-event log says it was never anything else: of 59 deploy comments, not one had a dot write
-beside it. A dot that only a long-lived process writes is a dot nobody can trust, so the
-deployed one now follows the comment instead, set by `core.comment` on the way in (see
-the dots below). `merged` still comes from the agent, because only git knows it; an agent
-started from here on carries #50, so it cannot fall behind the code again.
-
-**What only a person can do becomes cards of its own.** Every lane's prompt ends with a
-request: if something outside the code stops the card — a credential to create, a service
-to enable, a device to plug in — say so under a last `## Blocked by` heading, one bullet
-per task with its details indented under it. `blockers()` takes that section out of the
-reply (the verdict line stays last, where the lane checks look for it) and `open_blockers`
-opens a card per bullet: in `todo`, unassigned, auto advance off — where `setup_cards`
-puts what only a person can fix, and a lane the agent never polls, so nothing loops — each
-linked `blocks` back to the card it came from, with one comment on that card naming them.
-A title already on the board in that project is skipped, so a rerun does not open it
-twice. The card itself then waits in its lane with the red dot on, exactly as a plan with
-open questions does, and the same reply (a comment or an edit) restarts it; without that
-stop a run would declare the card impossible and send it on to develop and test anyway.
-The parse is in Python, not board MCP tools inside the run: planning is read-only
-(`--permission-mode plan`), the `tickets` server is registered for the Tickets project
-scope only, and a run with board writes could move and edit any card. #92 is why: its plan
-found a missing Google OAuth client, two blank `.env` values and a Photos API nobody had
-enabled, wrote all of it into one card's `plan`, and nothing happened.
-
-**A git worktree per card.** Develop and test run in a worktree of the card's own, next
-to the project's repo: `<repo>.worktrees/card-<id>` on branch `card/<id>`, made from the
-repo's current branch on the card's first develop run and reused after that (rework, the
-test stage). No two cards, and no person working in the repo, share a folder, so changes
-never overwrite or mix. Each develop and test run starts by merging the base
-branch in (`git fetch origin <base>`, then `origin/<base>` or the local branch), so a card
-is built and tested on current code and the deploy's merge back is clean; a merge that
-conflicts is left in the worktree with the run told to resolve and commit it, and anything
-else that stops the merge (no origin, offline, a dirty tree) just leaves the branch where
-it was. The prompt is told where it is and what the merge did: develop commits on its
-branch (never pushes or switches, merging the base in is fine), test reviews and fixes
-`git diff <base>...HEAD` plus anything uncommitted. The card's comment ends with the
-worktree's path in develop and with the branch in test, where the worktree goes with the
-deploy. Planning only reads and runs in the repo, after a fast-forward pull of its
-branch from its upstream (skipped, and the plan told so, if it cannot fast-forward).
-Develop and test never run anywhere but the card's worktree: a project folder that is not a git repository fails the card (it can
-still be planned). A worktree whose folder is gone is re-made from the card's branch, in
-either lane, after a `git worktree prune` clears the registration the folder left behind;
-only a card in test with no branch at all fails, since nothing was ever built. A worktree
-that cannot be made fails the card.
-
-**Commit and push before verify.** A test that ends in `RESULT: PASS` is not enough to
-move on: the agent first stages everything left in the worktree (`git add -A`, untracked
-files too), commits it if there is anything (message `#<id> <title>`), and pushes
-`card/<id>` to `origin` (`-u`, no prompt: `GIT_TERMINAL_PROMPT=0`). A comment names the
-commit pushed. If any git step fails — no `origin`, rejected, needs credentials — the card
-fails in test, with the git error, and is not moved. A failed test commits nothing.
-
-**Deploy at the end of the test stage.** After the commit and push, and before the card is
-moved to verify, the agent runs one more
-`claude -p` in the worktree (`--dangerously-skip-permissions`, it runs deploy tools and
-`adb`): deploy the backend if the card changed it; install the mobile app on the phone if
-the card changed it and a phone is connected, and skip the phone otherwise; deploy
-nothing if neither changed. How to deploy comes from the project's instructions. A deploy
-means the local test backend or a local install on a connected phone; it never goes to
-production, a public server or an app store unless the project's instructions clearly call
-for a production deploy. The reply must end in `DEPLOY: OK`; it becomes a comment `deployed: …`, anything else (or a crash)
-`deploy failed: …`. Either way the card stays in verify, handed back with the dot: a
-deploy never moves a card, and a card arriving in verify already has the build on the
-phone. Only a test stage that is about to move the card to verify deploys; a card moved off
-test during its run, or a failed test, is not deployed. The deploy prompt lets the
-project's instructions merge, push or restart services (develop's "never merge" rule is
-not the deploy's), and forbids anything beyond them.
-
-**The worktree goes with the deploy.** Once the deploy has run in it, the agent removes the
-card's worktree (`git worktree remove --force`, run from the repo, since git cannot delete
-the folder its own cwd is in). The branch stays, here and on `origin`: that is the record,
-and a card sent back to develop or test gets a fresh worktree from it. One worktree is kept: a
-deploy postponed by the quota is redeployed by hand, in that worktree. A worktree that will
-not go (a file held open) is commented, not failed. Unless a project's deploy merges,
-merging `card/<id>` is a person's job, after verify; a fresh worktree has
-no build output or installed dependencies, so the project's instructions should say how to
-get them if the tests need them.
-
-**The agent is assigned while it works.** Before a run it assigns the card to itself
-(the board shows `claude-agent` on it, next to the status bar's entry), and every way out
-— next stage, hand-back, open questions, failure — gives it back to whoever had it: a
-person keeps their card, and a card that was unassigned or assigned to the agent ends up
-unassigned. So an auto card is unassigned between stages and taken again by the next
-poll. If a person reassigned the card during the run, it stays theirs. Assigning a card
-to a name registers that name as a user (`create_card`/`update_card`), so any agent can
-put itself on a card without `create_user` first; the `update_card` tool's docs ask every
-agent to follow the same take-it, give-it-back convention.
-
-**A person's move wins.** A run takes minutes, and the card can be moved meanwhile — card
-#3 was: its auto advance was switched back on in `test`, the agent started a test run,
-the card was then moved to `develop`, and the finished run failed it and switched auto
-advance off, as if it were still in `test`. So after a run the agent re-reads the lane;
-if it changed, the output is kept as a comment noting the move, and the card is not moved
-on, unassigned or switched off.
-
-**The plan stage** runs `claude -p --permission-mode plan` (what `/plan` switches on, so it is
-read-only). A card keeps its planning round in three text fields of its own, so each reads
-on its own: `description` is the person's request and the agent never writes it; `plan` is
-the plan; `questions` the plan's open questions; `answers` the person's reply. Nobody can
-answer questions mid-run, so the prompt has Claude put them in a last `## Open questions`
-section, as a list numbered from 1, and end with a last line of `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
-`agent.split_plan` drops the verdict line and cuts that section off into `questions`,
-renumbering its top-level bullets or numbers `1.`, `2.`, … in order (`agent.number`;
-indented lines and other text kept), so the questions are numbered whatever Claude used.
-`NONE` → only `plan` is written (the last round's questions and answers stay, as the
-record of what was decided), the card moves to `develop` and, unless auto advance is on,
-halts there unassigned. Anything else, including no verdict line, → `plan` and `questions`
-are written, the card stays in `plan` unassigned, auto advance is switched off so it is not
-replanned every poll, and a comment asks for the answers. Filling them in is a reply (see
-attention), which switches auto advance back on: the agent replans with the answers in the
-prompt, told not to ask them again. An empty plan is a failure, so a plan is never blanked.
-The develop and test prompts name the fields too, and the MCP tools' docs say what goes in
-each, so any agent writes the plan to `plan`, not over the request.
-
-**Auto advance.** `cards.auto_advance` is a switch on the card. With it on, the agent
-works the card in `plan`, `develop` and `test` whoever it is assigned to (or nobody) and
-keeps it moving, one stage per poll, until it lands in `verify` — the person's stage —
-where it is unassigned. `todo` is the backlog, so moving the card to `plan` is the go
-signal. Any failure — a stage erroring, a project with no path, a test stage without a
-pass — comments why, unassigns and **turns the switch off**, leaving the card in its
-lane: that is the loop guard for auto cards, which have no unassign-to-stop of their own.
-
-**Status bar.** Around each card it works, the agent calls the `set_activity` tool
-(`planning` / `developing` / `testing`) and clears it in a `finally`; it also clears its
-own entry on startup, in case a crashed run left one. `activity` is one row per actor in
-SQLite, so it survives a backend restart, and it is live state, not history: it writes no
-event and does not bump `updated_at`. The board polls `GET /api/activity` every 5s and
-shows each agent, what it is doing, the card (click to open) and how long ago it started;
-when the set of busy cards changes it reloads the board (skipped mid-drag), so a card the
-agent just moved shows up in its new lane. A killed agent's entry lingers until it
-restarts — the "started" age is what makes that visible.
-
-**Attention: "waiting for you".** `cards.attention` turns the card's auto dot red on the
-board. Only an explicit `attention=True` sets it, and the agent passes it whenever it
-hands a card back to a person: open questions, a stage done on an assigned card, an auto
-card reaching `verify`, any failure. An auto card still moving on does not ask. Any
-other change to the card — an edit, a move, a comment, by anyone — clears it; opening
-the card does not. It is a notification, not history, so setting and clearing it write
-no event. **The reply restarts the agent:** a change or comment that clears the dot on a
-card in `plan`, `develop` or `test` also switches auto advance on (logged as an ordinary
-`edited` event, under the person), so the agent takes the card up again with the new
-input — answers, a comment on a failure, a fixed description. A write that sets
-`auto_advance` itself wins, and a reply that moves the card to `todo`, `verify` or `done`
-leaves it off. Edits to a card with no dot never start the agent. Each field saves on
-`change`, so an answers box is one reply however many questions it answers.
-
-**A new request on a verified card (#60).** A card in `verify` is finished work waiting
-for a person, and the agent never polls that lane, so an update there would otherwise sit
-unread. Instead, a person's write to `description`, `answers` or `checklist` — or a
-comment — on a `verify` card sends it back to `plan` in `core.update_card`, assigned to
-`claude-agent`, which turns auto advance on and clears `merged`/`deployed` as rework: the
-next poll replans it and it runs the whole loop again against the new request. The agent's
-own writes are exempt, or its deploy comment would bounce every card it just deployed.
-Passing `lane` in the same write keeps the card where it is.
+- **Project:** the one whose `path` is the session's folder. Its `instructions` rank
+  below the card and above the skill.
+- **Queue:** the project's cards in `plan`, then `develop`, then `test`, board order
+  within a lane. Skipped: questions without answers, an incoming `blocks` link from a
+  card not in `done`, assigned to a person. `todo` is the backlog: moving a card to
+  `plan` queues it. One run drains the queue unattended, working each card once.
+- **Stages,** each by a subagent so the session's context stays small; the session
+  writes the board and does the git: plan (read-only; open questions stop the card in
+  `plan`), develop in the card's worktree (`<repo>.worktrees/card-<id>`, branch
+  `card/<id>`, base merged in first), test (`RESULT: PASS` or the card stays), then
+  ship (commit, push `card/<id>`), land (merge into the base when the repo is on it and
+  clean), deploy (local unless the instructions say production; the comment head lights
+  the purple dot), `merged=True` from git, remove the worktree, move to `verify`.
+- **What only a person can do** (`## Blocked by`) becomes `todo` cards linked `blocks`.
+  A failure is an `agent failed: …` comment, lane unchanged.
+- **Wrap-up:** follow-up ideas as `todo` cards, and a summary in the chat.
 
 **Docs.** `docs.html` is the user's manual, written by hand from this file and
-`agent.py`: a change to how the board or the agent behaves updates it too.
+`skill/SKILL.md`: a change to how the board or the agent behaves updates it too.
 `test_docs_page_is_served_and_covers_the_essentials` checks the lanes and key terms.
 
 ## Board (`board.html`)
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
 `drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: description,
-labels, checklist, an "auto advance" checkbox (an `auto` pill on the
-board card), links, activity log, comment box. The board writes as `User`, a fixed
+labels, checklist, links, activity log, comment box. The board writes as `User`, a fixed
 name, and agents write under their own names. A project `<select>`
 (also persisted) filters the board — an agent and a human both scope to one project.
 Dragging inside a column reorders it: `dropBefore` finds the card the pointer is above
@@ -407,49 +233,28 @@ the description: "plan" is a fixed 10 lines and scrolls, "open questions" and "y
 answers" grow like the description. The description box grows with its text, from 10 lines
 up to 50, then scrolls
 (CSS `field-sizing: content`). Lanes run to the bottom of the window even when empty,
-and all grow together with the tallest. Moving a card forward — drag, sheet or MCP — or
-back into `plan` to replan it turns its auto advance on in `core.update_card`, unless the
-same write says `auto_advance=False`. Into `done` it does not: nothing more is to be done.
-Other moves back leave it alone, and so does a write to a card already in its lane, so
-one the agent stopped stays stopped. The agent's own forward moves pass the card's
-current `auto_advance`, so a card it hands back still halts for a person.
+and all grow together with the tallest. 
 
-**Auto advance at a glance.** Every board card leads with a small dot: lit green when
-auto advance is on, a faint ring when it is off (it replaced the "auto" pill, which only
-showed the on state). Attention shares the dot (#46): red if `attention`, else green if
-`auto_advance`, else the ring; the pulse means an agent is working it. No state is lost:
-in the agent lanes a hand-back with attention always has auto off (failures and open
-questions switch it off, a stage is handed back only when it is already off). Only in
-`verify` can both be on, where the agent never picks the card up, so red wins and the
-tooltip still gives the auto state. Clicking a red dot toggles auto advance, and that
-write clears attention: on a failed card it means "go again".
+**The work dot.** Every board card leads with a small ring that fills green and pulses
+while an agent's status entry (`/api/activity`) points at the card.
 
 **On master, deployed (#41).** After the auto dot come two more, on the board card and in
 the sheet header: blue when `merged` (the card's branch is on the base branch, locally or
 on origin), purple when `deployed` (on the local test backend or a device), rings when not.
-Not clickable. The deploy step merges the card's branch into the base branch itself (#106),
-in the main checkout, for every project — `agent.land`, before the deploy run, so a deploy
-that restarts a backend or publishes a site sees the merge; it is skipped, with the reason
-in the comment, unless the repo is on the base branch with nothing uncommitted, and a
-conflict aborts. The push waits until after the run, since a deploy that tests on the base
-branch has to be able to `reset --hard ORIG_HEAD`. `merged` is then read back from git
-(`agent.landed`), in the same write as `attention=True`.
+Not clickable. The skill's deploy step merges the card's branch into the base branch
+(#106) and sets `merged` from git.
 `deployed` the board sets itself, from the head of the deploy comment: `core.comment`
 lights it on `deployed: ` from `claude-agent` and darkens it on `deploy skipped: ` or
 `deploy failed: ` (a skip — nothing to deploy, or no phone — is not a failure). The head
 comes from the verdict line (`DEPLOY: OK`, `DEPLOY: SKIPPED`, anything else), so the dot
-says what the comment says, whatever version of `agent.py` wrote it (#68). A move from
+says what the comment says, whoever wrote it (#68). A move from
 todo/verify/done back into plan, develop or test is rework and clears both, unless the
-same write sets them. A card deployed by hand stays dark, but `merged` is not one-shot:
-every poll `agent.light_merged` re-checks git for the cards outside the agent lanes that
-are still dark and lights the ones whose branch has landed, whoever merged it and whenever
-(#106). It only ever lights: deleting the branch after a merge must not darken the card.
-MCP `update_card` takes both.
+same write sets them. A card deployed or merged by hand stays dark unless someone sets the dot. MCP `update_card` takes both.
 
 **Hover help.** Every control has a `title`. Panel fields get theirs from `FIELD_TIPS` in
 `field()`, lane headings from `LANE_TIPS`; everything else from one `TIPS` list of
 `[selector, text]` that a `MutationObserver` applies to whatever is rendered, never over
-a title an element already has (the auto dot, the attention dot and status jobs set
+a title an element already has (the work dot and status jobs set
 their own, more specific ones). `test_every_control_on_the_board_and_sheet_has_hover_help`
 fails on any visible control left without one.
 
@@ -494,8 +299,7 @@ native `<dialog>`: it counts the cards (archived too) that will move, says they 
 "Delete project" acts, Cancel or Esc do nothing. `DELETE /api/projects/{name}` →
 `core.delete_project` moves the cards to `NO_PROJECT` (created on first use, grey; no
 card events, like a rename) and removes the row. "No Project" itself has no delete
-button and the server refuses to delete it. The agent skips any card in it, silently,
-auto advance or not. Renaming "No Project" to something else makes its cards workable again.
+button and the server refuses to delete it. The skill never works a card in it. Renaming "No Project" to something else makes its cards workable again.
 
 "projects…" in the header opens the panel on project settings: name, path, agent
 instructions and a color picker per project, each saving on change, plus a "new project"
@@ -574,13 +378,14 @@ no longer on the board.
 | 42 | `restart-backend.ps1` waits for the port free and then served, retrying: a deploy's delayed restart landing on another restart no longer leaves the board unreachable | done |
 | 43 | #96 the deploy runs at the end of the test stage, before the card moves to verify: a card arriving in verify already has the build on the phone | done |
 | 44 | #101 the test stage fixes what it can, and the card's worktree is removed after the deploy: the branch in origin is the record, and a worktree whose folder went missing is re-made from it in either lane | done |
+| 45 | the polling agent is gone: work starts by hand with the `/tickets` skill (`skill/SKILL.md`); auto advance, attention and #60 rework removed | done — 349 checks |
 
-Gate for every task: `uv run pytest -q` — 628 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 349 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
 themselves if Playwright or Chrome is missing, so the gate still passes on a bare
-checkout — `489 passed, 139 skipped`.
+checkout.
 
 The suite shares one process on purpose: `core.DB_PATH` is re-read on every connect, so
 the temp database reaches the in-thread uvicorn server the browser talks to. That is what
@@ -630,8 +435,8 @@ everything else → `edited`.
 
 - No migration framework: `CREATE TABLE IF NOT EXISTS` will not add a column to an
   existing table. The one exception is `cards.archived`, added by a guarded `ALTER` in
-  `connect()` because the live board already held real cards, and `cards.auto_advance`
-  the same way: `BOOL_FIELDS` is the list the guarded `ALTER` walks.
+  `connect()` because the live board already held real cards, and the other flags
+  the same way: the guarded `ALTER` walks `BOOL_FIELDS + LEGACY_COLUMNS`.
 - `NOCASE` folds ASCII only, so `Ärende` and `ärende` list as two projects. Upgrade is a
   normalised `project_key` column, if it ever matters.
 - ~~The MCP `update_card` tool cannot unassign a card~~ — **resolved in task 7.** The

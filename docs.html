@@ -61,13 +61,11 @@ hand coding tasks to an agent on your machine and review what comes back.</p>
 tests.</p>
 <p>Start the server:</p>
 <pre>uv run uvicorn app:app --host 127.0.0.1 --port 8123 --log-config log-config.json</pre>
-<p>Start the agent, in a second terminal:</p>
-<pre>uv run python agent.py</pre>
 <p>Give Claude Code the board's tools:</p>
 <pre>claude mcp add --transport http tickets http://127.0.0.1:8123/mcp</pre>
-<p>8123 is the port the agent and the repo's scripts use. Any other free port works, but it
-is not a runtime setting: change <code>URL</code> at the top of <code>agent.py</code> and
-the <code>claude mcp add</code> URL to match.</p>
+<p>8123 is the port the repo's scripts use. Any other free port works, but it is not a
+runtime setting: change <code>restart-backend.ps1</code> and the <code>claude mcp add</code>
+URL to match.</p>
 <p>Then open <a href="/">the board</a> and create a project under "projects…". There is no
 default project, and a card needs one.</p>
 
@@ -105,11 +103,6 @@ again.</p>
     a column is a queue, and an agent takes the top card of it. Dropping anywhere on the
     page puts it in the nearest column. A card an agent moves lands at the bottom of the
     lane it arrives in.</li>
-  <li>Moving a card forward (except into <code>done</code>), or back into
-    <code>plan</code>, switches its auto advance on.</li>
-  <li>A card in <code>verify</code> is done work. Change its description, your answers or
-    its checklist there, or add a comment, and you are asking for it again: the card goes
-    back to <code>plan</code> and the agent plans and builds it anew.</li>
   <li>Click a card to open its sheet. Every field saves as soon as you leave it, so there is
     no save button; "close", or a click on the board around the sheet, closes it. The sheet holds the description, the plan, the
     open questions and your answers, the checklist, labels, links (parent and blocks), the
@@ -129,82 +122,25 @@ again.</p>
 
 <h3>Signals</h3>
 <ul>
-  <li><b>the dot</b>, left on the card:
-    <span class="dot" style="background:#36b37e"></span> green when auto advance is on, a
-    faint ring when it is off.
-    <span class="dot" style="background:var(--warn)"></span> Red when it is waiting for you:
-    the agent sets it when it hands a card back, and red wins over green. Any change to the
-    card clears it; just opening the card does not. It pulses while an agent is on the card.
-    A click toggles auto advance; on a red dot it also clears the red and restarts the
-    agent.</li>
+  <li><b>the first dot</b>, left on the card:
+    <span class="dot" style="background:#36b37e"></span> it fills and pulses while an agent
+    is working on the card, a faint ring otherwise.</li>
   <li><span class="dot" style="background:#0052cc"></span> <b>blue dot</b>, next to it:
-    the card's branch is on the project's base branch, however it got there &mdash; the
-    agent checks git every 15 seconds, so a merge you do by hand lights it too.
+    the card's branch is on the project's base branch, set by the agent's deploy step.
     <span class="dot" style="background:#6554c0"></span> <b>purple dot</b>: it is deployed to
-    the local test backend or a device, set by the agent's deploy. Moving the card back
-    to plan, develop or test clears them.</li>
+    the local test backend or a device, lit by the agent's <code>deployed: </code> comment.
+    Moving the card back to plan, develop or test clears them.</li>
   <li><b>status bar</b>, at the bottom: which agent is working on which card, doing what, and
     since when. Click a card in it to open it.</li>
 </ul>
 
 <h2 id="agent">4. The agent</h2>
-<ul>
-  <li>It checks the board every 15 seconds.</li>
-  <li>It picks up a card in <code>plan</code>, <code>develop</code> or <code>test</code> that
-    has auto advance on or is assigned to <code>claude-agent</code>. It skips cards in "No
-    Project".</li>
-  <li>It works one card per project and lane at a time: a project's <code>plan</code>,
-    <code>develop</code> and <code>test</code> cards run side by side, and so do different
-    projects.</li>
-  <li>Only one agent process runs at a time: a second one exits at once with "already
-    running". It restarts itself when <code>agent.py</code> changes on disk, once nothing is
-    running.</li>
-  <li>While it works a card, it assigns the card to itself. Afterwards it gives it back to
-    whoever had it.</li>
-</ul>
-<h3>Each stage</h3>
-<dl>
-  <dt>plan</dt>
-  <dd>Claude runs read-only (plan mode) in the project's repo. The plan goes to the card's
-    <code>plan</code> field, and a last <code>## Open questions</code> section goes to
-    <code>questions</code>. With open questions the card stays in plan and waits for your
-    answers. The description is yours: the agent never writes it.</dd>
-  <dt>develop</dt>
-  <dd>Claude builds it in auto mode, in the card's own git worktree at
-    <code>&lt;repo&gt;.worktrees/card-&lt;id&gt;</code> on branch <code>card/&lt;id&gt;</code>,
-    and commits there. The project's path must be a git repo. Every develop and test run
-    starts by merging the base branch in, so the card is built on current code; if that
-    merge conflicts it is left in the worktree for the run to resolve.</dd>
-  <dt>test</dt>
-  <dd>Claude reviews the card's changes and runs the tests, and fixes what it finds and can
-    fix itself, on the card's branch; what needs you it leaves alone. Its reply must end in
-    <code>RESULT: PASS</code>. The agent then commits anything left, pushes
-    <code>card/&lt;id&gt;</code> to <code>origin</code> and moves the card to verify.</dd>
-  <dt>deploy</dt>
-  <dd>At the end of test, after the push and before the move to verify, the agent merges
-    <code>card/&lt;id&gt;</code> into the project's base branch (skipped, and said in the
-    comment, if the repo is on another branch, has uncommitted work, or the merge
-    conflicts), then deploys the card once, following the project's
-    instructions &mdash; to the local test backend or a connected phone, not production
-    unless the instructions say so &mdash; pushes the base branch, and comments with the
-    result (deployed, skipped or failed) and what happened to the merge. The card stays in
-    verify with the blue and purple dots lit. The card's worktree is then removed: its
-    branch, here and on <code>origin</code>, is the record, and a card sent back to develop
-    or test gets a fresh worktree from it &mdash; as does one whose folder went missing.</dd>
-</dl>
-<h3>When things go wrong</h3>
-<ul>
-  <li>A failed run comments <code>agent failed: …</code>, gives the card back, switches auto
-    advance off and the dot turns red. The card stays in its lane.</li>
-  <li>Running out of quota is not a failure: the agent comments when it will resume, pauses
-    all runs until the limit resets, then picks the card up again where it was.</li>
-  <li>Your move wins: if you move a card during a run, the run's output becomes a comment and
-    the card stays where you put it.</li>
-  <li>A run blocked on you &mdash; a credential to create, a service to enable, a device to
-    plug in &mdash; opens a card per task in <code>todo</code>, linked as blocking the card
-    it came from, and leaves that card in its lane with the red dot on. Reply to it (a
-    comment or an edit) once you are done and the agent picks it up again.</li>
-</ul>
+<p>Nothing works the board by itself. You start the work by hand: open a Claude Code
+session in the project's folder and run the <code>/tickets</code> skill. It works every
+ready card of that project in <code>plan</code>, <code>develop</code> and <code>test</code>
+through to <code>verify</code>, and writes what it does onto the board as
+<code>claude-agent</code>: the plan, comments, the moves, and a new idea card for any
+follow-up it finds. Cards in "No Project" are never worked.</p>
 
 <h2 id="workflow">5. How you work with it</h2>
 <ol>
@@ -213,24 +149,17 @@ again.</p>
     what is still missing.</li>
   <li>New Card in <code>todo</code>: a title and a clear description of what you want and
     why.</li>
-  <li>Drag it to <code>plan</code>. Auto advance goes on and the agent plans it.</li>
-  <li>The dot turned red with open questions? Fill in "your answers". That reply restarts the agent,
-    and it replans with your answers.</li>
-  <li>No open questions: the card carries itself through develop and test to verify. Watch
-    the status bar and the comments.</li>
+  <li>Drag it to <code>plan</code>, then run <code>/tickets</code> in the project's folder.
+    Watch the status bar and the comments.</li>
+  <li>Open questions in the plan? Fill in "your answers" and run <code>/tickets</code>
+    again: it replans with them.</li>
   <li>In <code>verify</code>: read the comments, look at the branch, try the deployed build.
     Then merge <code>card/&lt;id&gt;</code> yourself and move the card to <code>done</code>.
     A project whose deploy instructions do the merge leaves you only the last one.</li>
 </ol>
 <ul>
-  <li><b>When the dot turns red, it's your turn.</b></li>
-  <li><b>To stop the agent:</b> switch auto advance off, or move the card to
-    <code>todo</code>. Without auto advance, assign a card to <code>claude-agent</code> to
-    have it do one stage and hand it back.</li>
-  <li><b>After a failure:</b> read the comment, then fix the description or add a comment.
-    That reply restarts the agent.</li>
-  <li><b>Not what you asked for?</b> Rewrite the description of the card in
-    <code>verify</code> (or comment on it) and it starts over from <code>plan</code>.</li>
+  <li><b>Not what you asked for?</b> Rewrite the description, move the card back to
+    <code>plan</code> and run <code>/tickets</code> again.</li>
   <li>Keep one concern per card, keep project instructions current, use links for
     dependencies, and archive what you no longer need.</li>
 </ul>
@@ -244,7 +173,6 @@ again.</p>
 <ul>
   <li>Every write passes <code>actor</code>, the caller's name, so the log says who did
     what.</li>
-  <li>An agent assigns a card to itself while it works on it, and gives it back after.</li>
   <li>Plans go in <code>plan</code>, never over the person's <code>description</code>.</li>
 </ul>
 

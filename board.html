@@ -72,23 +72,14 @@
   .card.drop-at { box-shadow: inset 0 3px 0 var(--accent); }
   .pill { background: #dfe1e6; border-radius: 10px; padding: 1px 7px; font-size: 11px; color: #42526e; }
   .pill.who { background: #deebff; color: #0747a6; }
-  /* auto advance at a glance: lit green when on, a faint ring when off */
-  .auto, .st { width: 8px; height: 8px; border-radius: 50%; flex: none;
+  /* a faint ring each; the work dot fills and pulses while an agent works the card */
+  .work, .st { width: 8px; height: 8px; border-radius: 50%; flex: none;
                 box-sizing: border-box; border: 1.5px solid #c1c7d0; }
-  .card .auto { position: relative; cursor: pointer; }
-  /* a bigger click target than the 8px dot */
-  .card .auto::after { content: ""; position: absolute; inset: -5px; }
-  .auto.on { background: #36b37e; border-color: #36b37e;
-                   box-shadow: 0 0 4px 1px rgba(54,179,126,.7); }
-  /* waiting for your input: red wins over green */
-  .auto.attn { background: #de350b; border-color: #de350b;
-               box-shadow: 0 0 4px 1px rgba(222,53,11,.7); }
-  /* an agent is working on the card right now */
-  .auto.working { animation: pulse 1.2s infinite; }
+  .work.working { background: #36b37e; border-color: #36b37e; animation: pulse 1.2s infinite; }
   /* on master, deployed: set by the agent's deploy step, so not clickable */
   .st.merged.on { background: #0052cc; border-color: #0052cc; }
   .st.deployed.on { background: #6554c0; border-color: #6554c0; }
-  #panel .head .auto, #panel .head .st { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: middle; }
+  #panel .head .work, #panel .head .st { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: middle; }
   .pill.proj { font-weight: 600; }
   #panel .project input[type=color] { width: 60px; height: 28px; padding: 2px; }
   .id { color: #a5adba; }
@@ -138,7 +129,7 @@
                   overflow-wrap: anywhere; }
   .log:not(.open) li.old { display: none; }
   .log li.more { border-top: 0; }
-  .chk, .auto-sw { display: flex; gap: 6px; align-items: baseline; }
+  .chk { display: flex; gap: 6px; align-items: baseline; }
   .chk.done span { text-decoration: line-through; color: var(--dim); }
   .links li { list-style: none; display: flex; gap: 6px; align-items: center; }
   ul.links { padding: 0; margin: 0; }
@@ -255,7 +246,6 @@ function eventLine(e) {
         return `edited the ${d.field}`;
       if (d.field === "checklist")   return `changed the checklist to ${val(d.to)}`;
       if (d.field === "labels")      return `changed the labels from ${val(d.from)} to ${val(d.to)}`;
-      if (d.field === "auto_advance") return `turned auto advance ${d.to ? "on" : "off"}`;
       return `changed the ${d.field} from ${val(d.from)} to ${val(d.to)}`;
     case "checked":  return `${d.done ? "ticked" : "unticked"} “${d.text}”`;
     case "linked":   return `linked this as a ${d.kind} of #${d.to}`;
@@ -338,19 +328,10 @@ function projectTag(name) {
   return tag;
 }
 
-// red when an agent handed the card back and waits for you, else green when auto advance
-// is on, a ring when off; pulses while an agent works the card
-// only the board's dot is clickable; in the sheet the auto advance switch is the control
-function autoDot(c, clickable) {
-  const d = Object.assign(document.createElement("span"),
-    { className: "auto" + (c.auto_advance ? " on" : "") + (c.attention ? " attn" : ""),
-      title: (c.attention ? "waiting for your input: an agent handed this card back. " +
-        "Any edit, move or comment clears it. " : "") + (c.auto_advance
-        ? "auto advance is on: the agent carries this card on to verify by itself"
-        : "auto advance is off: the agent works this card only when it is assigned to it") +
-        (clickable ? (c.auto_advance ? ". Click to turn it off." : ". Click to turn it on.") : "") });
+// a ring that fills and pulses while an agent's status entry points at the card
+function workDot(c) {
+  const d = Object.assign(document.createElement("span"), { className: "work" });
   d.dataset.id = c.id;
-  if (clickable) d.onclick = ev => { ev.stopPropagation(); toggleAuto(c.id); };   // not the card's sheet
   markWorking(d);
   return d;
 }
@@ -366,8 +347,8 @@ function statusDots(c) {
 function markWorking(d) {
   const on = working.has(+d.dataset.id);
   d.classList.toggle("working", on);
-  d.title = d.title.replace(/ · an agent is working on it now$/, "") +
-    (on ? " · an agent is working on it now" : "");
+  d.title = on ? "an agent is working on it now"
+               : "pulses while an agent is working on this card; no agent is on it now";
 }
 
 function cardNode(c) {
@@ -383,7 +364,7 @@ function cardNode(c) {
     { className: "id", textContent: "#" + c.id }));
   if (c.assignee) meta.append(Object.assign(document.createElement("span"),
     { className: "pill who", textContent: c.assignee }));
-  meta.prepend(autoDot(c, true), ...statusDots(c));
+  meta.prepend(workDot(c), ...statusDots(c));
   meta.append(projectTag(c.project));
   for (const l of c.labels) meta.append(Object.assign(document.createElement("span"),
     { className: "pill label", textContent: l }));
@@ -541,24 +522,6 @@ async function archive(ids) {
   try { await Promise.all(ids.map(id => api("PATCH", "/api/cards/" + id, { archived: true }))); }
   catch (e) { showErr("could not archive: " + e.message); }
   load();   // reload either way: some may have landed
-}
-
-async function toggleAuto(id) {
-  const c = cards.find(x => x.id === id);
-  if (!c) return;
-  const was = c.auto_advance, attn = c.attention;
-  c.auto_advance = !was;         // optimistic, like move()
-  c.attention = false;           // the write is a reply, so the server clears it too
-  renderBoard();
-  try {
-    replace(await api("PATCH", "/api/cards/" + id, { auto_advance: !was }));
-    if (open && open.id === id) openCard(id);
-  } catch (e) {
-    c.auto_advance = was;
-    c.attention = attn;
-    renderBoard();
-    showErr("could not switch auto advance on #" + id + ": " + e.message);
-  }
 }
 
 // Responses can land out of order, so an older copy of a card must never replace a newer
@@ -736,7 +699,7 @@ function renderPanel() {
         title: "the card is verified: move it to done" }) : null;
     if (fin) fin.onclick = () => patch({ lane: "done" });
     const idSpan = Object.assign(document.createElement("span"), { className: "id", textContent: "#" + c.id });
-    idSpan.prepend(autoDot(c), ...statusDots(c));
+    idSpan.prepend(workDot(c), ...statusDots(c));
     head.append(idSpan,
                 title,
                 Object.assign(document.createElement("span"),
@@ -804,16 +767,6 @@ function renderPanel() {
     row.append(w);
   }
   p.append(row);
-
-  // the agent picks the card up once it is in plan, and carries it to verify on its own
-  const auto = document.createElement("label");
-  auto.className = "auto-sw";
-  const autoBox = Object.assign(document.createElement("input"),
-    { type: "checkbox", checked: c.auto_advance });
-  autoBox.onchange = () => patch({ auto_advance: autoBox.checked });
-  auto.append(autoBox, Object.assign(document.createElement("span"),
-    { textContent: "the agent moves it plan → develop → test → verify, no input needed" }));
-  p.append(field("auto advance", auto));
 
   const labels = Object.assign(document.createElement("input"),
     { type: "text", value: c.labels.join(", "), placeholder: "comma, separated" });
@@ -1056,7 +1009,7 @@ $("#add").onclick = () => {
   const find = n => projects.find(p => p.name.toLowerCase() === (n || "").toLowerCase());
   const home = find(proj()) || find(localStorage.getItem("lastProject"));
   open = { title: "", description: "", lane: "todo", assignee: null,
-           labels: [], checklist: [], project: (home || projects[0]).name, auto_advance: false,
+           labels: [], checklist: [], project: (home || projects[0]).name,
            events: [], links: [], comments: [] };
   renderPanel();
 };
@@ -1100,7 +1053,7 @@ async function loadStatus() {
   }
   // set before any reload, so the rebuilt cards pulse too; the open editor is updated in place
   working = new Set(jobs.map(j => j.card_id));
-  for (const d of document.querySelectorAll(".auto[data-id]")) markWorking(d);
+  for (const d of document.querySelectorAll(".work[data-id]")) markWorking(d);
   // an agent finishing moves its card: reload the board then, but never under a drag
   const now = jobs.map(j => j.card_id).join();
   if (busy !== null && now !== busy && !$(".card.dragging")) load();
@@ -1114,10 +1067,9 @@ const FIELD_TIPS = {
   "description": "the request: what you want done and why. The agent reads it, never rewrites it",
   "plan": "the implementation plan the planning agent wrote. Edit it if you want it done differently",
   "open questions": "what the plan needs a person to decide before the work can go on",
-  "your answers": "your answers to the open questions: saving them sends the card back to the agent to replan",
-  "assignee": "who is working on it: a person, or an agent while it works. Assigning claude-agent starts it",
+  "your answers": "your answers to the open questions: the agent reads them when it replans",
+  "assignee": "who is working on it: a person, or an agent while it works",
   "lane": "the stage it is in: todo → plan → develop → test → verify → done",
-  "auto advance": "on: the agent works the card by itself, stage after stage, until it reaches verify",
   "labels": "free tags, comma separated",
   "checklist": "steps to tick off; the card shows done/total",
   "links": "relate this card to another: a parent, or a card this one blocks",
