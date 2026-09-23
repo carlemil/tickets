@@ -268,8 +268,9 @@ it was. The prompt is told where it is and what the merge did: develop commits o
 branch (never pushes or switches, merging the base in is fine), test reviews and fixes
 `git diff <base>...HEAD` plus anything uncommitted. The card's comment ends with the
 worktree's path in develop and with the branch in test, where the worktree goes with the
-deploy. Planning only reads and runs in the repo. Develop and test never run anywhere but
-the card's worktree: a project folder that is not a git repository fails the card (it can
+deploy. Planning only reads and runs in the repo, after a fast-forward pull of its
+branch from its upstream (skipped, and the plan told so, if it cannot fast-forward).
+Develop and test never run anywhere but the card's worktree: a project folder that is not a git repository fails the card (it can
 still be planned). A worktree whose folder is gone is re-made from the card's branch, in
 either lane, after a `git worktree prune` clears the registration the folder left behind;
 only a card in test with no branch at all fails, since nothing was ever built. A worktree

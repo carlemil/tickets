@@ -306,12 +306,13 @@ def workspace(card, path):
     (<repo>.worktrees/card-<id>, branch card/<id>, made from the repo's current branch), so
     one card's changes never mix with another's or with a person's work in the repo.
     Each run first merges the base branch in (see catch_up), so a card is built and tested
-    on current code. Planning only reads, so it runs in the repo. Develop and test never
+    on current code. Planning only reads, so it runs in the repo, pulled up to date first
+    (see refresh). Develop and test never
     run anywhere but the worktree: a folder that is not a git repository fails the card. A
     worktree whose folder went missing is re-made from the card's branch, in either lane;
     only a card in test with no branch at all fails, since nothing was ever built."""
     if card["lane"] == "plan":
-        return path, "", None, None
+        return path, refresh(path), None, None
     top = git(path, "rev-parse", "--show-toplevel")
     if top.returncode:
         raise RuntimeError(f"{path} is not a git repository: develop and test only run in "
@@ -365,6 +366,26 @@ def catch_up(tree, base):
                 "and commit the merge before anything else. ")
     git(tree, "merge", "--abort")                      # never started (dirty tree): harmless
     return f"Could not merge {ref} in ({(r.stderr or r.stdout).strip()[-200:]}); your branch is behind it. "
+
+
+def refresh(repo):
+    """Before planning: fast-forward the repo's current branch to its upstream, so the plan
+    reads current code (#110). Best effort, and never a merge: the repo is a person's
+    checkout, so no upstream, offline, a diverged branch or an uncommitted file in the way
+    just leaves it as it is. Returns the line the prompt is told about it.
+    ponytail: the pull can lose the .git/index.lock race with a deploy's merge in the same
+    repo; it then fails and the planner is told the code may be behind."""
+    up = git(repo, "rev-parse", "--abbrev-ref", "--verify", "--quiet", "@{u}")
+    if up.returncode:
+        return ""                                      # not a repo, or nothing to pull from
+    up = up.stdout.strip()
+    before = git(repo, "rev-parse", "HEAD").stdout
+    r = git(repo, "pull", "--ff-only", "--no-rebase", "-q")   # fetch + fast-forward
+    if r.returncode:
+        return (f"Could not pull {up} ({(r.stderr or r.stdout).strip()[-200:]}); the code "
+                "here may be behind it. ")
+    return (f"The repo was pulled up to date with {up} before this run. "
+            if git(repo, "rev-parse", "HEAD").stdout != before else "")
 
 
 def landed(path):

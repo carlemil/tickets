@@ -801,6 +801,62 @@ def test_planning_stays_in_the_repo(repo, where):
     assert (lane, cwd, told) == ("plan", repo, "")
 
 
+def someone_pushed(repo, name="b.txt"):
+    """Track origin/main from the repo, then have another clone push a commit adding `name`."""
+    agent.git(repo, "push", "-q", "-u", "origin", "main")
+    other = repo.parent / "Other"
+    if not other.exists():
+        agent.git(repo.parent, "clone", "-q", "-b", "main",
+                  str(repo.parent / f"{repo.name}.origin.git"), str(other))
+        agent.git(other, "config", "user.email", "o@o")
+        agent.git(other, "config", "user.name", "o")
+    (other / name).write_text("theirs")
+    agent.git(other, "add", ".")
+    agent.git(other, "commit", "-q", "-m", f"their {name}")
+    agent.git(other, "push", "-q", "origin", "main")
+
+
+def test_planning_pulls_what_someone_else_pushed_first(repo, where):
+    someone_pushed(repo)
+    card("plan", project="Repo")
+    tick()
+    [(lane, cwd, told)] = where
+    assert (repo / "b.txt").read_text() == "theirs"
+    assert told == "The repo was pulled up to date with origin/main before this run. "
+
+
+def test_planning_an_up_to_date_repo_says_nothing(repo, where):
+    agent.git(repo, "push", "-q", "-u", "origin", "main")
+    card("plan", project="Repo")
+    tick()
+    assert where[0][2] == ""
+
+
+def test_planning_never_merges_a_diverged_branch(repo, where):
+    someone_pushed(repo)
+    (repo / "mine.txt").write_text("mine")
+    agent.git(repo, "add", ".")
+    agent.git(repo, "commit", "-q", "-m", "mine")
+    head = agent.git(repo, "rev-parse", "HEAD").stdout
+    id = card("plan", project="Repo")
+    tick()
+    assert where[0][2].startswith("Could not pull origin/main (")
+    assert agent.git(repo, "rev-parse", "HEAD").stdout == head
+    assert not (repo / "b.txt").exists()
+    assert core.get_card(id)["lane"] == "develop" and core.get_card(id)["plan"]
+
+
+def test_planning_leaves_an_uncommitted_edit_in_the_way_alone(repo, where):
+    someone_pushed(repo, "a.txt")
+    (repo / "a.txt").write_text("my edit")
+    head = agent.git(repo, "rev-parse", "HEAD").stdout
+    card("plan", project="Repo")
+    tick()
+    assert where[0][2].startswith("Could not pull origin/main (")
+    assert (repo / "a.txt").read_text() == "my edit"
+    assert agent.git(repo, "rev-parse", "HEAD").stdout == head
+
+
 @pytest.mark.parametrize("lane", ["develop", "test"])
 def test_a_folder_that_is_not_a_repo_is_never_developed_or_tested(ran, where, tmp_path, lane):
     (tmp_path / "Plain").mkdir()
