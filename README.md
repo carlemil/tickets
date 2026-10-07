@@ -62,7 +62,8 @@ is down, registers the MCP server if it is missing, helps write the repo's `CLAU
 test and deploy rules, and creates the project, fixing only what is missing.
 `/tickets-open-board` opens the board in your browser, and `/tickets-run-loop [10m]`
 works the board every 15 minutes while the session is open (link both the same way,
-from `skill-open-board` and `skill-run-loop`).
+from `skill-open-board` and `skill-run-loop`); `/tickets-stop-loop` (`skill-stop-loop`)
+stops it.
 
 ## Your first card
 

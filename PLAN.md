@@ -31,6 +31,7 @@ skill/SKILL.md the /tickets Claude Code skill: works a project's cards, over MCP
 skill-setup/SKILL.md  /tickets-setup: starts the board, sets a repo up as a project
 skill-open-board/SKILL.md  /tickets-open-board: opens the board in the browser
 skill-run-loop/SKILL.md  /tickets-run-loop: /tickets every N minutes via /loop
+skill-stop-loop/SKILL.md  /tickets-stop-loop: cancels that loop
 CLAUDE.md      this repo's own rules (test gate, docs, deploy), read by every session
 log-config.json uvicorn log format: a timestamp per row
 ```
@@ -266,7 +267,9 @@ that reads `~/.claude/skills/tickets/SKILL.md` and does one run. `/loop` cannot 
 person's act — and a file read that way has its placeholders unfilled, so the tick
 prompt supplies the session id and the skill folder. A tick with cards still in flight
 or an empty queue answers one line. Session-only: it ends with the session (or after
-the 7 days a session loop lives).
+the 7 days a session loop lives). `/tickets-stop-loop` (`skill-stop-loop/SKILL.md`) deletes
+the session's cron jobs whose prompt starts `Tickets loop tick.` and lets cards in flight
+finish; Claude may invoke it by itself, since stopping starts no work.
 
 **Docs.** `docs.html` is the user's manual, written by hand from this file and
 `skill/SKILL.md`: a change to how the board or the agent behaves updates it too.
@@ -453,6 +456,7 @@ no longer on the board.
 | 54 | `/tickets-open-board` opens the board in the browser and prints the link; `/tickets-setup` ends with the link; both find the Tickets repo through git, not `..` of the junction | done — 375 checks |
 | 55 | `/tickets` starts a down board and works over HTTP when the session has no MCP tools (`POST /api/activity` added; `""` and null both unassign); `/tickets-setup` offers to start the board at logon | done — 377 checks |
 | 56 | `/tickets-run-loop [interval]`: `/loop` runs one `/tickets` run per tick by reading the skill file, placeholders filled by the tick prompt | done — 377 checks |
+| 57 | `/tickets-stop-loop`: deletes the session's `Tickets loop tick.` cron jobs, cards in flight finish | done — 377 checks |
 
 Gate for every task: `uv run pytest -q` — 377 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
