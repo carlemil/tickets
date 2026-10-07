@@ -217,6 +217,10 @@ D:\source\Tickets\skill`). It uses only the existing MCP tools, as `claude-agent
   `pr`: then ship also opens a PR with `gh` and stores its URL in the card's `pr`, the
   local merge is skipped (the deploy never merges either), and the merged dot waits for
   the PR — each run first asks `gh` about the project's unmerged `verify` cards with a PR.
+- **The checklist is the live task list (#3).** The plan's `## Steps` become checklist
+  items (new texts only, existing items kept); the develop subagent ticks each as it
+  finishes — its one board write — so the board card's `☑ done/total` chip moves while it
+  works, and the test review names any step left unticked.
 - **What only a person can do** (`## Blocked by`) becomes `todo` cards linked `blocks`.
   A failure is an `agent failed: …` comment, lane unchanged.
 - **Wrap-up:** follow-up ideas as `todo` cards, and a summary in the chat.
@@ -399,8 +403,9 @@ no longer on the board.
 | 47 | #2 `cards.session`: the skill stores its session id on a card it takes; the sheet copies `claude --resume <id>` | done — 358 checks |
 | 48 | #6 `projects.land` (`merge` \| `pr`) and `cards.pr`: a `pr` project's passed card ships as a pull request, linked from the sheet; merged when the PR is | done — 371 checks |
 | 49 | #4 open questions may list options as indented bullets; the sheet offers them as radios that write the answers | done — 374 checks |
+| 50 | #3 the plan's steps become the checklist, ticked by the develop subagent as it goes | done — 375 checks |
 
-Gate for every task: `uv run pytest -q` — 374 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 375 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

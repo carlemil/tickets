@@ -67,11 +67,12 @@ the card where they put it.
 
 Each stage is done by a `general-purpose` subagent (Agent tool), so a long run does not
 fill this session's context. Brief it with: the card (`get_card` output: title,
-description, plan, questions, answers, comments), the project instructions, the stage's
-rules below, the folder to work in (absolute path — tell it to use absolute paths or
+description, plan, questions, answers, checklist, comments), the project instructions, the
+stage's rules below, the folder to work in (absolute path — tell it to use absolute paths or
 `git -C`), and the verdict line it must end with. Continue the same subagent
 (SendMessage) for the card's next stage so it keeps what it learned. You — not the
-subagent — write to the board and run the git steps marked (you).
+subagent — write to the board and run the git steps marked (you); the one exception is
+the develop subagent ticking checklist items.
 
 On a card's way out: `update_card(assignee="")` unless a person had it before you.
 
@@ -80,15 +81,20 @@ On a card's way out: `update_card(assignee="")` unless a person had it before yo
 (you) `git -C <repo> pull --ff-only` first; if it fails, tell the subagent the code may
 be behind. The subagent reads code, changes nothing, and replies with the complete plan
 in markdown (Context section restates the request). If it already has `questions` and
-`answers`, those are a person's answers: build them in, do not ask again. Anything
+`answers`, those are a person's answers: build them in, do not ask again. The plan has a
+`## Steps` section: a numbered list of concrete implementation steps, at most ~10, one
+line each. Anything
 needing a person's decision goes in a last `## Open questions` section, numbered 1., 2.,
 …; a question with sensible choices lists 2–4 of them under it as indented `- ` bullets,
 the recommended one first and suffixed ` (recommended)` (the board shows them as radio
 buttons), otherwise it is free text. Last line `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
 
-(you) Cut the verdict line and the questions section off. Empty plan → failure.
-- NONE → `update_card(plan=…)`, move to `develop`.
-- OPEN → `update_card(plan=…, questions=…)`, comment "open questions: answer them in
+(you) Cut the verdict line and the questions section off. Empty plan → failure. The
+steps become the card's checklist, its live task list: the existing items as they are,
+plus one `{"text": <step>, "done": false}` per step whose text is not already on it (so a
+replan adds only new steps); pass it as `checklist=…` in the same `update_card`.
+- NONE → `update_card(plan=…, checklist=…)`, move to `develop`.
+- OPEN → `update_card(plan=…, questions=…, checklist=…)`, comment "open questions: answer them in
   the card, then run /tickets again", leave it in `plan`.
 
 ### develop  (in the card's worktree)
@@ -106,6 +112,9 @@ buttons), otherwise it is free text. Last line `QUESTIONS: NONE` or `QUESTIONS: 
 The subagent implements the card following `plan` and `answers` (later comments win),
 works only inside the worktree, runs the project's tests, commits on `card/<id>` — never
 pushes, never switches branch — and replies with a short summary and the test result.
+Its one board write: as it finishes a step it ticks that checklist item — `get_card`,
+flip that item's `done`, `update_card(checklist=<the full list>, actor="claude-agent")` —
+nothing else; tell it so in the brief.
 (you) Comment the summary plus the worktree path, move to `test`.
 
 ### test  (in the same worktree)
@@ -116,6 +125,7 @@ pushes, never switches branch — and replies with a short summary and the test 
 The subagent reviews `git -C <tree> diff <base>...HEAD` plus anything uncommitted against
 the request, plan and answers, runs the tests, and fixes what it can itself on the
 branch. What it cannot (unfinished work, a decision a person must make) it leaves alone.
+Its review names every checklist step still unticked (one skipped on purpose says why).
 Last line exactly `RESULT: PASS` or `RESULT: FAIL`. Comment its reply. FAIL → failure.
 
 PASS → (you) ship, land, deploy, clean up — in this order:

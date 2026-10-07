@@ -1526,6 +1526,24 @@ def test_parse_questions_and_pick_answer(page):
     assert pick("  1. indented", 1, "B") == "  1. indented\n1. B", "top level only"
 
 
+def test_a_board_card_shows_its_checklist_progress(page):
+    """The checklist is the agent's live task list: the board card says how far it got."""
+    steps = [{"text": t, "done": d} for t, d in [("a", True), ("b", False), ("c", False)]]
+    cid = core.create_card("listed", actor="ce", project="Home", checklist=steps)["id"]
+    bare = core.create_card("bare", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
+    chip = page.locator(f'.card[data-id="{cid}"] .pill.checks')
+    assert chip.inner_text() == "☑ 1/3"
+    assert chip.get_attribute("title")
+    assert page.locator(f'.card[data-id="{bare}"] .pill.checks').count() == 0, "none when empty"
+    steps[1]["done"] = True                                   # an agent ticks a step
+    page.evaluate("([id, cl]) => api('PATCH', '/api/cards/' + id, {checklist: cl})", [cid, steps])
+    page.evaluate("load()")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert chip.inner_text() == "☑ 2/3"
+    assert core.get_card(cid)["checklist"] == steps
+
+
 def test_the_plan_box_is_ten_lines_whatever_its_text(page):
     cid = core.create_card("p", actor="ce", project="Home")["id"]
     core.update_card(cid, "claude-agent", plan="one line")
