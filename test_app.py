@@ -38,6 +38,11 @@ def test_root_serves_the_board(client):
     assert 'id="board"' in r.text, "the board itself, not a placeholder"
 
 
+def test_both_pages_have_the_tab_icon(client):
+    for path in ["/", "/docs"]:
+        assert '<link rel="icon" href="data:image/svg+xml,<svg' in client.get(path).text, path
+
+
 def test_docs_page_is_served_and_covers_the_essentials(client):
     r = client.get("/docs")
     assert r.status_code == 200 and "text/html" in r.headers["content-type"]

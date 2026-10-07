@@ -472,8 +472,9 @@ no longer on the board.
 | 59 | `/tickets-setup` and `/tickets-run-loop` merged into `/tickets-start [interval]` (setup where needed, then the loop); `/tickets-stop-loop` renamed `/tickets-stop` | done — 383 checks |
 | 60 | `/tickets` folded into `/tickets-start`: its text is `skill-start/run.md`, read once (`once`, a card id) or per loop tick; the `tickets` junction is gone | done — 383 checks |
 | 61 | every stage of a card runs in a new subagent (no SendMessage continuation) whose brief pastes the whole card verbatim, comments without CLI output, plus project, repo and worktree | done — 383 checks |
+| 62 | tab icon: an inline SVG data-URI favicon on the board and the docs (a board of cards and the green work dot) | done — 384 checks |
 
-Gate for every task: `uv run pytest -q` — 383 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 384 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
