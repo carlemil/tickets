@@ -145,7 +145,11 @@ again.</p>
 
 <h2 id="agent">4. The agent</h2>
 <p>Nothing works the board by itself. You start the work by hand: open a Claude Code
-session in the project's folder and run the <code>/tickets</code> skill. It works every
+session in the project's folder and run the <code>/tickets</code> skill. If the board is
+down it starts it, and if the session has no board tools (Claude Code connects them only
+when a session starts, so a session opened before the board has none until
+<code>/mcp</code> reconnects) it works over the board's web API instead.
+<code>/tickets-setup</code> can start the board when you log in, so that rarely happens. It works every
 ready card of that project in <code>plan</code>, <code>develop</code> and <code>test</code>
 through to <code>verify</code>, and writes what it does onto the board as
 <code>claude-agent</code>: the plan, comments, the moves, and a new idea card for any

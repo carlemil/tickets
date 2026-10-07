@@ -120,6 +120,12 @@ async def api_activity(request):
     return JSONResponse(core.list_activity())
 
 
+# the set_activity tool over HTTP, for an agent whose MCP connection failed
+@route("/api/activity", methods=["POST"])
+async def api_set_activity(request):
+    return JSONResponse(core.set_activity(**await body(request)))
+
+
 @route("/api/projects", methods=["GET"])
 async def api_projects(request):
     return JSONResponse(core.list_projects())

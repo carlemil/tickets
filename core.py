@@ -551,6 +551,8 @@ def update_card(id, actor, **fields):
         old = _load(db, id)
         if "project" in fields:
             fields["project"] = _project(db, fields["project"])
+        if fields.get("assignee") == "":   # unassigned is NULL, whether "" or null was sent
+            fields["assignee"] = None
         if isinstance(fields.get("questions"), str):   # every writer's questions: 1. 2. 3.
             fields["questions"] = number(fields["questions"])
         frm, to = LANES.index(old["lane"]), LANES.index(fields.get("lane", old["lane"]))

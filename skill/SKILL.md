@@ -14,9 +14,37 @@ what needs a person goes on the board (questions, blocker cards) and the run mov
 
 Every board write uses `actor="claude-agent"`. Tools are the `tickets` MCP server's
 (`list_projects`, `list_cards`, `get_card`, `update_card`, `comment`, `create_card`,
-`link_cards`, `set_activity`). If they are missing, stop and tell the user to start the
-backend and register the server once, at user scope:
-`claude mcp add --scope user --transport http tickets http://127.0.0.1:8123/mcp`.
+`link_cards`, `set_activity`).
+
+## 0. Board up, tools or not
+
+A missing board never stops a run:
+- `GET http://127.0.0.1:8123/api/projects` does not answer → start it detached (a
+  uvicorn started straight from a tool call dies with the call):
+  `powershell -NoProfile -File <tickets repo>/restart-backend.ps1 -Delay 1`, where the
+  Tickets repo is `git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel`; wait ~12 s and
+  ask again. Still down → stop, with the tail of `<tickets repo>/restart-backend.log`.
+- The `tickets` tools are missing (the session started while the board was down, or the
+  server is not registered) → do the whole run over the board's HTTP API instead; a
+  session cannot reconnect a user's MCP server by itself. Same calls, same arguments:
+
+  | tool | HTTP (base `http://127.0.0.1:8123`, JSON bodies) |
+  |---|---|
+  | `list_projects` | `GET /api/projects` |
+  | `list_cards(project=…)` | `GET /api/cards?project=…` |
+  | `get_card(id)` | `GET /api/cards/<id>` |
+  | `update_card(id, …)` | `PATCH /api/cards/<id>` — unassign with `"assignee": null` |
+  | `comment(id, text)` | `POST /api/cards/<id>/comment` `{actor, text}` |
+  | `create_card(…)` | `POST /api/cards` |
+  | `link_cards(…)` | `POST /api/links` `{from_id, to_id, kind, actor}` |
+  | `set_activity(…)` | `POST /api/activity` `{actor, card_id, doing}`; clear: `{actor}` |
+
+  Every write carries `"actor": "claude-agent"`. Send UTF-8 (plans hold non-ASCII): in
+  PowerShell `Invoke-RestMethod -Method Patch <url> -ContentType 'application/json;
+  charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes(($fields | ConvertTo-Json -Depth
+  6)))`. Subagents ticking the checklist get the same instructions. The summary says the
+  run used HTTP and that `/mcp` (or a new session) brings the tools back; if the server
+  is not registered at all, `/tickets-setup` registers it.
 
 ## 1. Find the project
 
@@ -182,8 +210,8 @@ PASS → (you) ship, land, deploy, clean up — in this order:
 6. Move to `verify`.
 
 A deploy that restarts the Tickets backend itself cuts the MCP connection: if the
-tools stop answering, wait a minute and retry once; still down → finish the summary in
-the chat and tell the user to run `/mcp` to reconnect.
+tools stop answering, wait until `GET /api/projects` answers again (start it as in 0 if
+it does not within a minute) and carry on over HTTP, as in 0.
 
 ### Blocked by a person
 

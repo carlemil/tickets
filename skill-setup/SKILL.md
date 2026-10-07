@@ -25,12 +25,26 @@ dies with the call:
 ask again. Still down → stop: show the tail of `<tickets repo>\restart-backend.log` and
 say `uv sync` in the Tickets repo may be needed.
 
+**Start it at logon.** Claude Code connects its MCP servers once, when a session starts,
+and does not retry: a session opened while the board was down has no board tools until
+`/mcp` reconnects them (the `/tickets` skill falls back to HTTP, but the tools are
+better). So the board should already be up when any session starts. Windows: look for
+`tickets-backend.cmd` in the Startup folder (`[Environment]::GetFolderPath('Startup')`).
+Missing → ask once (AskUserQuestion: "Start the Tickets board when you log in?",
+yes recommended); yes → write that file with the single line
+`start "" /min powershell -NoProfile -WindowStyle Hidden -File "<tickets repo>\restart-backend.ps1"`.
+Removing the file undoes it. Elsewhere, suggest the platform's equivalent (a launchd
+agent, a systemd user unit) and do not install it.
+
 ## 2. The board's tools and the /tickets skill
 
 - `claude mcp get tickets`. Missing → `claude mcp add --scope user --transport http
   tickets http://127.0.0.1:8123/mcp`. A server added now reaches only new sessions: say
-  so in the summary (restart the session, or `/mcp`, before `/tickets`). Present but not
-  connected → it was the backend; `/mcp` reconnects.
+  so in the summary (restart the session, or `/mcp`, before `/tickets`).
+- Registered but its tools are missing in this session (no `mcp__tickets__*` tools, or
+  `claude mcp get tickets` not connected while the board answers) → the session started
+  before the board did. Say so in the summary: `/mcp` → tickets → Reconnect, or a new
+  session; the logon start above keeps it from happening again.
 - `~/.claude/skills/tickets` exists. Missing → link it (Windows:
   `New-Item -ItemType Junction "$HOME\.claude\skills\tickets" -Target <tickets repo>\skill`;
   elsewhere `ln -s <tickets repo>/skill ~/.claude/skills/tickets`).

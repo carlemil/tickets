@@ -149,7 +149,7 @@ name is a `ValueError`.
 
 `GET /` → board.html · `GET /docs` → docs.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
 `POST /api/cards` · `POST /api/cards/{id}/comment` · `POST|DELETE /api/links` ·
-`GET|POST /api/users` · `GET /api/activity` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}`. Every
+`GET|POST /api/users` · `GET|POST /api/activity` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}`. Every
 write body carries `actor` — except `POST /api/users` (`{"name"}` → 201), the one write
 that predates having an actor, and the project writes, which are configuration rather
 than card activity and log no event. `POST /api/projects` also opens a setup card per
@@ -231,6 +231,15 @@ D:\source\Tickets\skill`). It uses only the existing MCP tools, as `claude-agent
   A failure is an `agent failed: …` comment, lane unchanged.
 - **Wrap-up:** follow-up ideas as `todo` cards, and a summary in the chat.
 
+**No tools, no stop.** Claude Code connects MCP servers once, at session start, and never
+retries, so a session opened while the board was down has no `tickets` tools — and a
+session cannot reconnect a user's MCP server itself (that reconnect tool covers claude.ai
+connectors only). `/tickets` therefore starts the backend if it is down and, without the
+tools, runs the whole drain over the HTTP API, one route per tool; `POST /api/activity`
+exists for that. Over HTTP an unassign is `null`; core stores `""` as NULL too, so both
+surfaces agree (an `""` used to be stored as is, and a later null logged a second
+unassign).
+
 **Setup: `/tickets-setup` (`skill-setup/SKILL.md`).** A second global skill, linked the
 same way into `~/.claude/skills/tickets-setup`, run by hand once per repo before the first
 `/tickets`. Idempotent, fixing only what is missing: the backend (started with
@@ -238,7 +247,9 @@ same way into `~/.claude/skills/tickets-setup`, run by hand once per repo before
 with it), the user-scope MCP server, the `/tickets` junction, the repo and its `origin`,
 the repo's `CLAUDE.md` test/deploy rules (asked for, never committed), and the project row.
 Being a person's command, it may configure the project, which the MCP tools cannot: it
-uses `/api/projects` and creates the project last, so its setup cards see the new
+uses `/api/projects` and creates the project last, and offers to start the board at
+logon (`tickets-backend.cmd` in the Startup folder), so it is up before any session
+connects; so its setup cards see the new
 `CLAUDE.md`. It finds the Tickets repo as `git -C ${CLAUDE_SKILL_DIR} rev-parse
 --show-toplevel`: the skill folder is a junction, so `${CLAUDE_SKILL_DIR}/..` is
 `~/.claude/skills`. Its summary ends with a clickable link to the board.
@@ -430,8 +441,9 @@ no longer on the board.
 | 52 | #7 the test stage reviews with Claude Code's `/code-review` on the card's ref range, its own review as fallback | done — 375 checks |
 | 53 | `/tickets-setup` (`skill-setup/SKILL.md`): starts the board and sets a repo up as a project, fixing only what is missing | done — 375 checks |
 | 54 | `/tickets-open-board` opens the board in the browser and prints the link; `/tickets-setup` ends with the link; both find the Tickets repo through git, not `..` of the junction | done — 375 checks |
+| 55 | `/tickets` starts a down board and works over HTTP when the session has no MCP tools (`POST /api/activity` added; `""` and null both unassign); `/tickets-setup` offers to start the board at logon | done — 377 checks |
 
-Gate for every task: `uv run pytest -q` — 375 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 377 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

@@ -240,6 +240,16 @@ def test_update_card_tool_can_unassign():
     assert [e["kind"] for e in c["events"]].count("assigned") == 1, c["events"]
 
 
+def test_http_unassigns_with_an_empty_string_or_null_alike(client):
+    """"" used to be stored as-is, so a later null counted as a second unassign."""
+    c = client.post("/api/cards", json={"title": "x", "actor": "ann", "project": "Home",
+                                        "assignee": "bob"}).json()
+    c = client.patch(f"/api/cards/{c['id']}", json={"actor": "ann", "assignee": ""}).json()
+    assert c["assignee"] is None
+    c = client.patch(f"/api/cards/{c['id']}", json={"actor": "ann", "assignee": None}).json()
+    assert [e["kind"] for e in c["events"]].count("assigned") == 1, c["events"]
+
+
 def test_omitted_fields_are_left_alone():
     c = app.create_card(title="x", actor="ann", project="Home", assignee="bob", description="keep me")
     c = app.update_card(id=c["id"], actor="ann", lane="plan")
@@ -453,6 +463,18 @@ def test_activity_route_lists_what_agents_are_doing(client):
     assert (row["actor"], row["card_id"], row["doing"], row["title"]) == ("bot", c["id"], "planning", "a")
     app.set_activity("bot")
     assert client.get("/api/activity").json() == []
+
+
+def test_activity_can_be_set_and_cleared_over_http(client):
+    """The fallback for an agent whose MCP connection failed: set_activity as a POST."""
+    c = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home"}).json()
+    r = client.post("/api/activity", json={"actor": "bot", "card_id": c["id"], "doing": "planning"})
+    assert r.status_code == 200, r.text
+    assert [(a["actor"], a["doing"]) for a in r.json()] == [("bot", "planning")]
+    assert client.post("/api/activity", json={"actor": "bot"}).json() == []
+    assert client.post("/api/activity", json={"card_id": c["id"], "doing": "x"}).status_code == 400
+    assert client.post("/api/activity", json={"actor": "bot", "card_id": 999,
+                                              "doing": "x"}).status_code == 404
 
 
 def test_set_activity_tool_errors_reach_the_agent():
