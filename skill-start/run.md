@@ -87,15 +87,17 @@ Before working the queue, catch up on pull requests: for each of the project's `
 You are the dispatcher. Each stage of a card runs in its own **background** subagent
 (Agent tool, `general-purpose`, `run_in_background: true`), so several cards move at
 once and a long run does not fill this session's context. When one finishes you are
-notified: do that card's (you) steps for the stage, then start its next stage by
-continuing the same subagent (SendMessage, so it keeps what it learned), or, when the
-card is out of your hands, fill the freed slot from a fresh re-list.
+notified: do that card's (you) steps for the stage, then start its next stage in a
+**new** subagent, or, when the card is out of your hands, fill the freed slot from a
+fresh re-list. Never continue a finished subagent (no SendMessage): every stage starts
+from a clean context holding only the card, so nothing an earlier stage assumed or got
+wrong leaks into the next, and the test stage reviews work it did not write.
 
 **Slots.** At most **3 cards in flight**. Plan stages are read-only and may always run
 side by side. At most **one card in `test`** at a time — from the test stage through
 ship, land, deploy and clean-up to `verify` — because tests, the deploy and service
 restarts share ports, devices and the base checkout; a card whose next stage is test
-waits (its subagent idle) until that slot is free. Land merges and pushes of the base are
+waits, with no subagent, until that slot is free. Land merges and pushes of the base are
 yours, one card at a time: never interleave two cards' land/deploy sequences. Each card
 works in its own worktree (below); do not use the Agent tool's `isolation: "worktree"` —
 the `card/<id>` branch and its worktree path are the record.
@@ -109,10 +111,21 @@ Before every board write after a stage, `get_card` again: **a person's move wins
 the lane changed under you, post your output as a comment saying it was moved during the
 run, and leave the card where they put it.
 
-Brief each stage's subagent with: the card (`get_card` output: title,
-description, plan, questions, answers, checklist, comments), the project instructions, the
-stage's rules below, the folder to work in (absolute path — tell it to use absolute paths or
-`git -C`), and the verdict line it must end with. You — not the
+**The brief is the subagent's whole world** — it starts empty, like a session after
+`/clear`, so paste everything in; never summarize the person's words and never say "see
+the card". `get_card` right before spawning (so earlier stages' writes are in) and
+include, each under its own heading:
+- the card: `#<id> <title>`, lane, labels; the description, plan, questions and answers
+  **verbatim**; the checklist with each item's done state; links (parent, blocks, blocked
+  by) with the linked cards' titles and lanes; every comment in order with its author and
+  time — but not a comment's `output` (the CLI transcript: long, and the comment says
+  what it did);
+- the project: name, instructions verbatim, `land`, the repo path and base branch, and
+  that the repo's `CLAUDE.md` holds its rules (read it first);
+- where to work: the folder (absolute path — tell it to use absolute paths or `git -C`),
+  and for develop/test the worktree path and the `card/<id>` branch;
+- the stage's rules below, the `## Blocked by` request, and the verdict line it must end
+  with. You — not the
 subagent — write to the board and run the git steps marked (you); the one exception is
 the develop subagent ticking checklist items.
 

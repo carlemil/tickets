@@ -214,7 +214,9 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   subagent, up to 3 cards in flight, plans always side by side, one card at a time from
   test through land/deploy (shared ports, devices, the base checkout). `set_activity` is
   one row per actor, so it points at the card started last with the count in its text.
-- **Stages,** each by a subagent so the session's context stays small; the session
+- **Stages,** each by a new subagent so the session's context stays small and each
+  stage starts clean (#61: never a continued one; the brief pastes the whole card
+  verbatim, comments without their CLI output, plus project, repo and worktree); the session
   writes the board and does the git: plan (read-only; open questions stop the card in
   `plan`), develop in the card's worktree (`<repo>.worktrees/card-<id>`, branch
   `card/<id>`, base merged in first), test (`/code-review` on `<base>...card/<id>` plus a check against the card, #7; `RESULT: PASS` or the card stays), then
@@ -469,6 +471,7 @@ no longer on the board.
 | 58 | the board reloads itself when anyone else writes: `GET /api/version` (newest event id) polled with the status bar; the open sheet catches up, never over a focused field | done — 383 checks |
 | 59 | `/tickets-setup` and `/tickets-run-loop` merged into `/tickets-start [interval]` (setup where needed, then the loop); `/tickets-stop-loop` renamed `/tickets-stop` | done — 383 checks |
 | 60 | `/tickets` folded into `/tickets-start`: its text is `skill-start/run.md`, read once (`once`, a card id) or per loop tick; the `tickets` junction is gone | done — 383 checks |
+| 61 | every stage of a card runs in a new subagent (no SendMessage continuation) whose brief pastes the whole card verbatim, comments without CLI output, plus project, repo and worktree | done — 383 checks |
 
 Gate for every task: `uv run pytest -q` — 383 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

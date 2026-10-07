@@ -154,7 +154,9 @@ ready card of that project in <code>plan</code>, <code>develop</code> and <code>
 through to <code>verify</code>, and writes what it does onto the board as
 <code>claude-agent</code>: the plan, comments, the moves, and a new idea card for any
 follow-up it finds. Cards in "No Project" are never worked. It works up to 3 cards at
-once, each in its own background agent, but only one in <code>test</code> at a time: tests,
+once, but only one in <code>test</code> at a time. Each stage of a card (plan, develop,
+test) starts a new background agent with a clean context, handed the whole card: its
+description, plan, answers, checklist and comments, and the project's rules. Tests,
 the deploy and the merge into the base branch go one card after another. The status bar
 shows the card it started last and how many are in flight. A card that passes its tests
 is pushed as <code>card/&lt;id&gt;</code> and then lands the project's way: merged locally
