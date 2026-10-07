@@ -238,7 +238,11 @@ values between its neighbours.
 
 Once a card has a plan, questions or answers, the sheet shows each in its own box under
 the description: "plan" is a fixed 10 lines and scrolls, "open questions" and "your
-answers" grow like the description. The description box grows with its text, from 10 lines
+answers" grow like the description. A question may list its choices as indented `- `
+bullets under it, one suffixed ` (recommended)` — the AskUserQuestion shape, still plain
+text (#4). Under the questions box each such question gets a row of radios (the
+recommended one badged, none preselected); a pick replaces or adds that question's
+top-level `N. <option>` line in the answers and keeps every other line. The description box grows with its text, from 10 lines
 up to 50, then scrolls
 (CSS `field-sizing: content`). Lanes run to the bottom of the window even when empty,
 and all grow together with the tallest. 
@@ -394,8 +398,9 @@ no longer on the board.
 | 46 | #5 the repo's `CLAUDE.md` counts for the setup cards and ranks in the skill; this repo has one | done — 352 checks |
 | 47 | #2 `cards.session`: the skill stores its session id on a card it takes; the sheet copies `claude --resume <id>` | done — 358 checks |
 | 48 | #6 `projects.land` (`merge` \| `pr`) and `cards.pr`: a `pr` project's passed card ships as a pull request, linked from the sheet; merged when the PR is | done — 371 checks |
+| 49 | #4 open questions may list options as indented bullets; the sheet offers them as radios that write the answers | done — 374 checks |
 
-Gate for every task: `uv run pytest -q` — 371 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 374 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

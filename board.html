@@ -130,6 +130,8 @@
                   overflow-wrap: anywhere; }
   .log:not(.open) li.old { display: none; }
   .log li.more { border-top: 0; }
+  /* an open question's options: one row of radios per question, under the questions box */
+  .choice { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; margin: 4px 0; }
   .chk { display: flex; gap: 6px; align-items: baseline; }
   .chk.done span { text-decoration: line-through; color: var(--dim); }
   .links li { list-style: none; display: flex; gap: 6px; align-items: center; }
@@ -553,6 +555,60 @@ function field(label, node) {
   return w;
 }
 
+// Open questions as core.number() leaves them: "N. question", then any options as indented
+// "- option" bullets, one of them maybe suffixed " (recommended)".
+function parseQuestions(text) {
+  const out = [];
+  for (const ln of (text || "").split("\n")) {
+    let m = ln.match(/^(\d+)[.)]\s+(.*)/);
+    if (m) { out.push({ n: +m[1], text: m[2].trim(), options: [] }); continue; }
+    m = ln.match(/^\s+[-*+]\s+(.*)/);
+    if (m && out.length) {
+      const rec = /\s*\(recommended\)\s*$/i;
+      out.at(-1).options.push({ text: m[1].replace(rec, "").trim(), recommended: rec.test(m[1]) });
+    }
+  }
+  return out;
+}
+
+// The answers text with question n answered `text`: its top-level "n. " line replaced, or
+// one added; every other line -- free text a person typed -- is kept.
+function pickAnswer(answers, n, text) {
+  const lines = answers ? answers.split("\n") : [];
+  const at = lines.findIndex(l => new RegExp(`^${n}[.)]\\s`).test(l));
+  if (at < 0) lines.push(`${n}. ${text}`); else lines[at] = `${n}. ${text}`;
+  return lines.join("\n");
+}
+
+// One row of radios per question that offers options; a pick writes the answers field.
+// Nothing is preselected: the recommended option only wears a badge.
+function choices(c) {
+  const picked = Object.fromEntries((c.answers || "").split("\n")
+    .map(l => l.match(/^(\d+)[.)]\s+(.*)/)).filter(Boolean).map(m => [m[1], m[2].trim()]));
+  return parseQuestions(c.questions).filter(q => q.options.length).map(q => {
+    const row = Object.assign(document.createElement("div"),
+      { className: "choice", title: `question ${q.n}: pick an answer, it goes into your answers below` });
+    row.append(Object.assign(document.createElement("b"), { textContent: q.n + "." }));
+    for (const o of q.options) {
+      const r = Object.assign(document.createElement("input"),
+        { type: "radio", name: "q" + q.n, checked: picked[q.n] === o.text });
+      // from the box, not the card: it may hold text typed since the last save
+      r.onchange = () => {
+        const box = $("#panel textarea.answers");
+        const answers = pickAnswer(box ? box.value : c.answers, q.n, o.text);
+        if (box) box.value = answers;
+        patch({ answers });
+      };
+      const l = document.createElement("label");
+      l.append(r, " " + o.text);
+      if (o.recommended)
+        l.append(" ", Object.assign(document.createElement("span"), { className: "pill", textContent: "recommended" }));
+      row.append(l);
+    }
+    return row;
+  });
+}
+
 // Every edit is a PATCH; the response is the full card, so no follow-up GET.
 async function patch(body) {
   if (!open.id) {
@@ -766,6 +822,7 @@ function renderPanel() {
         { value: c[f], className: f === "plan" ? f : "desc " + f });
       box.onchange = () => patch({ [f]: box.value });
       p.append(field(label, box));
+      if (f === "questions") p.append(...choices(c));
     }
 
 

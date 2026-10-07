@@ -82,7 +82,9 @@ be behind. The subagent reads code, changes nothing, and replies with the comple
 in markdown (Context section restates the request). If it already has `questions` and
 `answers`, those are a person's answers: build them in, do not ask again. Anything
 needing a person's decision goes in a last `## Open questions` section, numbered 1., 2.,
-…; last line `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
+…; a question with sensible choices lists 2–4 of them under it as indented `- ` bullets,
+the recommended one first and suffixed ` (recommended)` (the board shows them as radio
+buttons), otherwise it is free text. Last line `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
 
 (you) Cut the verdict line and the questions section off. Empty plan → failure.
 - NONE → `update_card(plan=…)`, move to `develop`.

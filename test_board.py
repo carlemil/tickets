@@ -1465,6 +1465,67 @@ def test_plan_questions_and_answers_get_their_own_boxes_once_planned(page):
     wait_saved(page, cid, "answers", "blue")
 
 
+def test_an_open_question_s_options_are_radios_that_write_the_answers(page):
+    cid = core.create_card("choose", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(cid, "claude-agent", plan="p", questions=(
+        "1. Which database?\n   - SQLite (recommended)\n   - Postgres\n"
+        "2. Anything else?\n"
+        "3. Colour?\n   - red\n   - blue"), answers="2. no, nothing")
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    groups = page.locator("#panel .choice")
+    assert groups.count() == 2, "a question without options has no group"
+    assert groups.nth(0).inner_text().startswith("1.")
+    labels = groups.nth(0).locator("label")
+    assert [t.split()[0] for t in labels.all_inner_texts()] == ["SQLite", "Postgres"]
+    assert labels.nth(0).locator(".pill").inner_text() == "recommended"
+    assert labels.nth(1).locator(".pill").count() == 0
+    assert page.locator("#panel .choice input:checked").count() == 0, "nothing preselected"
+
+    human_click(page, "#panel .choice >> nth=0 >> input >> nth=0")    # SQLite
+    wait_saved(page, cid, "answers", "2. no, nothing\n1. SQLite")
+    assert page.locator("#panel textarea.answers").input_value() == "2. no, nothing\n1. SQLite"
+    assert page.locator("#panel .choice >> nth=0 >> input >> nth=0").is_checked()
+
+    human_click(page, "#panel .choice >> nth=0 >> input >> nth=1")    # Postgres replaces it
+    wait_saved(page, cid, "answers", "2. no, nothing\n1. Postgres")
+    page.click("#panel .choice >> nth=1 >> input >> nth=1")           # blue, for question 3
+    wait_saved(page, cid, "answers", "2. no, nothing\n1. Postgres\n3. blue")
+
+    type_into(page, "#panel textarea.answers", "1. red\n3. blue\nand be quick")   # still editable
+    wait_saved(page, cid, "answers", "1. red\n3. blue\nand be quick")
+    assert page.locator("#panel .choice input:checked").evaluate_all(
+        "rs => rs.map(r => r.parentNode.textContent.trim())") == ["blue"], \
+        "an answer matching an option shows checked; one matching none checks nothing"
+
+
+def test_an_option_click_right_after_typing_an_answer_keeps_both(page):
+    """Typing in "your answers" then clicking a radio: the mousedown saves the typing and
+    its re-render must not eat the click, nor the pick drop what was typed."""
+    cid = core.create_card("both", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(cid, "claude-agent", questions="1. Pick?\n  - a\n  - b")
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    page.fill("#panel textarea.answers", "a note")                    # no blur: still typing
+    human_click(page, "#panel .choice input >> nth=1")
+    wait_saved(page, cid, "answers", "a note\n1. b")
+    assert page.locator("#panel .choice input >> nth=1").is_checked()
+
+
+def test_parse_questions_and_pick_answer(page):
+    qs = page.evaluate("q => parseQuestions(q)", "1. Which?\n   - A (recommended)\n   - B\n   more text\n2. Free?\n  * C")
+    assert qs == [{"n": 1, "text": "Which?", "options": [{"text": "A", "recommended": True},
+                                                         {"text": "B", "recommended": False}]},
+                  {"n": 2, "text": "Free?", "options": [{"text": "C", "recommended": False}]}]
+    assert page.evaluate("parseQuestions('')") == []
+    pick = lambda a, n, t: page.evaluate("([a, n, t]) => pickAnswer(a, n, t)", [a, n, t])
+    assert pick("", 1, "A") == "1. A"
+    assert pick("note\n1. A\n12. x", 1, "B") == "note\n1. B\n12. x", "12. is not 1."
+    assert pick("  1. indented", 1, "B") == "  1. indented\n1. B", "top level only"
+
+
 def test_the_plan_box_is_ten_lines_whatever_its_text(page):
     cid = core.create_card("p", actor="ce", project="Home")["id"]
     core.update_card(cid, "claude-agent", plan="one line")
@@ -1525,7 +1586,8 @@ def test_only_a_card_drag_is_dropped(page):
 def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     cid = core.create_card("tipped", actor="ce", project="Home", lane="plan", labels=["ui"],
                            checklist=[{"text": "a", "done": False}], assignee="ce")["id"]
-    core.update_card(cid, "claude-agent", plan="p", questions="q?", session="0f1e2d3c-4b5a",
+    core.update_card(cid, "claude-agent", plan="p", questions="- q?\n  - yes (recommended)\n  - no",
+                     session="0f1e2d3c-4b5a",
                      pr="https://github.com/o/r/pull/7")
     core.create_card("done", actor="ce", project="Home", lane="done")   # its archive buttons
     page.evaluate("load()")
@@ -1541,6 +1603,7 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
     assert page.locator("#panel .ses, #panel a.pr").count() == 2, "session and PR are among them"
+    assert page.locator("#panel .choice input[type=radio]").count() == 2, "and an option's radios"
     assert page.evaluate(untitled, "#panel input, #panel select, #panel textarea, #panel button,"
                                    " #panel a, #panel h3") == []
     close_sheet(page)
