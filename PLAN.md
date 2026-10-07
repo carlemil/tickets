@@ -67,7 +67,7 @@ example found online needs translating.
 users(id, name UNIQUE)
 cards(id, project, title, description, lane, assignee, created_by,
       created_at, updated_at, pos, labels, checklist, archived,
-      plan, questions, answers, merged, deployed)
+      plan, questions, answers, merged, deployed, session)
       -- plus auto_advance, attention: the retired agent's, created but never read
 events(id, card_id, actor, kind, detail, at)     -- append-only
 links(from_id, to_id, kind)                      -- kind: 'parent' | 'blocks'
@@ -279,7 +279,10 @@ scrolls: the card number, the title (edited in place), "created <when>" (the ful
 hover), "archive", "move to done" (only while the card is in `verify`) and "close". A new
 card's row is "new", the title, "cancel", "close".
 The card number carries the auto dot, which pulses while an agent works the card.
-Project, lane and creator sit on the line under it.
+Project, lane and creator sit on the line under it, then, once an agent has taken the
+card, "session <first 8>" (#2): the `session` field holds the Claude Code session id the
+skill writes when it takes a card, and the button copies `claude --resume <id>`, so the
+transcript of the run that worked the card is one paste away.
 Closing blurs the focused field, so the edit still in progress saves too, and text left
 in the comment box is posted rather than dropped. "move to done" is the one click that ends a
 verified card: it writes the lane like the lane select does, and the sheet stays open. A comment being typed
@@ -384,8 +387,9 @@ no longer on the board.
 | 44 | #101 the test stage fixes what it can, and the card's worktree is removed after the deploy: the branch in origin is the record, and a worktree whose folder went missing is re-made from it in either lane | done |
 | 45 | the polling agent is gone: work starts by hand with the `/tickets` skill (`skill/SKILL.md`); auto advance, attention and #60 rework removed | done — 349 checks |
 | 46 | #5 the repo's `CLAUDE.md` counts for the setup cards and ranks in the skill; this repo has one | done — 352 checks |
+| 47 | #2 `cards.session`: the skill stores its session id on a card it takes; the sheet copies `claude --resume <id>` | done — 358 checks |
 
-Gate for every task: `uv run pytest -q` — 352 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 358 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

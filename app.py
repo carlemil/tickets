@@ -199,7 +199,7 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
                 project: str | None = None, archived: bool | None = None,
                 plan: str | None = None, questions: str | None = None,
                 answers: str | None = None, merged: bool | None = None,
-                deployed: bool | None = None) -> dict:
+                deployed: bool | None = None, session: str | None = None) -> dict:
     """Change a card: this is how you move it between lanes, assign it, and tick checklist items.
 
     `actor` is you — every change is logged under that name. Pass only the fields you are
@@ -215,6 +215,8 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     it; `archived=False` puts it back.
     `merged` (the card's branch is on the base branch on origin) and `deployed` (deployed
     to the local test backend or a device) are the board agent's to set after a deploy.
+    `session`: the board agent sets it to its Claude Code session id when it takes a card,
+    so a person can reopen the run with `claude --resume`.
 
     Where text goes — each field REPLACES what is there: `description` is the request;
     leave it to the person who asked, do not put a plan in it. `plan` is the
@@ -228,7 +230,7 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
         title=title, description=description, lane=lane, assignee=assignee,
         labels=labels, checklist=checklist, project=project, archived=archived,
         plan=plan, questions=questions,
-        answers=answers, merged=merged, deployed=deployed).items()
+        answers=answers, merged=merged, deployed=deployed, session=session).items()
         if v is not None}
     if fields.get("assignee") == "":
         fields["assignee"] = None   # None already means "not passed", so "" is how you unassign

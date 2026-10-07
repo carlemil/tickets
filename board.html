@@ -113,6 +113,7 @@
   #panel .head input { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; }
   #panel .head .when { color: var(--dim); font-size: 12px; white-space: nowrap; }
   .sub { color: var(--dim); font-size: 12px; }
+  .sub .ses { font-size: 11px; padding: 0 6px; color: inherit; }
 
   .log { list-style: none; margin: 0; padding: 0; }
   .log li { padding: 6px 0; border-top: 1px solid #f0f1f4; }
@@ -706,8 +707,24 @@ function renderPanel() {
                   { className: "when", textContent: "created " + ago(c.created_at),
                     title: new Date(c.created_at).toLocaleString() }),
                 arch, ...(fin ? [fin] : []), shut);
-    p.append(Object.assign(document.createElement("div"),
-      { className: "sub", textContent: `${c.project} · ${c.lane} · created by ${c.created_by}` }));
+    const sub = Object.assign(document.createElement("div"),
+      { className: "sub", textContent: `${c.project} · ${c.lane} · created by ${c.created_by}` });
+    // the session that last worked the card: its transcript is one `claude --resume` away
+    if (c.session) {
+      const label = "session " + c.session.slice(0, 8);
+      const ses = Object.assign(document.createElement("button"),
+        { className: "ses", textContent: label,
+          title: "Copy the command that reopens the session that worked this card" });
+      ses.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText("claude --resume " + c.session);
+          ses.textContent = "copied";
+          setTimeout(() => { ses.textContent = label; }, 1500);
+        } catch (e) { showErr("could not copy: " + e.message); }
+      };
+      sub.append(" · ", ses);
+    }
+    p.append(sub);
   } else {
     // a draft has no other way out: cancel throws it away, dropping what is typed
     const cancel = Object.assign(document.createElement("button"),

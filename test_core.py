@@ -768,6 +768,41 @@ def test_a_database_without_the_plan_fields_gains_them(db):
     assert (c["plan"], c["questions"], c["answers"]) == ("", "", "")
 
 
+# ---------- the session that worked the card ----------
+
+def test_the_session_round_trips_and_logs_an_edit():
+    c = card()
+    assert c["session"] == ""
+    c = core.update_card(c["id"], core.AGENT, session="0f1e2d3c-4b5a")
+    assert core.get_card(c["id"])["session"] == "0f1e2d3c-4b5a"
+    [e] = [e for e in c["events"] if e["kind"] == "edited"]
+    assert e["detail"] == {"field": "session", "from": "", "to": "0f1e2d3c-4b5a"}
+
+
+def test_the_session_must_be_text():
+    with pytest.raises(ValueError, match="session must be text"):
+        core.update_card(card()["id"], core.AGENT, session=None)
+
+
+def test_create_card_takes_no_session():
+    with pytest.raises(TypeError):
+        card(session="x")
+
+
+def test_a_database_without_the_session_gains_it(db):
+    import sqlite3
+    core.list_cards()
+    old = sqlite3.connect(core.DB_PATH)
+    old.execute("ALTER TABLE cards DROP COLUMN session")
+    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at,"
+                " updated_at) VALUES ('inbox','old','todo','ann','t','t')")
+    old.commit()
+    old.close()
+    [c] = core.list_cards()
+    assert c["session"] == ""
+    assert core.update_card(c["id"], "ann", session="abc")["session"] == "abc"
+
+
 
 def test_assigning_a_new_name_registers_it():
     c = core.update_card(card()["id"], "ann", assignee="helper-bot")

@@ -13,7 +13,7 @@ LINK_KINDS = ["parent", "blocks"]
 DB_PATH = "tickets.db"  # reassign core.DB_PATH to point elsewhere (tests, alt board)
 
 CARD_FIELDS = ("project", "title", "description", "lane", "assignee", "pos", "labels", "checklist",
-               "archived", "plan", "questions", "answers", "merged", "deployed")
+               "archived", "plan", "questions", "answers", "merged", "deployed", "session")
 # merged: on the base branch on origin, set by the agent's deploy step from git.
 # deployed: on the local test backend or a device, set here from the deploy comment.
 BOOL_FIELDS = ("archived", "merged", "deployed")   # stored as 0/1, surfaced as true/false
@@ -24,6 +24,8 @@ JSON_FIELDS = ("labels", "checklist")
 # the planning round, kept apart from the request in `description`: the agent's plan, its
 # open questions, a person's answers
 PLAN_FIELDS = ("plan", "questions", "answers")
+# session: the id of the Claude Code session that last worked the card (`claude --resume`)
+TEXT_FIELDS = PLAN_FIELDS + ("session",)   # free text, '' when unset
 PROJECT_FIELDS = ("name", "path", "instructions", "color")
 # Where a deleted project's cards go. Agents never work a card in it; matched ignoring case.
 NO_PROJECT = "No Project"
@@ -63,7 +65,8 @@ CREATE TABLE IF NOT EXISTS cards (
     deployed INTEGER NOT NULL DEFAULT 0,
     plan TEXT NOT NULL DEFAULT '',
     questions TEXT NOT NULL DEFAULT '',
-    answers TEXT NOT NULL DEFAULT ''
+    answers TEXT NOT NULL DEFAULT '',
+    session TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY,
@@ -110,7 +113,7 @@ def connect():
     for col in BOOL_FIELDS + LEGACY_COLUMNS:
         if col not in have:
             db.execute(f"ALTER TABLE cards ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
-    for col in PLAN_FIELDS:
+    for col in TEXT_FIELDS:
         if col not in have:
             db.execute(f"ALTER TABLE cards ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
     # free ordering replaced `priority` (#58): rank the existing cards by what the board
@@ -199,7 +202,7 @@ def _validate(fields):
     for f in BOOL_FIELDS:
         if f in fields and not isinstance(fields[f], bool):
             raise ValueError(f"{f} must be true or false")
-    for f in PLAN_FIELDS:
+    for f in TEXT_FIELDS:
         if f in fields and not isinstance(fields[f], str):
             raise ValueError(f"{f} must be text")
 

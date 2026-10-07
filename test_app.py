@@ -481,6 +481,15 @@ def test_update_card_tool_sets_merged_and_deployed_and_rejects_non_bools():
         app.update_card(id=c["id"], actor="ann", deployed="yes")
 
 
+def test_update_card_tool_sets_the_session():
+    c = app.create_card(title="x", actor="ann", project="Home")
+    c = app.update_card(id=c["id"], actor="claude-agent", assignee="claude-agent",
+                        session="0f1e2d3c-4b5a")
+    assert c["session"] == "0f1e2d3c-4b5a"
+    assert app.update_card(id=c["id"], actor="ann", lane="plan")["session"] == "0f1e2d3c-4b5a"
+    assert "session" in app.update_card.__doc__
+
+
 def test_log_config_timestamps_the_access_row():
     """#81: uvicorn's rows say when. Built by hand, not dictConfig, which would re-point
     logging for the rest of the suite."""

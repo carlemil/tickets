@@ -1506,7 +1506,7 @@ def test_only_a_card_drag_is_dropped(page):
 def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     cid = core.create_card("tipped", actor="ce", project="Home", lane="plan", labels=["ui"],
                            checklist=[{"text": "a", "done": False}], assignee="ce")["id"]
-    core.update_card(cid, "claude-agent", plan="p", questions="q?")
+    core.update_card(cid, "claude-agent", plan="p", questions="q?", session="0f1e2d3c-4b5a")
     core.create_card("done", actor="ce", project="Home", lane="done")   # its archive buttons
     page.evaluate("load()")
     page.wait_for_selector(f'.card[data-id="{cid}"] .work')
@@ -1520,6 +1520,7 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     assert tip.startswith("pulses while an agent is working on this card"), tip
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
+    assert page.locator("#panel .ses").count() == 1, "the session button is among them"
     assert page.evaluate(untitled, "#panel input, #panel select, #panel textarea, #panel button, #panel h3") == []
     close_sheet(page)
     page.click("#projects")
@@ -1608,6 +1609,33 @@ def test_the_editor_dot_sits_in_the_header_number_and_clicking_it_does_nothing(p
     page.wait_for_timeout(300)
     assert core.get_card(cid) == before, "not a control: nothing is written"
     assert page.locator("#panel.on").count() == 1, "the sheet stays open"
+
+
+# ---------- the session that worked the card ----------
+
+def test_the_session_button_copies_the_resume_command(page):
+    sid = "0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b"
+    plain, worked = cards_in(page, "plain", "worked")
+    core.update_card(worked, core.AGENT, session=sid)
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{plain}"]')
+    page.wait_for_function(f"() => open && open.id === {plain}")
+    assert page.locator("#panel .ses").count() == 0, "no session, no button"
+    close_sheet(page)
+    assert page.locator(".card .ses").count() == 0, "nothing on the board card"
+    page.click(f'.card[data-id="{worked}"]')
+    page.wait_for_function(f"() => open && open.id === {worked}")
+    ses = page.locator("#panel .sub .ses")
+    assert ses.text_content() == "session 0f1e2d3c"
+    assert ses.get_attribute("title").startswith("Copy the command that reopens")
+    page.evaluate("""() => Object.defineProperty(navigator.clipboard, "writeText",
+        {value: async t => { window.__copied = t; }})""")
+    ses.click()
+    page.wait_for_function("() => window.__copied")
+    assert page.evaluate("window.__copied") == f"claude --resume {sid}"
+    assert ses.text_content() == "copied"
+    page.wait_for_function("() => document.querySelector('#panel .ses').textContent"
+                           " === 'session 0f1e2d3c'")
 
 
 # ---------- selecting several cards ----------

@@ -53,7 +53,8 @@ work the same card twice in one run — once it fails or waits, it is done for t
 
 ## 3. Work a card
 
-For each card: `update_card(assignee="claude-agent")`, then
+For each card: `update_card(assignee="claude-agent", session="${CLAUDE_SESSION_ID}")`
+(the board's link back to this session's transcript), then
 `set_activity(card_id=…, doing="planning"|"developing"|"testing")` — clear it
 (`set_activity` with no card) when the card leaves your hands. Before every board write
 after a long step, `get_card` again: **a person's move wins** — if the lane changed
