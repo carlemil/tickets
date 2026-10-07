@@ -62,19 +62,35 @@ project's folder.
 
 | Skill | What it does |
 |---|---|
-| `/tickets-start [interval]` | Gets a repo ready and starts working its board. Setup comes first and only fixes what is missing, so a second run is quick. It starts the board if it is down and offers to start it at every logon. It registers the `tickets` MCP server, checks the repo has `git` and an `origin`, helps write the repo's `CLAUDE.md` test and deploy rules, and creates the project on the board. Then it works the board every 15 minutes (or `10m`, `1h`, at least `5m`) for as long as this session stays open: each run takes every ready card of this folder's project in `plan`, `develop` and `test` through to `verify`. It plans first: open questions stay on the card for you, with clickable options. It builds in a worktree on `card/<id>` and ticks the checklist as it goes. It tests with `/code-review` plus the project's tests, then ships, merges (or opens a PR) and deploys. It works up to 3 cards at once, with one in test at a time. `/tickets-start once` does a single run, and `/tickets-start 12` works only card 12, once. It ends with a link to the board. |
-| `/tickets-stop` | Stops that loop. Cards already in progress finish. |
+| `/tickets-start` | Sets the repo up where needed, then works the board every 15 minutes for as long as this session stays open. |
+| `/tickets-start 10m` | The same, at another interval (`30m`, `1h`; at least `5m`). |
+| `/tickets-start once` | Sets the repo up where needed, then works the board once. |
+| `/tickets-start 12` | Works only card 12, once. |
+| `/tickets-stop` | Stops the loop. Cards already in progress finish. |
 | `/tickets-open-board` | Opens the board in your browser, starting it first if it is down, and prints the link. |
 
-Nothing works the board on its own: `/tickets-start` starts only when you type it. Claude may run `/tickets-open-board` and `/tickets-stop` when you ask in plain
-words.
+**Setup** only fixes what is missing, so running it again is quick. It starts the board
+if it is down and offers to start it at every logon. It registers the `tickets` MCP
+server, checks the repo has `git` and an `origin`, helps write the repo's `CLAUDE.md`
+test and deploy rules, and creates the project on the board.
+
+**A run** takes every ready card of this folder's project in `plan`, `develop` and
+`test` through to `verify`, up to 3 at once and one in test at a time. It plans first:
+open questions stay on the card for you, with clickable options. It builds in a worktree
+on `card/<id>` and ticks the checklist as it goes. It tests with `/code-review` plus the
+project's tests, then merges (or opens a PR) and deploys. Without the MCP tools it uses
+the board's HTTP API.
+
+Nothing works the board on its own: `/tickets-start` starts only when you type it.
+Claude may run `/tickets-open-board` and `/tickets-stop` when you ask in plain words.
 
 ## Your first card
 
-Create a card in `todo`, then drag it to `plan`. With `/tickets-start` running in the project's folder, the next run takes it:
-it writes its plan, comments and moves onto the board as `claude-agent`, and leaves the
-card in `verify` for you. Open questions stop the card in `plan`: answer them on the card
-and the next run replans with them. When the card in `verify` looks right, click "move to done".
+Create a card in `todo`, then drag it to `plan`. With `/tickets-start` running in the
+project's folder, the next run takes it: it writes its plan, comments and moves onto the
+board as `claude-agent`, and leaves the card in `verify` for you. Open questions stop the
+card in `plan`: answer them on the card and the next run replans with them. When the card
+in `verify` looks right, click "move to done".
 
 ## Layout
 
