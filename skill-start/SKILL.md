@@ -1,16 +1,17 @@
 ---
 name: tickets-start
-description: Start working this folder's Tickets board — set the folder up as a Tickets project where anything is missing (backend at http://127.0.0.1:8123, MCP server, the /tickets skill, CLAUDE.md rules, the project row), then run /tickets every N minutes (default 15m) for as long as this session stays open. Run by hand as /tickets-start [interval, e.g. 10m or 1h] in a session opened in the repo's folder; /tickets-stop stops it.
+description: Work this folder's Tickets board (http://127.0.0.1:8123) — set the folder up as a Tickets project where anything is missing (backend, MCP server, CLAUDE.md rules, the project row), then take every ready card in plan, develop and test through to verify, unattended, every N minutes (default 15m) for as long as this session stays open. Run by hand as /tickets-start in a session opened in the repo's folder; argument an interval (10m, 1h), `once` for a single run, or a card id (#12 or 12) to work only that card once. /tickets-stop stops the loop.
 disable-model-invocation: true
 ---
 
-# Tickets start: get this folder ready, then work the board on a timer
+# Tickets start: get this folder ready, then work the board
 
 Two parts: steps 1–5 set the folder up, fixing only what is missing (a step already in
 order is one line in the summary, so a second `/tickets-start` is quick), and step 6
-starts the loop. This is a person's command, so unlike `/tickets` it may configure the
-project — over the board's HTTP API (`/api/projects`), since the MCP tools deliberately
-cannot.
+works the board — on a loop, or once. The work itself is `run.md` next to this file.
+This setup part is a person's command, so it may configure the project — over the
+board's HTTP API (`/api/projects`), since the MCP tools deliberately cannot; a run never
+does.
 
 The Tickets repo is `git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel` — not
 `${CLAUDE_SKILL_DIR}/..`: the skill folder is a link, and `..` would land in
@@ -28,7 +29,7 @@ say `uv sync` in the Tickets repo may be needed.
 
 **Start it at logon.** Claude Code connects its MCP servers once, when a session starts,
 and does not retry: a session opened while the board was down has no board tools until
-`/mcp` reconnects them (the `/tickets` skill falls back to HTTP, but the tools are
+`/mcp` reconnects them (a run falls back to HTTP, but the tools are
 better). So the board should already be up when any session starts. Windows: look for
 `tickets-backend.cmd` in the Startup folder (`[Environment]::GetFolderPath('Startup')`).
 Missing → ask once (AskUserQuestion: "Start the Tickets board when you log in?",
@@ -37,18 +38,15 @@ yes recommended); yes → write that file with the single line
 Removing the file undoes it. Elsewhere, suggest the platform's equivalent (a launchd
 agent, a systemd user unit) and do not install it.
 
-## 2. The board's tools and the /tickets skill
+## 2. The board's tools
 
 - `claude mcp get tickets`. Missing → `claude mcp add --scope user --transport http
   tickets http://127.0.0.1:8123/mcp`. A server added now reaches only new sessions: say
-  so in the summary (restart the session, or `/mcp`, before `/tickets`).
+  so in the summary (until a new session or `/mcp`, runs work over HTTP).
 - Registered but its tools are missing in this session (no `mcp__tickets__*` tools, or
   `claude mcp get tickets` not connected while the board answers) → the session started
   before the board did. Say so in the summary: `/mcp` → tickets → Reconnect, or a new
   session; the logon start above keeps it from happening again.
-- `~/.claude/skills/tickets` exists. Missing → link it (Windows:
-  `New-Item -ItemType Junction "$HOME\.claude\skills\tickets" -Target <tickets repo>\skill`;
-  elsewhere `ln -s <tickets repo>/skill ~/.claude/skills/tickets`).
 
 ## 3. The repo
 
@@ -88,33 +86,36 @@ and `/` alike, no trailing slash).
 Creating a project opens a `todo` card for anything its setup still lacks;
 `GET /api/cards?project=<name>` and list any authored by `board`.
 
-## 6. The loop
+## 6. Work the board
 
-`/tickets` refuses to be started by the model (`disable-model-invocation`), so `/loop`
-cannot call it by name. Instead each tick reads the skill's file and follows it — same
-run, same rules. Read that way its placeholders are not filled in, so the tick prompt
-fills them (the session id and the skill folder); the prompt below names them in words
-because anything written as a placeholder here is filled with this skill's values. The
-loop lives in this session only: closing it stops the loop.
+No project row after step 5 (the person declined) → stop here: a run would find no
+project. Say so in the summary. Otherwise pick by `$ARGUMENTS`:
+
+- a card id (`12`, `#12`) → **one run, that card only**, no loop;
+- `once` → **one run**, no loop;
+- an interval (`10m`, `30m`, `1h`) or nothing → **the loop**, at that interval or `15m`.
+  Shorter than `5m` → use `5m` and say so: a run takes minutes.
+
+**One run:** read `${CLAUDE_SKILL_DIR}/run.md` and follow it exactly in this folder, with
+session id `${CLAUDE_SESSION_ID}`, the Tickets repo from above, and the card id if one
+was given. Write the summary below first, briefly, then the run's own report at its end.
+
+**The loop:** `/loop` runs a prompt, not this skill (it refuses model invocation, so
+starting work stays a person's act); each tick reads `run.md` and follows it — same run,
+same rules. It lives in this session only: closing it stops the loop.
 
 - Already running? CronList (load it with ToolSearch `select:CronList` if it is
   deferred): a job whose prompt starts with `Tickets loop tick.` → do not start a second;
   say it is already running, at what cadence.
-- Interval: `$ARGUMENTS` if it is one (like `10m`, `30m`, `1h`), else `15m`. Anything
-  shorter than `5m` → use `5m` and say so: a run takes minutes.
-- No project row after step 5 (the person declined) → do not start the loop: `/tickets`
-  would find no project. Say so in the summary.
+- Invoke the Skill tool with skill `loop` and args `<interval> <tick prompt>`, the tick
+  prompt being exactly this, with `<tickets repo>` replaced by the path resolved above:
 
-Invoke the Skill tool with skill `loop` and args `<interval> <tick prompt>`, the tick
-prompt being exactly:
-
-> Tickets loop tick. Read ~/.claude/skills/tickets/SKILL.md and do one run of it in this
-> folder, following it exactly, with these differences: where it puts the session-id
-> placeholder into `session=`, use ${CLAUDE_SESSION_ID}; where it names the skill-folder
-> placeholder, use ~/.claude/skills/tickets. If cards from an earlier tick are still in
-> flight in this session (background subagents not yet reported), do not start a new
-> run: answer only "tickets: previous run still working" and stop. If the queue is empty,
-> do not write ideas or a summary: answer only "tickets: nothing to do" and stop.
+> Tickets loop tick. Read ${CLAUDE_SKILL_DIR}/run.md and do one run of it in this
+> folder, following it exactly, with session id ${CLAUDE_SESSION_ID} and Tickets repo
+> <tickets repo>. If cards from an earlier tick are still in flight in this session
+> (background subagents not yet reported), do not start a new run: answer only
+> "tickets: previous run still working" and stop. If the queue is empty, do not write
+> ideas or a summary: answer only "tickets: nothing to do" and stop.
 
 `/loop` runs the first tick right away; write the summary below before that run's own
 output gets long, or after it if the run is already under way.
@@ -122,9 +123,10 @@ output gets long, or after it if the run is already under way.
 ## 7. Summary
 
 One line per step: ok / fixed (what) / needs you (what). Then the board as a clickable
-markdown link on a line of its own — `[Open the board](http://127.0.0.1:8123/)` — and two
-lines on the loop: the board is worked every <interval> while this session is open, and
-`/tickets-stop` (or closing the session) stops it. If step 2 added the MCP server, say the
-loop works over HTTP until a new session picks the tools up. The next move for the
-person: add a card in `todo` and drag it to `plan`; the next tick takes it.
-`/tickets-open-board` opens the board in the browser.
+markdown link on a line of its own — `[Open the board](http://127.0.0.1:8123/)`. Loop:
+two lines — the board is worked every <interval> while this session is open, and
+`/tickets-stop` (or closing the session) stops it. If step 2 added the MCP server, say
+runs work over HTTP until a new session picks the tools up. The next move for the
+person: add a card in `todo` and drag it to `plan`; the next tick takes it (after a
+single run: `/tickets-start` again). `/tickets-open-board` opens the board in the
+browser.

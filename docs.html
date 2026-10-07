@@ -145,7 +145,7 @@ again.</p>
 
 <h2 id="agent">4. The agent</h2>
 <p>Nothing works the board by itself. You start the work by hand: open a Claude Code
-session in the project's folder and run the <code>/tickets</code> skill. If the board is
+session in the project's folder and run <code>/tickets-start</code>: it works the board every 15 minutes while that session is open (<code>/tickets-start once</code> for one run, <code>/tickets-start 12</code> for card 12 only). If the board is
 down it starts it, and if the session has no board tools (Claude Code connects them only
 when a session starts, so a session opened before the board has none until
 <code>/mcp</code> reconnects) it works over the board's web API instead.
@@ -168,19 +168,19 @@ run notices and marks with the blue dot.</p>
     agent instructions. Whatever you leave out shows up as a card in <code>todo</code> telling you
     what is still missing. Or let <code>/tickets-start</code> do it: run in a Claude Code
     session in the repo's folder, it starts the board if it is down, checks the MCP server
-    and the <code>/tickets</code> skill, helps write the <code>CLAUDE.md</code> rules and
-    creates the project, fixing only what is missing. Then it runs <code>/tickets</code>
+    , helps write the <code>CLAUDE.md</code> rules and
+    creates the project, fixing only what is missing. Then it works the board
     every 15 minutes (or <code>/tickets-start 10m</code>) for as long as that session stays
     open, and ends with a link to the board; <code>/tickets-stop</code> stops it.
     <code>/tickets-open-board</code> opens the board in your browser any time.</li>
   <li>New Card in <code>todo</code>: a title and a clear description of what you want and
     why.</li>
-  <li>Drag it to <code>plan</code>, then run <code>/tickets</code> in the project's folder.
+  <li>Drag it to <code>plan</code>, and the next run of <code>/tickets-start</code> takes it.
     Watch the status bar and the comments. The plan's steps become the card's checklist and
     the agent ticks each one as it finishes it, so the checklist (and the
     <code>☑ done/total</code> chip on the board card) is its live task list.</li>
-  <li>Open questions in the plan? Fill in "your answers" and run <code>/tickets</code>
-    again: it replans with them. A question that comes with options shows them as radio
+  <li>Open questions in the plan? Fill in "your answers": the next run replans with
+    them. A question that comes with options shows them as radio
     buttons under the questions, the agent's pick marked "recommended": a click writes
     <code>N. &lt;option&gt;</code> into your answers, and you can still type there.</li>
   <li>In <code>verify</code>: read the comments, look at the branch, try the deployed build.
@@ -189,7 +189,7 @@ run notices and marks with the blue dot.</p>
 </ol>
 <ul>
   <li><b>Not what you asked for?</b> Rewrite the description, move the card back to
-    <code>plan</code> and run <code>/tickets</code> again.</li>
+    <code>plan</code>; the next run takes it again.</li>
   <li>Keep one concern per card, keep project instructions current, use links for
     dependencies, and archive what you no longer need.</li>
 </ul>

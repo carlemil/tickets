@@ -11,7 +11,7 @@ description: Stop the Tickets loop that /tickets-start started in this session, 
    lives only in the session that started it: stop it there, or close that session).
 3. Cards already in flight are left to finish: their background agents report as usual
    and the run wraps up. Say how many are still working, if any; ask before stopping
-   them — a card cut off mid-stage keeps its lane and worktree, and the next `/tickets`
+   them — a card cut off mid-stage keeps its lane and worktree, and the next run
    picks it up again.
 4. Reply in one line: the loop is stopped (job ids), and `/tickets-start` starts it
    again.

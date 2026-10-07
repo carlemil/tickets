@@ -1,12 +1,10 @@
----
-name: tickets
-description: Work this project's cards on the Tickets board (http://127.0.0.1:8123) — every ready card in plan, develop and test, through to verify, unattended. Run by hand as /tickets in a session opened in the project's folder; optional argument a card id (#12 or 12) to work only that card.
-disable-model-invocation: true
----
+# Tickets: one run over this project's board
 
-# Tickets: drain this project's board
-
-The board is the record, not the boss: nothing runs until a person types `/tickets`.
+Not a skill of its own: `/tickets-start` reads this file and follows it, once per loop
+tick or once when asked. Whoever hands it to you gives three things: the **session id**,
+the **Tickets repo** (the folder holding `restart-backend.ps1`), and optionally a **card
+id**. The board is the record, not the boss: nothing runs until a person types
+`/tickets-start`.
 One run takes every ready card of this folder's project, up to three at a time, from
 where it stands to `verify`, writing each step onto the board as it goes, and ends
 with ideas for what to do next. Work unattended: never stop to ask the user, never wait for an answer —
@@ -21,8 +19,7 @@ Every board write uses `actor="claude-agent"`. Tools are the `tickets` MCP serve
 A missing board never stops a run:
 - `GET http://127.0.0.1:8123/api/projects` does not answer → start it detached (a
   uvicorn started straight from a tool call dies with the call):
-  `powershell -NoProfile -File <tickets repo>/restart-backend.ps1 -Delay 1`, where the
-  Tickets repo is `git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel`; wait ~12 s and
+  `powershell -NoProfile -File <tickets repo>/restart-backend.ps1 -Delay 1`, ; wait ~12 s and
   ask again. Still down → stop, with the tail of `<tickets repo>/restart-backend.log`.
 - The `tickets` tools are missing (the session started while the board was down, or the
   server is not registered) → do the whole run over the board's HTTP API instead; a
@@ -65,8 +62,8 @@ if the path is not one, cards can still be planned but fail in develop/test.
 
 ## 2. Build the queue
 
-`list_cards(project=…)` and keep the cards in `plan`, `develop`, `test` (with an
-argument: just that card, wherever it is among those lanes). Order: `plan` first (plans are
+`list_cards(project=…)` and keep the cards in `plan`, `develop`, `test` (with a
+card id: just that card, wherever it is among those lanes). Order: `plan` first (plans are
 cheap, and their questions reach a person sooner), then `develop`, then `test`; within
 a lane, the board's order. Skip, and name in the
 final summary:
@@ -103,7 +100,7 @@ yours, one card at a time: never interleave two cards' land/deploy sequences. Ea
 works in its own worktree (below); do not use the Agent tool's `isolation: "worktree"` —
 the `card/<id>` branch and its worktree path are the record.
 
-Starting a card: `update_card(assignee="claude-agent", session="${CLAUDE_SESSION_ID}")`
+Starting a card: `update_card(assignee="claude-agent", session="<session id>")`
 (the board's link back to this session's transcript). `set_activity` holds one entry
 for you, so point it at the card you started last and say how many are in flight:
 `set_activity(card_id=…, doing="developing (3 in flight)")` (`planning`, `developing`,
@@ -140,7 +137,7 @@ plus one `{"text": <step>, "done": false}` per step whose text is not already on
 replan adds only new steps); pass it as `checklist=…` in the same `update_card`.
 - NONE → `update_card(plan=…, checklist=…)`, move to `develop`.
 - OPEN → `update_card(plan=…, questions=…, checklist=…)`, comment "open questions: answer them in
-  the card, then run /tickets again", leave it in `plan`.
+  the card; the next run replans with them", leave it in `plan`.
 
 ### develop  (in the card's worktree)
 
