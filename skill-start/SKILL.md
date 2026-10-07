@@ -114,8 +114,10 @@ same rules. It lives in this session only: closing it stops the loop.
 > folder, following it exactly, with session id ${CLAUDE_SESSION_ID} and Tickets repo
 > <tickets repo>. If cards from an earlier tick are still in flight in this session
 > (background subagents not yet reported), do not start a new run: answer only
-> "tickets: previous run still working" and stop. If the queue is empty, do not write
-> ideas or a summary: answer only "tickets: nothing to do" and stop.
+> "tickets: previous run still working (<now>)" and stop. If the queue is empty, do not
+> write ideas or a summary: answer only "tickets: nothing to do (<now>)" and stop. <now>
+> is the local date and time read from the clock, never guessed: PowerShell
+> `Get-Date -Format 'yyyy-MM-dd HH:mm'`, elsewhere `date '+%Y-%m-%d %H:%M'`.
 
 `/loop` runs the first tick right away; write the summary below before that run's own
 output gets long, or after it if the run is already under way.

@@ -263,7 +263,8 @@ an interval or nothing → `/loop` (default 15m, at least 5m) on a tick prompt t
 `run.md` and does one run, passing the session id and the Tickets repo. `/loop` cannot
 call `/tickets-start` itself — it refuses model invocation, so starting work stays a
 person's act. A tick with cards still in flight or an empty queue
-answers one line. It starts no second loop if one already runs, and none when there is
+answers one line, stamped with the local date and time from the clock (#64), so an
+idle loop shows how long ago it last looked. It starts no second loop if one already runs, and none when there is
 no project row. Session-only: it ends with the session (or after the 7 days a session
 loop lives). Its summary ends with a clickable link to the board.
 
@@ -477,6 +478,7 @@ no longer on the board.
 | 61 | every stage of a card runs in a new subagent (no SendMessage continuation) whose brief pastes the whole card verbatim, comments without CLI output, plus project, repo and worktree | done — 383 checks |
 | 62 | tab icon: an inline SVG data-URI favicon on the board and the docs (a board of cards and the green work dot) | done — 384 checks |
 | 63 | project tabs replace the project dropdown: All first, one tab per project with its color | done — 387 checks |
+| 64 | the loop's one-line idle answers (`nothing to do`, `previous run still working`) carry the local date and time | done — 387 checks |
 
 Gate for every task: `uv run pytest -q` — 387 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
