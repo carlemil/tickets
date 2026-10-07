@@ -403,24 +403,33 @@ FOLDER = """The project has no folder set, so an agent cannot check out a card's
 Set its path under "projects…" on the board: the absolute path of a git checkout that has
 an `origin` remote (the test lane pushes the card's branch there). Archive this card once
 it is set."""
-TESTS = """The project's instructions do not say how to test it.
+TESTS = """Neither the repo's CLAUDE.md nor the project's instructions say how to test it.
 
 An agent must run the project's tests before it may pass a card, so write the test command
-into the instructions under "projects…" on the board. Archive this card once they do."""
-DEPLOY = """The project's instructions do not say how to deploy it.
+into CLAUDE.md at the root of the project's folder: every Claude Code session reads it. The
+instructions under "projects…" on the board count too. Archive this card once one does."""
+DEPLOY = """Neither the repo's CLAUDE.md nor the project's instructions say how to deploy it.
 
-The agent is told to follow the project instructions on how to deploy, so write the deploy
-steps into the instructions under "projects…" on the board. Archive this card once they do."""
+The agent is told to follow the project's rules on how to deploy, so write the deploy steps
+into CLAUDE.md at the root of the project's folder: every Claude Code session reads it. The
+instructions under "projects…" on the board count too. Archive this card once one does."""
 
 
 def setup_cards(name):
     """Cards for what a new project still needs before an agent can work a card in it: a
-    folder, and instructions covering tests and deploying. Unassigned, in `todo` -- a
-    person has to fix them: agents cannot configure a project.
-    ponytail: "the instructions cover tests/deploying" is a word match. It asks once, on a
-    new project, and a wrong guess costs one archived card."""
+    folder, and rules covering tests and deploying -- in the repo's CLAUDE.md (which every
+    Claude Code session reads anyway) or the board's instructions. Unassigned, in `todo` --
+    a person has to fix them: agents cannot configure a project.
+    ponytail: "CLAUDE.md + instructions cover tests/deploying" is a word match. It asks
+    once, on a new project, and a wrong guess costs one archived card."""
     p = get_project(name)          # NotFound for an unknown name; gives the stored spelling
-    said = p["instructions"].lower()
+    said = p["instructions"]
+    if p["path"]:
+        try:
+            said += "\n" + (Path(p["path"]) / "CLAUDE.md").read_text("utf-8", errors="ignore")
+        except OSError:            # no CLAUDE.md, or unreadable: only the instructions count
+            pass
+    said = said.lower()
     missing = []
     if not p["path"]:
         missing.append((f"Set {p['name']}'s folder", FOLDER))

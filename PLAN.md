@@ -28,6 +28,7 @@ test_app.py    status codes, the actor rule, both error mappings, ToolError, the
 test_board.py  the board in a real browser, plus one lock per bug that shipped
 test_e2e.py    one card, browser and MCP, one attributed history
 skill/SKILL.md the /tickets Claude Code skill: works a project's cards, over MCP
+CLAUDE.md      this repo's own rules (test gate, docs, deploy), read by every session
 log-config.json uvicorn log format: a timestamp per row
 ```
 
@@ -94,7 +95,10 @@ activity(actor PRIMARY KEY, card_id, doing, since)   -- what agents are doing no
 - **Adding a project opens a card for whatever its setup is missing.** `POST
   /api/projects` calls `setup_cards(name)`, which puts a `todo` card in the new project —
   authored by `board`, unassigned — for each of: no `path`, and
-  instructions that do not mention testing or deploying (a word match). A person fixes
+  rules that do not mention testing or deploying (a word match over the instructions plus
+  the repo's `CLAUDE.md`, #5: every Claude Code session reads that file anyway, so it is
+  the preferred home of a project's rules and the instructions keep what is specific to
+  the board). A person fixes
   them and archives them; agents cannot configure a project. The check sits on the route,
   not in `create_project`, so scripted setup and the test fixtures do not spawn cards.
 - **Every project has a color** (`#rrggbb`, stored lowercase), and its cards are tagged
@@ -197,7 +201,7 @@ One global skill, versioned here and linked into `~/.claude/skills/tickets` (a j
 D:\source\Tickets\skill`). It uses only the existing MCP tools, as `claude-agent`:
 
 - **Project:** the one whose `path` is the session's folder. Its `instructions` rank
-  below the card and above the skill.
+  below the card and above the repo's `CLAUDE.md`, which ranks above the skill.
 - **Queue:** the project's cards in `plan`, then `develop`, then `test`, board order
   within a lane. Skipped: questions without answers, an incoming `blocks` link from a
   card not in `done`, assigned to a person. `todo` is the backlog: moving a card to
@@ -379,8 +383,9 @@ no longer on the board.
 | 43 | #96 the deploy runs at the end of the test stage, before the card moves to verify: a card arriving in verify already has the build on the phone | done |
 | 44 | #101 the test stage fixes what it can, and the card's worktree is removed after the deploy: the branch in origin is the record, and a worktree whose folder went missing is re-made from it in either lane | done |
 | 45 | the polling agent is gone: work starts by hand with the `/tickets` skill (`skill/SKILL.md`); auto advance, attention and #60 rework removed | done — 349 checks |
+| 46 | #5 the repo's `CLAUDE.md` counts for the setup cards and ranks in the skill; this repo has one | done — 352 checks |
 
-Gate for every task: `uv run pytest -q` — 349 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 352 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

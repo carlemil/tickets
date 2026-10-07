@@ -25,9 +25,11 @@ backend and register the server once, at user scope:
 open the board, "projects…", set this project's path to this folder. Never work
 "No Project".
 
-Its `instructions` are the project's own rules (tests, deploy, conventions). Priority,
-highest first: the card's latest comments, the card (`description`, `plan`, `answers`),
-the project instructions, this skill.
+The repo's `CLAUDE.md` holds the project's own rules (tests, conventions, deploy); every
+session and subagent loads it anyway. The project's `instructions` are board-specific
+additions (e.g. the deploy target). Priority, highest first: the card's latest comments,
+the card (`description`, `plan`, `answers`), the project instructions, the repo's
+CLAUDE.md, this skill.
 
 The **repo** is the git toplevel of the path; the **base** branch is the repo's current
 branch (`git -C <repo> rev-parse --abbrev-ref HEAD`). Develop and test need a git repo:

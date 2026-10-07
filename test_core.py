@@ -1109,6 +1109,27 @@ def test_only_what_is_missing_gets_a_card(tmp_path):
     assert c["title"] == "Tell the agent how to deploy Fresh"
 
 
+def test_a_claude_md_covering_tests_and_deploying_opens_no_cards(tmp_path):
+    (tmp_path / "CLAUDE.md").write_text("Test: uv run pytest -q\nDeploy: merge to master\n",
+                                        encoding="utf-8")
+    core.create_project("Fresh", path=str(tmp_path))
+    assert core.setup_cards("Fresh") == []
+
+
+def test_a_claude_md_covering_only_tests_still_asks_how_to_deploy(tmp_path):
+    (tmp_path / "CLAUDE.md").write_text("Run the tests with uv run pytest.", encoding="utf-8")
+    core.create_project("Fresh", path=str(tmp_path))
+    [c] = core.setup_cards("Fresh")
+    assert c["title"] == "Tell the agent how to deploy Fresh"
+    assert "CLAUDE.md" in c["description"]
+
+
+def test_without_a_claude_md_only_the_instructions_count(tmp_path):
+    core.create_project("Fresh", path=str(tmp_path), instructions="deploy by merging")
+    [c] = core.setup_cards("Fresh")
+    assert c["title"] == "Tell the agent how to test Fresh"
+
+
 def test_the_cards_take_the_projects_own_spelling():
     core.create_project("Tickets")
     assert {c["project"] for c in core.setup_cards("tickets")} == {"Tickets"}
