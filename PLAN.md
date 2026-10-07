@@ -151,7 +151,7 @@ name is a `ValueError`.
 
 `GET /` → board.html · `GET /docs` → docs.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
 `POST /api/cards` · `POST /api/cards/{id}/comment` · `POST|DELETE /api/links` ·
-`GET|POST /api/users` · `GET|POST /api/activity` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}`. Every
+`GET|POST /api/users` · `GET|POST /api/activity` · `GET /api/version` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}`. Every
 write body carries `actor` — except `POST /api/users` (`{"name"}` → 201), the one write
 that predates having an actor, and the project writes, which are configuration rather
 than card activity and log no event. `POST /api/projects` also opens a setup card per
@@ -299,6 +299,13 @@ and all grow together with the tallest.
 
 **The work dot.** Every board card leads with a small ring that fills green and pulses
 while an agent's status entry (`/api/activity`) points at the card.
+
+**Follows other writers (#58).** The 5 s status poll also reads `GET /api/version`, the
+newest `events.id`: when it moved, the board reloads once — not under a drag or a held
+pointer, and then the value is not recorded, so the next poll retries. The open sheet
+re-renders only when the fetched card is newer (the `stale()` rule) and never while one of
+its text fields has focus; that waits for a later poll. Writes that log no event (a
+pos-only reorder, project renames) do not trigger it.
 
 **On master, deployed (#41).** After the auto dot come two more, on the board card and in
 the sheet header: blue when `merged` (the card's branch is on the base branch, locally or
@@ -457,8 +464,9 @@ no longer on the board.
 | 55 | `/tickets` starts a down board and works over HTTP when the session has no MCP tools (`POST /api/activity` added; `""` and null both unassign); `/tickets-setup` offers to start the board at logon | done — 377 checks |
 | 56 | `/tickets-run-loop [interval]`: `/loop` runs one `/tickets` run per tick by reading the skill file, placeholders filled by the tick prompt | done — 377 checks |
 | 57 | `/tickets-stop-loop`: deletes the session's `Tickets loop tick.` cron jobs, cards in flight finish | done — 377 checks |
+| 58 | the board reloads itself when anyone else writes: `GET /api/version` (newest event id) polled with the status bar; the open sheet catches up, never over a focused field | done — 383 checks |
 
-Gate for every task: `uv run pytest -q` — 377 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 383 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
@@ -488,7 +496,7 @@ system, and it works across both surfaces.
 
 ## Deliberately skipped
 
-Auth · live refresh over WebSocket (reload the page) · attachments · search.
+Auth · live refresh over WebSocket (the board polls `/api/version` instead) · attachments · search.
 Auth comes first, and before anything binds off loopback.
 
 ## Event detail shapes

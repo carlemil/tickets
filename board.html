@@ -1120,12 +1120,15 @@ async function load() {
 // ---------- status bar: what agents are doing right now ----------
 let busy = null;   // card ids agents were working on at the last poll
 let working = new Set();   // the same ids, for the pulsing dots
+let version = null;   // the newest event id at the last poll: every card write bumps it
+let recheck = false;   // the open card may be behind: refresh the sheet when it is safe to
 
 async function loadStatus() {
   const bar = $("#status");
-  let jobs;
-  try { jobs = await api("GET", "/api/activity"); }
-  catch { bar.textContent = "agent status unavailable"; return; }
+  let jobs, ver;
+  try {
+    [jobs, ver] = await Promise.all([api("GET", "/api/activity"), api("GET", "/api/version")]);
+  } catch { bar.textContent = "agent status unavailable"; return; }
   bar.textContent = jobs.length ? "" : "no agent is working on anything";
   for (const j of jobs) {
     const n = document.createElement("span");
@@ -1144,10 +1147,32 @@ async function loadStatus() {
   // set before any reload, so the rebuilt cards pulse too; the open editor is updated in place
   working = new Set(jobs.map(j => j.card_id));
   for (const d of document.querySelectorAll(".work[data-id]")) markWorking(d);
-  // an agent finishing moves its card: reload the board then, but never under a drag
+  // An agent finishing moves its card, and anyone's write bumps the version (a card the
+  // agent creates, a move, a comment): reload the board then, once, but never under a drag.
+  // A version change seen while a pointer is held is not recorded, so the next poll retries.
   const now = jobs.map(j => j.card_id).join();
-  if (busy !== null && now !== busy && !$(".card.dragging")) load();
+  const dragging = !!$(".card.dragging");
+  const finished = busy !== null && now !== busy && !dragging;
+  const changed = version !== null && ver.event !== version && !dragging && !pointerHeld;
+  if (finished || changed) load();
+  if (changed) recheck = true;
+  if (version === null || changed) version = ver.event;
   busy = now;
+  refreshOpen();
+}
+
+// Someone else wrote, and the open card may be what changed. The sheet re-renders only
+// when it is behind, never over a field being typed in (that waits for the next poll),
+// and through the same stale() check as every other response.
+async function refreshOpen() {
+  if (!recheck) return;
+  if (!open?.id) { recheck = false; return; }   // a draft or the project settings
+  if ($("#panel :is(input:not([type=checkbox]), textarea):focus")) return;
+  recheck = false;
+  const id = open.id;
+  let card;
+  try { card = await api("GET", "/api/cards/" + id); } catch { return; }
+  if (open?.id === id && lastEvent(card) > lastEvent(open)) { open = card; renderPanel(); }
 }
 
 // ---------- hover help: every control says what it is ----------

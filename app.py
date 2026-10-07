@@ -120,6 +120,12 @@ async def api_activity(request):
     return JSONResponse(core.list_activity())
 
 
+# the board polls this and reloads when it changes
+@route("/api/version", methods=["GET"])
+async def api_version(request):
+    return JSONResponse({"event": core.last_event()})
+
+
 # the set_activity tool over HTTP, for an agent whose MCP connection failed
 @route("/api/activity", methods=["POST"])
 async def api_set_activity(request):

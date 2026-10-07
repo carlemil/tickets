@@ -1953,3 +1953,95 @@ def test_a_comment_with_no_output_has_no_box(page):
     page.evaluate(f"openCard({cid})")
     page.wait_for_function(f"() => open && open.id === {cid}")
     assert page.locator("#panel .log details.cli").count() == 0
+
+
+# ---------- the board follows other actors' writes ----------
+
+def http(server, method, path, body):
+    """Another actor's write over HTTP, the way an agent without MCP makes it."""
+    import json
+    import urllib.request
+    req = urllib.request.Request(server + path, json.dumps(body).encode(), method=method,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req) as r:
+        return json.load(r)
+
+
+def polled(page):
+    """The first poll only records the version: a write before it would never show."""
+    page.wait_for_function("() => version !== null")
+
+
+def test_a_card_another_actor_creates_appears_without_a_reload(page, server):
+    polled(page)
+    c = http(server, "POST", "/api/cards", {"title": "an idea", "actor": "claude-agent",
+                                            "project": "Home"})
+    # the board's own 5 s timer, no nudge
+    page.wait_for_selector(f'.card[data-id="{c["id"]}"]', timeout=7000)
+
+
+def test_a_move_by_another_actor_moves_the_card(page, server):
+    cid = core.create_card("move me", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
+    page.wait_for_selector(f'.lane[data-lane="todo"] .card[data-id="{cid}"]')
+    polled(page)
+    http(server, "PATCH", f"/api/cards/{cid}", {"lane": "plan", "actor": "claude-agent"})
+    page.evaluate("loadStatus()")
+    page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{cid}"]')
+
+
+def test_no_reload_under_a_drag_and_the_next_poll_catches_up(page, server):
+    held = core.create_card("held", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{held}"]')
+    polled(page)
+    page.evaluate(f"""document.querySelector('.card[data-id="{held}"]')
+        .dispatchEvent(new DragEvent("dragstart", {{bubbles: true, dataTransfer: new DataTransfer()}}))""")
+    assert page.locator(".card.dragging").count() == 1
+    before = page.evaluate("version")
+    c = http(server, "POST", "/api/cards", {"title": "new", "actor": "claude-agent",
+                                            "project": "Home"})
+    page.evaluate("loadStatus()")
+    assert page.evaluate("version") == before, "skipped, so not recorded"
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.locator(f'.card[data-id="{c["id"]}"]').count() == 0, "no reload mid-drag"
+    page.evaluate(f"""document.querySelector('.card[data-id="{held}"]')
+        .dispatchEvent(new DragEvent("dragend", {{bubbles: true}}))""")
+    page.evaluate("loadStatus()")
+    page.wait_for_selector(f'.card[data-id="{c["id"]}"]')
+
+
+def test_a_poll_never_overwrites_a_field_being_typed_in(page, server):
+    cid = add_card(page, "mine")
+    polled(page)
+    title = "#panel input[type=text] >> nth=0"
+    desc = "#panel div:has(> h3:text-is('description')) textarea"
+    page.fill(title, "mine, half typed")   # focused, not committed
+    http(server, "PATCH", f"/api/cards/{cid}", {"description": "from the agent",
+                                               "actor": "claude-agent"})
+    page.evaluate("loadStatus()")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.input_value(title) == "mine, half typed"
+    assert page.evaluate("document.activeElement === document.querySelector('#panel input[type=text]')")
+    assert page.input_value(desc) == "", "the sheet waits"
+    # leaving the field saves it, and that response carries the agent's change too
+    page.locator(title).blur()
+    wait_saved(page, cid, "title", "mine, half typed")
+    assert page.input_value(desc) == "from the agent"
+
+
+def test_the_sheet_catches_up_on_the_poll_after_the_comment_box_loses_focus(page, server):
+    cid = add_card(page, "mine")
+    polled(page)
+    box = "#panel .say-box"
+    page.fill(box, "half a comment")
+    http(server, "PATCH", f"/api/cards/{cid}", {"title": "renamed by the agent",
+                                               "actor": "claude-agent"})
+    page.evaluate("loadStatus()")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.input_value("#panel input[type=text] >> nth=0") == "mine", "not while typing"
+    page.locator(box).blur()
+    page.evaluate("loadStatus()")   # nothing new since: the retry alone refreshes the sheet
+    page.wait_for_function("""() => document.querySelector('#panel input[type=text]')
+        .value === 'renamed by the agent'""")
+    assert page.input_value(box) == "half a comment", "the comment box survives the re-render"

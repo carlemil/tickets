@@ -71,6 +71,18 @@ def test_query_params_reach_the_filter(client):
     assert len(client.get("/api/cards?project=home").json()) == 2
 
 
+def test_version_is_the_newest_event_and_a_reorder_leaves_it(client):
+    assert client.get("/api/version").json() == {"event": 0}, "an empty board"
+    c = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home"}).json()
+    v = client.get("/api/version").json()["event"]
+    assert v > 0
+    client.post(f"/api/cards/{c['id']}/comment", json={"text": "hi", "actor": "ann"})
+    w = client.get("/api/version").json()["event"]
+    assert w > v
+    client.patch(f"/api/cards/{c['id']}", json={"pos": 99, "actor": "ann"})
+    assert client.get("/api/version").json()["event"] == w, "a place in the queue logs nothing"
+
+
 def test_unlink_accepts_a_json_body_on_delete(client):
     a = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home"}).json()
     b = client.post("/api/cards", json={"title": "b", "actor": "ann", "project": "Home"}).json()

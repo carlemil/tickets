@@ -293,6 +293,12 @@ def list_activity():
             " FROM activity a JOIN cards c ON c.id = a.card_id ORDER BY a.since")]
 
 
+def last_event():
+    """The newest event id, 0 on an empty board: the board polls it as its change marker."""
+    with closing(connect()) as db:
+        return db.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]
+
+
 # ---------- projects ----------
 
 def _project(db, name):
