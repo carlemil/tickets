@@ -29,6 +29,7 @@ test_board.py  the board in a real browser, plus one lock per bug that shipped
 test_e2e.py    one card, browser and MCP, one attributed history
 skill/SKILL.md the /tickets Claude Code skill: works a project's cards, over MCP
 skill-setup/SKILL.md  /tickets-setup: starts the board, sets a repo up as a project
+skill-open-board/SKILL.md  /tickets-open-board: opens the board in the browser
 CLAUDE.md      this repo's own rules (test gate, docs, deploy), read by every session
 log-config.json uvicorn log format: a timestamp per row
 ```
@@ -238,7 +239,13 @@ with it), the user-scope MCP server, the `/tickets` junction, the repo and its `
 the repo's `CLAUDE.md` test/deploy rules (asked for, never committed), and the project row.
 Being a person's command, it may configure the project, which the MCP tools cannot: it
 uses `/api/projects` and creates the project last, so its setup cards see the new
-`CLAUDE.md`. It finds the Tickets repo as `${CLAUDE_SKILL_DIR}/..`.
+`CLAUDE.md`. It finds the Tickets repo as `git -C ${CLAUDE_SKILL_DIR} rev-parse
+--show-toplevel`: the skill folder is a junction, so `${CLAUDE_SKILL_DIR}/..` is
+`~/.claude/skills`. Its summary ends with a clickable link to the board.
+
+**`/tickets-open-board` (`skill-open-board/SKILL.md`)**, linked the same way: starts the
+backend if it is down, opens the board in the system browser and prints the link
+(clickable and as a bare URL). The only one of the three Claude may invoke by itself.
 
 **Docs.** `docs.html` is the user's manual, written by hand from this file and
 `skill/SKILL.md`: a change to how the board or the agent behaves updates it too.
@@ -422,6 +429,7 @@ no longer on the board.
 | 51 | #1 one run works up to 3 cards at once in background subagents, one in test at a time | done — 375 checks |
 | 52 | #7 the test stage reviews with Claude Code's `/code-review` on the card's ref range, its own review as fallback | done — 375 checks |
 | 53 | `/tickets-setup` (`skill-setup/SKILL.md`): starts the board and sets a repo up as a project, fixing only what is missing | done — 375 checks |
+| 54 | `/tickets-open-board` opens the board in the browser and prints the link; `/tickets-setup` ends with the link; both find the Tickets repo through git, not `..` of the junction | done — 375 checks |
 
 Gate for every task: `uv run pytest -q` — 375 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

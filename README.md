@@ -60,6 +60,8 @@ Link the two skills once (Windows; `ln -s` elsewhere):
 Then, in a Claude Code session opened in any repo, `/tickets-setup` starts the board if it
 is down, registers the MCP server if it is missing, helps write the repo's `CLAUDE.md`
 test and deploy rules, and creates the project, fixing only what is missing.
+`/tickets-open-board` opens the board in your browser (link it the same way, from
+`skill-open-board`).
 
 ## Your first card
 

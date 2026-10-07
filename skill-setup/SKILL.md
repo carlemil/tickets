@@ -11,8 +11,9 @@ summary. Safe to run again any time. This is a person's command, so unlike `/tic
 may configure the project — over the board's HTTP API (`/api/projects`), since the MCP
 tools deliberately cannot.
 
-The Tickets repo is the parent of this skill's folder: `${CLAUDE_SKILL_DIR}/..`
-(resolve it to an absolute path once and use that). The **folder** is the session's
+The Tickets repo is `git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel` — not
+`${CLAUDE_SKILL_DIR}/..`: the skill folder is a link, and `..` would land in
+`~/.claude/skills`. Resolve it once and use that. The **folder** is the session's
 working directory; the **repo** is its git toplevel.
 
 ## 1. Backend
@@ -74,6 +75,8 @@ Creating a project opens a `todo` card for anything its setup still lacks;
 
 ## 6. Summary
 
-One line per step: ok / fixed (what) / needs you (what). Then the next move: open the
-board, add a card in `todo`, drag it to `plan`, run `/tickets` here (after restarting the
-session if step 2 added the MCP server).
+One line per step: ok / fixed (what) / needs you (what). Then the board as a clickable
+markdown link on a line of its own — `[Open the board](http://127.0.0.1:8123/)` — and the
+next move: add a card in `todo`, drag it to `plan`, run `/tickets` here (after restarting
+the session if step 2 added the MCP server). `/tickets-open-board` opens it in the
+browser.
