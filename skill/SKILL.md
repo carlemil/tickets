@@ -7,9 +7,9 @@ disable-model-invocation: true
 # Tickets: drain this project's board
 
 The board is the record, not the boss: nothing runs until a person types `/tickets`.
-One run takes every ready card of this folder's project from where it stands to
-`verify`, writing each step onto the board as it goes, and ends with ideas for what
-to do next. Work unattended: never stop to ask the user, never wait for an answer —
+One run takes every ready card of this folder's project, up to three at a time, from
+where it stands to `verify`, writing each step onto the board as it goes, and ends
+with ideas for what to do next. Work unattended: never stop to ask the user, never wait for an answer —
 what needs a person goes on the board (questions, blocker cards) and the run moves on.
 
 Every board write uses `actor="claude-agent"`. Tools are the `tickets` MCP server's
@@ -45,32 +45,49 @@ final summary:
 
 - **waiting for answers:** `questions` filled, `answers` empty;
 - **blocked:** `get_card` shows a `blocks` link *to* it from a card not in `done`;
-- **assigned to a person:** `assignee` set to anyone but `claude-agent`.
+- **assigned to a person:** `assignee` set to anyone but `claude-agent`;
+- **already in flight** in this run (see 3).
 
-Re-list after each card: people edit the board while you work, and a card you moved
-may now be next (a card planned without questions goes straight on to develop). Never
-work the same card twice in one run — once it fails or waits, it is done for this run.
+Re-list whenever a slot frees: people edit the board while you work, and a card you
+moved may now be next (a card planned without questions goes straight on to develop).
+Never work the same card twice in one run — once it fails or waits, it is done for this
+run.
 
 Before working the queue, catch up on pull requests: for each of the project's `verify` cards with
 `pr` set and `merged` false, `gh pr view <pr> --json state -q .state`; `MERGED` →
 `update_card(merged=True)`. Any failure here is ignored.
 
-## 3. Work a card
+## 3. Work the cards, several at once
 
-For each card: `update_card(assignee="claude-agent", session="${CLAUDE_SESSION_ID}")`
-(the board's link back to this session's transcript), then
-`set_activity(card_id=…, doing="planning"|"developing"|"testing")` — clear it
-(`set_activity` with no card) when the card leaves your hands. Before every board write
-after a long step, `get_card` again: **a person's move wins** — if the lane changed
-under you, post your output as a comment saying it was moved during the run, and leave
-the card where they put it.
+You are the dispatcher. Each stage of a card runs in its own **background** subagent
+(Agent tool, `general-purpose`, `run_in_background: true`), so several cards move at
+once and a long run does not fill this session's context. When one finishes you are
+notified: do that card's (you) steps for the stage, then start its next stage by
+continuing the same subagent (SendMessage, so it keeps what it learned), or, when the
+card is out of your hands, fill the freed slot from a fresh re-list.
 
-Each stage is done by a `general-purpose` subagent (Agent tool), so a long run does not
-fill this session's context. Brief it with: the card (`get_card` output: title,
+**Slots.** At most **3 cards in flight**. Plan stages are read-only and may always run
+side by side. At most **one card in `test`** at a time — from the test stage through
+ship, land, deploy and clean-up to `verify` — because tests, the deploy and service
+restarts share ports, devices and the base checkout; a card whose next stage is test
+waits (its subagent idle) until that slot is free. Land merges and pushes of the base are
+yours, one card at a time: never interleave two cards' land/deploy sequences. Each card
+works in its own worktree (below); do not use the Agent tool's `isolation: "worktree"` —
+the `card/<id>` branch and its worktree path are the record.
+
+Starting a card: `update_card(assignee="claude-agent", session="${CLAUDE_SESSION_ID}")`
+(the board's link back to this session's transcript). `set_activity` holds one entry
+for you, so point it at the card you started last and say how many are in flight:
+`set_activity(card_id=…, doing="developing (3 in flight)")` (`planning`, `developing`,
+`testing`); clear it (`set_activity` with no card) when the last card leaves your hands.
+Before every board write after a stage, `get_card` again: **a person's move wins** — if
+the lane changed under you, post your output as a comment saying it was moved during the
+run, and leave the card where they put it.
+
+Brief each stage's subagent with: the card (`get_card` output: title,
 description, plan, questions, answers, checklist, comments), the project instructions, the
 stage's rules below, the folder to work in (absolute path — tell it to use absolute paths or
-`git -C`), and the verdict line it must end with. Continue the same subagent
-(SendMessage) for the card's next stage so it keeps what it learned. You — not the
+`git -C`), and the verdict line it must end with. You — not the
 subagent — write to the board and run the git steps marked (you); the one exception is
 the develop subagent ticking checklist items.
 
@@ -176,12 +193,13 @@ card and leave it in its lane. It will be skipped until they are `done`.
 ### Failure
 
 Anything that stops a stage (a crash, an empty plan, RESULT: FAIL, a git error, no git
-repo for develop/test): `comment("agent failed: <why>")`, leave the lane as it is, go
-to the next card.
+repo for develop/test): `comment("agent failed: <why>")`, leave the lane as it is; its
+slot is free for the next card.
 
 ## 4. Wrap up
 
-Clear your activity. Then:
+Once, when the queue is empty and the last card in flight is done: clear your activity.
+Then:
 - **Ideas:** things the runs noticed but did not do — follow-ups, tech debt, a missing
   test, a next step the plan deferred. One `todo` card each (skip titles already on the
   board), description ending "(idea from #<id>)". Only real ones; none is fine.

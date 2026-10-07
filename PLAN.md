@@ -206,6 +206,10 @@ D:\source\Tickets\skill`). It uses only the existing MCP tools, as `claude-agent
   within a lane. Skipped: questions without answers, an incoming `blocks` link from a
   card not in `done`, assigned to a person. `todo` is the backlog: moving a card to
   `plan` queues it. One run drains the queue unattended, working each card once.
+- **Several at once (#1).** The session dispatches: each card's stage is a background
+  subagent, up to 3 cards in flight, plans always side by side, one card at a time from
+  test through land/deploy (shared ports, devices, the base checkout). `set_activity` is
+  one row per actor, so it points at the card started last with the count in its text.
 - **Stages,** each by a subagent so the session's context stays small; the session
   writes the board and does the git: plan (read-only; open questions stop the card in
   `plan`), develop in the card's worktree (`<repo>.worktrees/card-<id>`, branch
@@ -404,6 +408,7 @@ no longer on the board.
 | 48 | #6 `projects.land` (`merge` \| `pr`) and `cards.pr`: a `pr` project's passed card ships as a pull request, linked from the sheet; merged when the PR is | done — 371 checks |
 | 49 | #4 open questions may list options as indented bullets; the sheet offers them as radios that write the answers | done — 374 checks |
 | 50 | #3 the plan's steps become the checklist, ticked by the develop subagent as it goes | done — 375 checks |
+| 51 | #1 one run works up to 3 cards at once in background subagents, one in test at a time | done — 375 checks |
 
 Gate for every task: `uv run pytest -q` — 375 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

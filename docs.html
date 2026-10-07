@@ -147,7 +147,10 @@ session in the project's folder and run the <code>/tickets</code> skill. It work
 ready card of that project in <code>plan</code>, <code>develop</code> and <code>test</code>
 through to <code>verify</code>, and writes what it does onto the board as
 <code>claude-agent</code>: the plan, comments, the moves, and a new idea card for any
-follow-up it finds. Cards in "No Project" are never worked. A card that passes its tests
+follow-up it finds. Cards in "No Project" are never worked. It works up to 3 cards at
+once, each in its own background agent, but only one in <code>test</code> at a time: tests,
+the deploy and the merge into the base branch go one card after another. The status bar
+shows the card it started last and how many are in flight. A card that passes its tests
 is pushed as <code>card/&lt;id&gt;</code> and then lands the project's way: merged locally
 into the base branch, or opened as a pull request with <code>gh</code>, whose merge the next
 run notices and marks with the blue dot.</p>
