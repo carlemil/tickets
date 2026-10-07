@@ -37,40 +37,47 @@ tests.
 
    On Windows, `powershell -NoProfile -File restart-backend.ps1` starts or restarts it.
 
-3. Open `http://127.0.0.1:8123/` and create a project under "projects…". There is no
-   default project and a card needs one. A project carries a `path` (its folder on this
-   machine, a git repo) and free-text `instructions` the agent follows — how to test the
-   project, how to deploy it. Whatever you leave out shows up as a card in `todo`
-   telling you what is still missing.
+3. Link the Claude Code skills into your user skills folder, once (Windows shown; on
+   macOS/Linux `ln -s <this repo>/<folder> ~/.claude/skills/<name>`):
 
-4. Give Claude Code the board's tools:
+       foreach ($s in @{tickets='skill'; 'tickets-setup'='skill-setup';
+                        'tickets-open-board'='skill-open-board';
+                        'tickets-run-loop'='skill-run-loop';
+                        'tickets-stop-loop'='skill-stop-loop'}.GetEnumerator()) {
+           New-Item -ItemType Junction "$HOME\.claude\skills\$($s.Key)" -Target "$PWD\$($s.Value)"
+       }
 
-       claude mcp add --transport http tickets http://127.0.0.1:8123/mcp
+   They are links, so editing a skill here takes effect in every session at once.
 
-8123 is not a runtime setting. Any free port works, but `restart-backend.ps1` and the
-`claude mcp add` URL must match.
+4. In a Claude Code session opened in the repo you want worked, run `/tickets-setup`. It
+   does the rest (MCP server, `CLAUDE.md` rules, the project on the board).
 
-### Each new repo: `/tickets-setup`
+8123 is not a runtime setting. Any free port works, but `restart-backend.ps1`, the
+`claude mcp add` URL and the skills must match.
 
-Link the two skills once (Windows; `ln -s` elsewhere):
+## Skills
 
-    New-Item -ItemType Junction "$HOME\.claude\skills\tickets" -Target <this repo>\skill
-    New-Item -ItemType Junction "$HOME\.claude\skills\tickets-setup" -Target <this repo>\skill-setup
+Claude Code works the board through five skills, all run from a session opened in the
+project's folder.
 
-Then, in a Claude Code session opened in any repo, `/tickets-setup` starts the board if it
-is down, registers the MCP server if it is missing, helps write the repo's `CLAUDE.md`
-test and deploy rules, and creates the project, fixing only what is missing.
-`/tickets-open-board` opens the board in your browser, and `/tickets-run-loop [10m]`
-works the board every 15 minutes while the session is open (link both the same way,
-from `skill-open-board` and `skill-run-loop`); `/tickets-stop-loop` (`skill-stop-loop`)
-stops it.
+| Skill | What it does |
+|---|---|
+| `/tickets-setup` | Gets a repo ready, once. It starts the board if it is down and offers to start it at every logon. It registers the `tickets` MCP server, checks the repo has `git` and an `origin`, and helps write the repo's `CLAUDE.md` test and deploy rules. It then creates the project on the board. It only fixes what is missing, so it is safe to rerun. It ends with a link to the board. |
+| `/tickets [id]` | Works the board, once. It takes every ready card of this folder's project in `plan`, `develop` and `test` through to `verify`. It plans first: open questions stay on the card for you, with clickable options. It builds in a worktree on `card/<id>` and ticks the checklist as it goes. It tests with `/code-review` plus the project's tests, then ships, merges (or opens a PR) and deploys. It works up to 3 cards at once, with one in test at a time. With an id it works only that card. If the board is down it starts it, and without MCP tools it uses the HTTP API. |
+| `/tickets-run-loop [interval]` | Runs `/tickets` every 15 minutes (or `10m`, `1h`, at least `5m`) for as long as this session stays open. Use it on days you want to stay hands-off. |
+| `/tickets-stop-loop` | Stops that loop. Cards already in progress finish. |
+| `/tickets-open-board` | Opens the board in your browser, starting it first if it is down, and prints the link. |
+
+Nothing works the board on its own: `/tickets`, `/tickets-setup` and `/tickets-run-loop`
+start only when you type them. Claude may run `/tickets-open-board` and
+`/tickets-stop-loop` when you ask in plain words.
 
 ## Your first card
 
-Create a card in `todo`, then drag it to `plan`. Open a Claude Code session in the
-project's folder and run the `/tickets` skill: it works every ready card of that project
-in `plan`, `develop` and `test` through to `verify`, writing its plan, comments and moves
-onto the board as `claude-agent`.
+Create a card in `todo`, then drag it to `plan`. Run `/tickets` in the project's folder:
+it writes its plan, comments and moves onto the board as `claude-agent`, and leaves the
+card in `verify` for you. Open questions stop the card in `plan`: answer them on the card
+and run `/tickets` again. When the card in `verify` looks right, click "move to done".
 
 ## Layout
 
@@ -80,6 +87,8 @@ onto the board as `claude-agent`.
     docs.html      the user manual, served at /docs
     conftest.py    fixtures: temp DB, TestClient, uvicorn thread, Chrome page
     test_*.py      the suite: core, app, board, end-to-end
+    skill*/        the Claude Code skills, one folder each (see Skills)
+    CLAUDE.md      this repo's own rules for Claude Code sessions
     PLAN.md        the design document
 
 ## Tests
