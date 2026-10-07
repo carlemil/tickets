@@ -90,7 +90,7 @@ again.</p>
 
 <h3>The header</h3>
 <ul>
-  <li><b>project tabs</b>: <b>All</b> shows every project's cards; a project's tab, marked with its color, shows only that project's. The board remembers the tab you picked. With many projects the tabs scroll sideways.</li>
+  <li><b>project tabs</b>: <b>All</b> shows every project's cards; a project's tab, marked with its color, shows only that project's. Under All each card carries its project's name in its color. The board remembers the tab you picked. With many projects the tabs scroll sideways.</li>
   <li><b>projects…</b>: each project's name, path (the absolute folder of its git repo, where
     the agent works), agent instructions (how to build, test and deploy, and how to install
     dependencies in a fresh worktree) and color. "delete project…" moves its cards to
@@ -114,7 +114,9 @@ again.</p>
   <li>Click a card to open its sheet. Every field saves as soon as you leave it, so there is
     no save button; "close", or a click on the board around the sheet, closes it. The sheet holds the description, the plan, the
     open questions and your answers, the checklist, labels, links (parent and blocks), the
-    activity log, comments and "archive". Cards are never deleted, only archived.</li>
+    activity log, comments and "archive". Cards are never deleted, only archived. The log
+    leaves out what the dots, the session button and the pull request link already show,
+    and an agent taking or dropping a card itself.</li>
   <li>A card the agent has worked shows "session" and the start of its id under the title:
     click it to copy <code>claude --resume &lt;id&gt;</code>, which reopens that run's Claude
     Code session in a terminal. A card that landed by pull request also links to it there.</li>
@@ -127,16 +129,17 @@ again.</p>
     run from there to the card, as long as both are in the same lane. Dragging one card of a
     selection moves all of them; dragging an unselected card moves it alone. A plain click
     clears the selection and opens the card, and Esc clears it.</li>
-  <li>Cards in <code>done</code> have an "archive" button, and the <code>done</code> lane
-    has "archive all" for every done card the board shows.</li>
+  <li>The <code>done</code> lane has "archive all" for every done card the board shows; one
+    card is archived from its sheet.</li>
 </ul>
 
 <h3>Signals</h3>
+<p>A card leads with up to three dots, on the board and in its sheet. Each shows only while
+it is lit; a card with none of them has no dot.</p>
 <ul>
-  <li><b>the first dot</b>, left on the card:
-    <span class="dot" style="background:#36b37e"></span> it fills and pulses while an agent
-    is working on the card, a faint ring otherwise.</li>
-  <li><span class="dot" style="background:#0052cc"></span> <b>blue dot</b>, next to it:
+  <li><span class="dot" style="background:#36b37e"></span> <b>green dot</b>: it pulses while
+    an agent is working on the card.</li>
+  <li><span class="dot" style="background:#0052cc"></span> <b>blue dot</b>:
     the card's branch is on the project's base branch, set by the agent's deploy step.
     <span class="dot" style="background:#6554c0"></span> <b>purple dot</b>: it is deployed to
     the local test backend or a device, lit by the agent's <code>deployed: </code> comment.

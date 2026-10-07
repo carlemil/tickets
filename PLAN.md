@@ -305,8 +305,11 @@ up to 50, then scrolls
 (CSS `field-sizing: content`). Lanes run to the bottom of the window even when empty,
 and all grow together with the tallest. 
 
-**The work dot.** Every board card leads with a small ring that fills green and pulses
-while an agent's status entry (`/api/activity`) points at the card.
+**The work dot.** A board card leads with a green dot that shows and pulses while an
+agent's status entry (`/api/activity`) points at the card, and is hidden otherwise (#65:
+the element stays, so `markWorking` lights it without a re-render). The project pill
+shows only under the "All" tab, and a `done` card has no archive button of its own: the
+lane's "archive all" and the sheet's "archive" cover it.
 
 **Follows other writers (#58).** The 5 s status poll also reads `GET /api/version`, the
 newest `events.id`: when it moved, the board reloads once — not under a drag or a held
@@ -317,7 +320,7 @@ pos-only reorder, project renames) do not trigger it.
 
 **On master, deployed (#41).** After the auto dot come two more, on the board card and in
 the sheet header: blue when `merged` (the card's branch is on the base branch, locally or
-on origin), purple when `deployed` (on the local test backend or a device), rings when not.
+on origin), purple when `deployed` (on the local test backend or a device), absent when not (#65).
 Not clickable. The skill's deploy step merges the card's branch into the base branch
 (#106) and sets `merged` from git.
 `deployed` the board sets itself, from the head of the deploy comment: `core.comment`
@@ -348,11 +351,12 @@ in the margin all round and stays live: click it and the sheet closes, click a c
 and it opens in the sheet's place. The "close" button top right does the same (the
 projects sheet's is "done").
 The top of a card's sheet is one sticky header row that stays put while the sheet
-scrolls: the card number, the title (edited in place), "created <when>" (the full date on
-hover), "archive", "move to done" (only while the card is in `verify`) and "close". A new
+scrolls: the card number, the title (edited in place), "archive", "move to done" (only
+while the card is in `verify`) and "close". A new
 card's row is "new", the title, "cancel", "close".
 The card number carries the auto dot, which pulses while an agent works the card.
-Project, lane and creator sit on the line under it, then, once an agent has taken the
+The line under it says "created <when> by <author>" (the full date on hover; project
+and lane are the fields just below, #65), then, once an agent has taken the
 card, "session <first 8>" (#2): the `session` field holds the Claude Code session id the
 skill writes when it takes a card, and the button copies `claude --resume <id>`, so the
 transcript of the run that worked the card is one paste away.
@@ -361,6 +365,9 @@ in the comment box is posted rather than dropped. "move to done" is the one clic
 verified card: it writes the lane like the lane select does, and the sheet stays open. A comment being typed
 survives a re-render: the box is refilled with whatever was in it. The error bar is fixed above the sheet
 so its messages stay visible. The sheet keeps "archive".
+The activity log leaves out bookkeeping (#65, `bookkeeping()`): edits of `merged`,
+`deployed`, `session` and `pr` (the dots, the session button and the PR link show them)
+and anyone assigning or unassigning themselves; "show N earlier" counts what it shows.
 
 "New Card" opens the same panel on an unsaved draft (title focused, project from the
 filter). It shows everything a saved card does — links, activity, comment box. Nothing
@@ -479,8 +486,9 @@ no longer on the board.
 | 62 | tab icon: an inline SVG data-URI favicon on the board and the docs (a board of cards and the green work dot) | done — 384 checks |
 | 63 | project tabs replace the project dropdown: All first, one tab per project with its color | done — 387 checks |
 | 64 | the loop's one-line idle answers (`nothing to do`, `previous run still working`) carry the local date and time | done — 387 checks |
+| 65 | UI cleanup: dots only when lit, project pill only under All, no per-card archive button, sheet meta line is just created/by, the log hides bookkeeping | done — 390 checks |
 
-Gate for every task: `uv run pytest -q` — 387 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 390 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

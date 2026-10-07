@@ -338,7 +338,7 @@ def test_show_archived_respects_the_project_filter(page):
     assert page.text_content(".card .t") == "mine"
 
 
-# ---------- archive from the board: a done card's button and the done lane's "archive all" ----------
+# ---------- archive from the board: the done lane's "archive all" ----------
 
 ARCH_ALL = ".lane[data-lane=done] h2 .arch"
 
@@ -352,19 +352,14 @@ def on_board(page, *cards):
     return ids
 
 
-def test_only_done_cards_get_the_archive_button(page):
+def test_a_done_card_has_no_archive_button_of_its_own(page):
     done, verify = on_board(page, ("finished", "done"), ("checking", "verify"))
-    assert page.locator(f'.card[data-id="{done}"] .arch').count() == 1
-    assert page.locator(f'.card[data-id="{verify}"] .arch').count() == 0
+    assert page.locator(".card .arch, .card button").count() == 0, "archive all or the sheet"
+    assert page.locator(ARCH_ALL).count() == 1
     assert page.locator(".lane:not([data-lane=done]) h2 .arch").count() == 0
-
-
-def test_the_card_button_archives_without_opening_the_sheet(page):
-    cid, = on_board(page, ("finished", "done"))
-    page.click(f'.card[data-id="{cid}"] .arch')
-    page.wait_for_selector(f'.card[data-id="{cid}"]', state="detached")
-    assert core.get_card(cid)["archived"] is True
-    assert page.locator("#panel.on").count() == 0, "the sheet stayed shut"
+    page.click(ARCH_ALL)
+    page.wait_for_selector(f'.card[data-id="{done}"]', state="detached")
+    assert core.get_card(done)["archived"] is True and core.get_card(verify)["archived"] is False
 
 
 def test_archive_all_archives_every_done_card_and_nothing_else(page):
@@ -405,7 +400,7 @@ def test_a_failed_board_archive_keeps_the_card_and_says_why(page):
         window.fetch = (path, opts) => opts && opts.method === "PATCH"   // the reload still works
             ? Promise.resolve(new Response(JSON.stringify({error: "nope"}), {status: 400}))
             : original(path, opts)""")
-    page.click(f'.card[data-id="{cid}"] .arch')
+    page.click(ARCH_ALL)
     page.wait_for_selector("#err.on")
     assert "could not archive: nope" in page.text_content("#err")
     assert page.locator(f'.card[data-id="{cid}"]').count() == 1
@@ -830,7 +825,7 @@ def test_the_card_panel_moves_a_card_between_projects(page):
     cid = add_card(page, "moving")
     page.select_option("#panel select >> nth=0", "Other")   # project, under the title
     wait_saved(page, cid, "project", "Other")
-    assert "Other" in page.text_content("#panel .sub")
+    assert page.input_value("#panel select >> nth=0") == "Other"
 
 
 def test_a_new_card_lands_in_the_filtered_project_or_the_chosen_one(page):
@@ -1270,12 +1265,24 @@ def test_the_work_dot_leads_and_the_project_tag_sits_after_the_assignee(page):
     page.evaluate("load()")
     page.wait_for_selector(f'.card[data-id="{auto}"]')
     chips = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').all_text_contents()
-    # the work dot, then the merged and deployed dots
-    assert chips(plain) == ["", "", "", f"#{plain}", "bob", "Home", "ui"], chips(plain)
-    assert chips(auto) == ["", "", "", f"#{auto}", "Home"], chips(auto)
+    # the work dot (hidden while idle); unlit merged and deployed dots are not there at all
+    assert chips(plain) == ["", f"#{plain}", "bob", "Home", "ui"], chips(plain)
+    assert chips(auto) == ["", f"#{auto}", "Home"], chips(auto)
     assert page.locator(".card .pill.pri").count() == 0, "no priority chip: position is the signal"
     first = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').first
     assert first(auto).get_attribute("class") == first(plain).get_attribute("class") == "work"
+
+
+def test_the_project_tag_shows_only_under_all(page):
+    core.create_project("Other")
+    here, away = on_board(page, ("here", "todo"), ("away", "todo", "Other"))
+    assert tag(page, here).text_content() == "Home" and tag(page, away).text_content() == "Other"
+    page.click('#proj button[value="Home"]')
+    page.wait_for_selector(f'.card[data-id="{away}"]', state="detached")
+    assert page.locator(".card .pill.proj").count() == 0, "every card here is Home's"
+    page.click('#proj button[value=""]')
+    page.wait_for_selector(f'.card[data-id="{away}"]')
+    assert tag(page, here).count() == 1 and tag(page, away).count() == 1
 
 
 # ---------- status bar ----------
@@ -1336,7 +1343,32 @@ def test_the_board_dot_pulses_while_an_agent_works_the_card(page):
     core.set_activity("claude-agent")
     page.evaluate("loadStatus()")
     page.wait_for_function(f"() => !document.querySelector('.card[data-id=\"{busy}\"] .work.working')")
-    assert "working on it now" not in page.get_attribute(f'.card[data-id="{busy}"] .work', "title")
+    assert not page.locator(f'.card[data-id="{busy}"] .work').is_visible(), "no agent: no dot"
+
+
+def test_an_idle_unmerged_card_shows_no_dot_until_something_lights_one(page):
+    cid, other = cards_in(page, "quiet", "other")
+    card = f'.card[data-id="{cid}"]'
+    visible_dots = lambda: page.locator(f"{card} .work, {card} .st").evaluate_all(
+        "ns => ns.filter(n => n.offsetParent !== null).map(n => n.className)")
+    assert visible_dots() == []
+    core.set_activity("claude-agent", cid, "planning")
+    page.evaluate("loadStatus()")
+    page.wait_for_selector(f"{card} .work.working")
+    assert visible_dots() == ["work working"]
+    assert page.locator(f'.card[data-id="{other}"] .work').is_visible() is False
+    core.set_activity("claude-agent")
+    page.evaluate("loadStatus()")
+    page.wait_for_function(f"() => !document.querySelector('{card} .work.working')")
+    assert visible_dots() == []
+    core.update_card(cid, "claude-agent", merged=True)
+    page.evaluate("load()")
+    page.wait_for_selector(f"{card} .st.merged")
+    assert visible_dots() == ["st merged"], "blue only: not deployed"
+    page.click(card)
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    assert page.locator("#panel .head .id .work, #panel .head .id .st").evaluate_all(
+        "ns => ns.filter(n => n.offsetParent !== null).map(n => n.className)") == ["st merged"]
 
 
 def test_the_pulse_survives_a_board_reload(page):
@@ -1662,9 +1694,11 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     core.update_card(cid, "claude-agent", plan="p", questions="- q?\n  - yes (recommended)\n  - no",
                      session="0f1e2d3c-4b5a",
                      pr="https://github.com/o/r/pull/7")
-    core.create_card("done", actor="ce", project="Home", lane="done")   # its archive buttons
-    page.evaluate("load()")
-    page.wait_for_selector(f'.card[data-id="{cid}"] .work')
+    core.update_card(cid, "claude-agent", merged=True, deployed=True)   # lit dots
+    core.create_card("done", actor="ce", project="Home", lane="done")   # its archive all
+    core.set_activity("claude-agent", cid, "planning")   # and the work dot
+    page.evaluate("load(); loadStatus()")
+    page.wait_for_selector(f'.card[data-id="{cid}"] .work.working')
     page.wait_for_selector(".lane[data-lane=done] h2 .arch")
     untitled = """sel => [...document.querySelectorAll(sel)]
         .filter(e => e.offsetParent !== null && !e.closest('[title]'))
@@ -1672,7 +1706,7 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     board = "header select, header button, header input, header a, .lane h2, .card, .card *, #status"
     assert page.evaluate(untitled, board) == []
     tip = page.get_attribute(f'.card[data-id="{cid}"] .work', "title")
-    assert tip.startswith("pulses while an agent is working on this card"), tip
+    assert tip == "an agent is working on it now", tip
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
     assert page.locator("#panel .ses, #panel a.pr").count() == 2, "session and PR are among them"
@@ -1699,14 +1733,21 @@ def head_parts(page):
         n.tagName === 'INPUT' ? 'input:' + n.value : n.textContent)""")
 
 
-def test_the_header_row_holds_number_title_created_archive_and_close(page):
+def test_the_header_row_holds_number_title_archive_and_close(page):
     cid = add_card(page, "headed")
-    num, title, when, arch, shut = head_parts(page)
-    assert (num, title, arch, shut) == (f"#{cid}", "input:headed", "archive", "close")
-    assert when.startswith("created ")
+    assert head_parts(page) == [f"#{cid}", "input:headed", "archive", "close"]
     tops = [b["y"] for b in (page.locator(f"#panel .head > *").nth(i).bounding_box()
-                             for i in range(5))]
+                             for i in range(4))]
     assert max(tops) - min(tops) < 20, "one row"
+
+
+def test_the_line_under_the_header_says_only_when_and_by_whom(page):
+    cid = core.create_card("made", actor="claude-agent", project="Home", lane="verify")["id"]
+    page.evaluate(f"openCard({cid})")
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    sub = page.text_content("#panel .sub")
+    assert sub == "created just now by claude-agent", sub
+    assert page.get_attribute("#panel .sub span", "title"), "the full date on hover"
 
 
 def test_move_to_done_shows_only_in_verify_and_ends_the_card(page):
@@ -1714,7 +1755,7 @@ def test_move_to_done_shows_only_in_verify_and_ends_the_card(page):
     assert "move to done" not in head_parts(page), "not in todo"
     page.select_option("#panel select >> nth=2", "verify")        # lane
     wait_saved(page, cid, "lane", "verify")
-    assert head_parts(page)[3:] == ["archive", "move to done", "close"]
+    assert head_parts(page)[2:] == ["archive", "move to done", "close"]
     page.click("#panel button:text-is('move to done')")
     wait_saved(page, cid, "lane", "done")
     assert page.locator("#panel.on").count() == 1, "the sheet stays open"
@@ -1761,6 +1802,9 @@ def test_the_editor_dot_sits_in_the_header_number_and_clicking_it_does_nothing(p
     assert page.locator("#panel .head .id .work").count() == 1
     assert page.locator("#panel .sub .work").count() == 0
     assert page.text_content("#panel .head .id") == f"#{cid}"
+    core.set_activity("claude-agent", cid, "planning")   # an idle dot is hidden: light it
+    page.evaluate("loadStatus()")
+    page.wait_for_selector("#panel .head .work.working")
     before = core.get_card(cid)
     page.click("#panel .head .work")
     page.wait_for_timeout(300)
@@ -1933,11 +1977,10 @@ def test_merged_and_deployed_dots_on_the_board_and_in_the_editor(page):
     lit = core.create_card("lit", actor="ce", project="Home", lane="verify")["id"]
     core.update_card(lit, "claude-agent", merged=True, deployed=True)
     [dark] = cards_in(page, "dark")
-    on = [["st merged on", "on master: committed and pushed"],
-          ["st deployed on", "deployed to the local test backend or device"]]
+    on = [["st merged", "on master: committed and pushed"],
+          ["st deployed", "deployed to the local test backend or device"]]
     assert status(page, f'.card[data-id="{lit}"]') == on
-    assert status(page, f'.card[data-id="{dark}"]') == [["st merged", "not on master yet"],
-                                                         ["st deployed", "not deployed"]]
+    assert status(page, f'.card[data-id="{dark}"]') == [], "unlit dots are not drawn"
     page.click(f'.card[data-id="{lit}"] .st.merged')   # not a control: opens the card
     page.wait_for_function(f"() => open && open.id === {lit}")
     assert status(page, "#panel .head .id") == on
@@ -1974,6 +2017,36 @@ def test_the_log_opens_folded_down_to_the_agents_last_comment(page):
     page.click("#panel .log li.more button")
     assert len(shown()) == len(events) - last, shown()
     assert page.text_content("#panel .log li.more button") == f"show {last} earlier"
+
+
+def test_the_log_leaves_out_bookkeeping_and_counts_only_what_it_shows(page):
+    cid = core.create_card("worked on", actor="User", project="Home")["id"]
+    core.update_card(cid, "claude-agent", assignee="claude-agent")         # takes it: hidden
+    core.update_card(cid, "claude-agent", session="0f1e2d3c", pr="https://x/pull/1")
+    core.update_card(cid, "User", lane="develop")                          # shown
+    core.update_card(cid, "claude-agent", merged=True)                     # hidden
+    core.update_card(cid, "User", assignee="bob")                          # shown: not self
+    core.update_card(cid, "claude-agent", assignee=None)                   # shown: was bob
+    core.update_card(cid, "bob", assignee="bob")                           # hidden
+    core.update_card(cid, "bob", assignee=None)                            # hidden
+    core.comment(cid, "claude-agent", "deployed: here")                    # shown, its dot hidden
+    core.update_card(cid, "User", labels=["ui"])                           # shown
+    assert core.get_card(cid)["deployed"] is True
+    page.evaluate(f"openCard({cid})")
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    lines = lambda: page.locator("#panel .log li:not(.more):visible").evaluate_all(
+        "ns => ns.map(n => n.textContent)")
+    assert page.text_content("#panel .log li.more button") == "show 4 earlier"
+    page.click("#panel .log li.more button")
+    text = " | ".join(lines())
+    assert len(lines()) == 6, text
+    for kept in ("created this in todo", "moved it from todo to develop", "assigned it to bob",
+                 "unassigned it (was bob)", "deployed: here", "changed the labels"):
+        assert kept in text, (kept, text)
+    for gone in ("merged", "deployed from", "session", "the pr ", "assigned it to claude-agent"):
+        assert gone not in text, (gone, text)
+    assert text.count("assigned it to bob") == 1, "bob taking it himself is left out"
+    assert text.count("unassigned it (was bob)") == 1, "and dropping it himself"
 
 
 def test_a_short_log_has_nothing_to_fold(page):
