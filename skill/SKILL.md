@@ -139,9 +139,14 @@ nothing else; tell it so in the brief.
 (you) Same worktree steps as develop; a card in test with neither a worktree nor a
 `card/<id>` branch fails ("nothing was built: move it back to develop").
 
-The subagent reviews `git -C <tree> diff <base>...HEAD` plus anything uncommitted against
-the request, plan and answers, runs the tests, and fixes what it can itself on the
-branch. What it cannot (unfinished work, a decision a person must make) it leaves alone.
+The subagent commits anything uncommitted in the worktree on `card/<id>`, then runs the
+Skill tool with skill `code-review` and args `<base>...card/<id>` (a ref range: committed
+work only, whatever the cwd). It fixes the findings it agrees with on the branch, in the
+worktree, and lists those it rejects in its reply with a one-line reason each. No Skill
+tool, no `code-review`, or an error → it reviews `git -C <tree> diff <base>...HEAD` itself
+and says so. code-review does not know the card, so it also checks the diff against the
+request, plan, answers and checklist, and runs the tests, fixing what it can itself on
+the branch. What it cannot (unfinished work, a decision a person must make) it leaves alone.
 Its review names every checklist step still unticked (one skipped on purpose says why).
 Last line exactly `RESULT: PASS` or `RESULT: FAIL`. Comment its reply. FAIL → failure.
 

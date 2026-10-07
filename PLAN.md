@@ -213,7 +213,7 @@ D:\source\Tickets\skill`). It uses only the existing MCP tools, as `claude-agent
 - **Stages,** each by a subagent so the session's context stays small; the session
   writes the board and does the git: plan (read-only; open questions stop the card in
   `plan`), develop in the card's worktree (`<repo>.worktrees/card-<id>`, branch
-  `card/<id>`, base merged in first), test (`RESULT: PASS` or the card stays), then
+  `card/<id>`, base merged in first), test (`/code-review` on `<base>...card/<id>` plus a check against the card, #7; `RESULT: PASS` or the card stays), then
   ship (commit, push `card/<id>`), land (merge into the base when the repo is on it and
   clean), deploy (local unless the instructions say production; the comment head lights
   the purple dot), `merged=True` from git, remove the worktree, move to `verify`.
@@ -409,6 +409,7 @@ no longer on the board.
 | 49 | #4 open questions may list options as indented bullets; the sheet offers them as radios that write the answers | done — 374 checks |
 | 50 | #3 the plan's steps become the checklist, ticked by the develop subagent as it goes | done — 375 checks |
 | 51 | #1 one run works up to 3 cards at once in background subagents, one in test at a time | done — 375 checks |
+| 52 | #7 the test stage reviews with Claude Code's `/code-review` on the card's ref range, its own review as fallback | done — 375 checks |
 
 Gate for every task: `uv run pytest -q` — 375 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

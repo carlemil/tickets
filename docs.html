@@ -76,7 +76,9 @@ default project, and a card needs one.</p>
   <dt>todo</dt><dd>Your backlog: not started. Move a card on to plan to start it.</dd>
   <dt>plan</dt><dd>The agent writes a plan and any open questions.</dd>
   <dt>develop</dt><dd>The agent builds it, following the plan and your answers.</dd>
-  <dt>test</dt><dd>The agent reviews the changes and runs the tests, fixing what it can.</dd>
+  <dt>test</dt><dd>The agent reviews the changes and runs the tests, fixing what it can. The
+    review is Claude Code's own <code>/code-review</code> on the card's branch, plus a check
+    against the card's request, plan, answers and checklist.</dd>
   <dt>verify</dt><dd>The agent is done: you check the result.</dd>
   <dt>done</dt><dd>Finished: nothing more happens to it.</dd>
 </dl>
