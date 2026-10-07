@@ -32,6 +32,16 @@
   button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   .spacer { flex: 1; }
   header a { color: var(--accent); }
+  /* the project tabs: one line that scrolls sideways inside itself when it runs out of room */
+  #proj { display: flex; gap: 2px; overflow-x: auto; min-width: 0; max-width: 100%;
+          position: relative; }   /* the tabs' offsetLeft is measured from the strip */
+  #proj button { border: 0; border-bottom: 3px solid transparent; border-radius: 0;
+                 background: none; padding: 4px 10px 3px; white-space: nowrap; color: var(--dim);
+                 display: flex; align-items: center; gap: 6px; }
+  #proj button:hover { background: #ebecf0; }
+  #proj button[aria-selected=true] { color: var(--ink); font-weight: 600;
+                                     border-bottom-color: var(--accent); }
+  #proj .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 
   #err {   /* fixed above everything, the open editor included */
     display: none; padding: 8px 16px; background: #ffebe6; color: var(--warn);
@@ -164,7 +174,7 @@
 
 <header>
   <h1>Tickets</h1>
-  <label class="f">project</label> <select id="proj"></select>
+  <nav id="proj" role="tablist" aria-label="project"></nav>
   <button id="projects">projects…</button>
   <label class="f"><input type="checkbox" id="showArch"> show archived</label>
   <a id="docs" href="/docs" target="_blank">docs</a>
@@ -320,11 +330,13 @@ function renderLog(events) {
 }
 
 // ---------- board ----------
+const projectColor = name => projects.find(p => p.name.toLowerCase() === name.toLowerCase())?.color;
+
 // The card's project, in the project's color. Text goes dark on a light color.
 function projectTag(name) {
   const tag = Object.assign(document.createElement("span"),
     { className: "pill proj", textContent: name });
-  const color = projects.find(p => p.name.toLowerCase() === name.toLowerCase())?.color;
+  const color = projectColor(name);
   if (color) {
     const [r, g, b] = [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16));
     tag.style.background = color;
@@ -953,14 +965,32 @@ function renderPanel() {
 }
 
 // ---------- header controls ----------
+// One tab per project after "All"; a remembered project that is gone keeps its tab while
+// it is the one picked. A tab's value is the project's name, "" for All.
 function renderProj() {
-  const s = $("#proj");
-  s.textContent = "";
-  s.append(new Option("all projects", "", false, !proj()));
-  for (const p of projects) s.append(new Option(p.name, p.name, false, p.name === proj()));
-  if (proj() && !projects.some(p => p.name === proj()))
-    s.append(new Option(proj(), proj(), false, true));
+  const names = ["", ...projects.map(p => p.name)];
+  if (!names.includes(proj())) names.push(proj());
+  $("#proj").replaceChildren(...names.map(n => {
+    const b = Object.assign(document.createElement("button"),
+      { type: "button", value: n, textContent: n || "All" });
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", n === proj());
+    const color = n && projectColor(n);
+    if (color) b.prepend(Object.assign(document.createElement("span"),
+      { className: "dot", style: "background:" + color }));
+    b.onclick = () => { localStorage.setItem("project", n); load(); };
+    return b;
+  }));
+  // A narrow window scrolls the strip: bring the picked tab into view when the pick
+  // changes. Only the strip scrolls (scrollIntoView would move the page too, on every
+  // reload), and an unchanged pick leaves where the person scrolled it alone.
+  if (shownProj === proj()) return;
+  shownProj = proj();
+  const strip = $("#proj"), t = $("#proj [aria-selected=true]");
+  if (t.offsetLeft < strip.scrollLeft || t.offsetLeft + t.offsetWidth > strip.scrollLeft + strip.clientWidth)
+    strip.scrollLeft = t.offsetLeft - 8;
 }
+let shownProj = null;   // the pick the strip was last scrolled to
 
 // ---------- project settings ----------
 // Each field saves on change, like a card's. A successful save does not re-render: the
@@ -1085,7 +1115,6 @@ async function confirmDelete(name) {
 
 $("#projects").onclick = () => { open = PROJECTS; renderPanel(); };
 
-$("#proj").onchange = ev => { localStorage.setItem("project", ev.target.value); load(); };
 $("#showArch").onchange = () => load();
 
 // Opens the panel on an unsaved card; nothing is written until its "create" button.
@@ -1205,7 +1234,8 @@ const LANE_TIPS = {
 // later, and never over a title an element already has (those are more specific)
 const TIPS = [
   ["header h1", "the board: cards move left to right through the lanes"],
-  ["#proj", "show only this project's cards"],
+  ['#proj [value=""]', "show every project's cards"],
+  ["#proj button", "show only this project's cards"],
   ["#projects", "set up projects: name, folder the agent works in, agent instructions, color"],
   ["label:has(#showArch)", "show archived cards instead of the ones on the board"],
   ["#add", "create a new card"],

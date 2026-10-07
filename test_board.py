@@ -171,10 +171,64 @@ def test_the_project_filter_scopes_the_board(page):
     page.wait_for_selector(".card")
     add_card(page, "in inbox")
     close_sheet(page)
-    page.select_option("#proj", "Other")
+    page.click('#proj button[value="Other"]')
     page.wait_for_function("() => document.querySelectorAll('.card').length === 1")
     assert page.text_content(".card .t") == "elsewhere"
     assert page.evaluate("localStorage.getItem('project')") == "Other", "and it persists"
+
+
+def tabs(page):
+    """The project tabs as (text, selected), in order."""
+    return page.evaluate("""() => [...document.querySelectorAll('#proj [role=tab]')]
+        .map(b => [b.textContent, b.getAttribute('aria-selected') === 'true'])""")
+
+
+def test_all_is_the_first_tab_and_shows_every_project(page):
+    core.create_project("Other")
+    core.create_project("Third")
+    core.create_card("home card", actor="ce", project="Home")
+    core.create_card("other card", actor="ce", project="Other")
+    page.evaluate("load()")
+    page.wait_for_function("() => document.querySelectorAll('.card').length === 2")
+    assert page.get_attribute("#proj", "role") == "tablist"
+    assert tabs(page) == [["All", True], ["Home", False], ["Other", False], ["Third", False]]
+    assert page.locator("#proj .dot").count() == 3, "each project tab shows its color"
+    page.focus("#proj button >> nth=0")
+    assert page.evaluate("document.activeElement.textContent") == "All", "a tab takes focus"
+
+
+def test_a_project_tab_shows_only_its_cards_and_survives_a_reload(page):
+    core.create_project("Other")
+    core.create_card("home card", actor="ce", project="Home")
+    core.create_card("other card", actor="ce", project="Other")
+    page.evaluate("load()")
+    page.wait_for_function("() => document.querySelectorAll('.card').length === 2")
+    page.click('#proj button[value="Other"]')
+    page.wait_for_function("() => document.querySelectorAll('.card').length === 1")
+    assert page.text_content(".card .t") == "other card"
+    assert tabs(page) == [["All", False], ["Home", False], ["Other", True]]
+    page.reload()
+    page.wait_for_selector(".card")
+    assert tabs(page) == [["All", False], ["Home", False], ["Other", True]]
+    assert page.locator(".card .t").all_text_contents() == ["other card"]
+    page.click('#proj button[value=""]')
+    page.wait_for_function("() => document.querySelectorAll('.card').length === 2")
+    assert tabs(page)[0] == ["All", True]
+
+
+def test_the_tab_strip_follows_a_new_pick_but_a_reload_leaves_it_where_you_scrolled(page):
+    # narrow and crowded, the strip scrolls sideways; the board reloads itself on other
+    # actors' writes, which must not snap it back
+    for i in range(15):
+        core.create_project(f"Project number {i}")
+    page.set_viewport_size({"width": 420, "height": 700})
+    page.evaluate("localStorage.setItem('project', 'Project number 14'); load()")
+    page.wait_for_function("() => document.querySelector('#proj [aria-selected=true]').value === 'Project number 14'")
+    assert page.evaluate("document.querySelector('#proj').scrollLeft") > 0, "a new pick is brought into view"
+    page.evaluate("document.querySelector('#proj').scrollLeft = 0")
+    page.evaluate("load()")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.evaluate("document.querySelector('#proj').scrollLeft") == 0, "a reload leaves it alone"
 
 
 def test_closing_commits_the_field_you_are_still_typing_in(page):
@@ -684,7 +738,8 @@ def test_add_a_project_from_the_panel(page, tmp_path):
     assert core.get_project("Fresh") == {"name": "Fresh", "path": str(tmp_path),
                                          "instructions": "be careful", "color": "#00875a",
                                          "land": "merge"}
-    assert "Fresh" in page.locator("#proj option").all_text_contents(), "the filter has it"
+    assert "Fresh" in page.locator("#proj button").all_text_contents(), "a tab for it"
+    assert page.get_attribute('#proj button[value="Fresh"]', "aria-selected") == "false"
     assert project_block(page, "new project").locator("input >> nth=0").input_value() == ""
 
 
@@ -761,7 +816,7 @@ def test_renaming_a_project_moves_its_cards_and_the_filter_follows(page):
     page.wait_for_function("() => window.__inflight === 0")
     assert core.get_card(cid)["project"] == "New"
     assert page.locator(f'.card[data-id="{cid}"]').count() == 1, "still on the filtered board"
-    assert page.eval_on_selector("#proj", "s => s.value") == "New"
+    assert page.eval_on_selector("#proj [aria-selected=true]", "b => b.value") == "New"
     # a later edit in the same block addresses the new name
     instr = project_block(page, "Old").locator("textarea")   # the heading keeps its old text
     instr.fill("after the rename")
@@ -834,7 +889,7 @@ def test_a_deleted_last_project_falls_back_to_the_first(page):
 def test_a_stale_filter_falls_back_to_the_first_project_for_new_cards(page):
     core.create_project("Alpha")
     page.evaluate("localStorage.setItem('project', 'Gone'); load()")
-    page.wait_for_function("() => document.querySelector('#proj').value === 'Gone'")
+    page.wait_for_function("() => document.querySelector('#proj [aria-selected=true]')?.value === 'Gone'")
     page.click("#add")
     assert page.eval_on_selector("#panel select >> nth=0", "s => s.value") == "Alpha"
 
@@ -921,7 +976,7 @@ def test_a_card_created_in_another_project_switches_the_filter_to_it(page):
     close_sheet(page)
     cid = created(page)
     assert page.evaluate("localStorage.getItem('project')") == "Other"
-    assert page.eval_on_selector("#proj", "s => s.value") == "Other"
+    assert page.eval_on_selector("#proj [aria-selected=true]", "b => b.value") == "Other"
     assert page.locator(f'.card[data-id="{cid}"]').count() == 1, "the new card is on screen"
 
 
@@ -933,7 +988,7 @@ def test_all_projects_stays_all_projects_after_a_create(page):
     page.select_option("#panel select >> nth=0", "Other")
     close_sheet(page)
     created(page)
-    assert page.eval_on_selector("#proj", "s => s.value") == ""
+    assert page.eval_on_selector("#proj [aria-selected=true]", "b => b.value") == ""
 
 
 # ---------- the new-card sheet shows everything ----------
@@ -1315,7 +1370,7 @@ def test_work_on_a_card_off_the_board_pulses_nothing(page):
     core.create_card("here", actor="ce", project="Home")
     away = core.create_card("away", actor="ce", project="Other")["id"]
     page.evaluate("load()")
-    page.select_option("#proj", "Home")
+    page.click('#proj button[value="Home"]')
     page.wait_for_function("() => document.querySelectorAll('.card').length === 1")
     errors = []
     page.on("pageerror", lambda e: errors.append(e))
@@ -1841,7 +1896,7 @@ def test_the_selection_outlives_a_reload_but_not_its_cards(page):
     page.evaluate("load()")
     page.wait_for_function("() => window.__inflight === 0")
     assert picked(page) == [a, b]
-    page.select_option("#proj", "Other")
+    page.click('#proj button[value="Other"]')
     page.wait_for_selector(f'.card[data-id="{o}"]')
     assert page.evaluate("[...selected]") == [], "hidden cards leave the selection"
 

@@ -284,8 +284,11 @@ itself, since stopping starts no work.
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
 `drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: description,
 labels, checklist, links, activity log, comment box. The board writes as `User`, a fixed
-name, and agents write under their own names. A project `<select>`
-(also persisted) filters the board — an agent and a human both scope to one project.
+name, and agents write under their own names. Project tabs (#63:
+"All" first, then one per project with its color dot; the pick is persisted) filter the
+board — an agent and a human both scope to one project. Crowded, the strip scrolls
+sideways inside itself; a new pick is scrolled into view, a reload leaves the strip where
+the person scrolled it (the board reloads itself on others' writes).
 Dragging inside a column reorders it: `dropBefore` finds the card the pointer is above
 (shown with a `.drop-at` insertion line) and `slots` gives the dropped cards their `pos`
 values between its neighbours.
@@ -473,8 +476,9 @@ no longer on the board.
 | 60 | `/tickets` folded into `/tickets-start`: its text is `skill-start/run.md`, read once (`once`, a card id) or per loop tick; the `tickets` junction is gone | done — 383 checks |
 | 61 | every stage of a card runs in a new subagent (no SendMessage continuation) whose brief pastes the whole card verbatim, comments without CLI output, plus project, repo and worktree | done — 383 checks |
 | 62 | tab icon: an inline SVG data-URI favicon on the board and the docs (a board of cards and the green work dot) | done — 384 checks |
+| 63 | project tabs replace the project dropdown: All first, one tab per project with its color | done — 387 checks |
 
-Gate for every task: `uv run pytest -q` — 384 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 387 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
