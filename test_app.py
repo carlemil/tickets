@@ -84,7 +84,8 @@ def test_projects_routes_create_list_and_update(client, tmp_path):
     r = client.post("/api/projects", json={"name": "Tickets", "path": str(tmp_path),
                                            "instructions": "be brief"})
     assert r.status_code == 201, r.text
-    assert r.json() == {"name": "Tickets", "path": str(tmp_path), "instructions": "be brief", "color": "#00875a"}
+    assert r.json() == {"name": "Tickets", "path": str(tmp_path), "instructions": "be brief", "color": "#00875a",
+                        "land": "merge"}
     assert [p["name"] for p in client.get("/api/projects").json()] == ["Home", "Tickets"]
     r = client.patch("/api/projects/tickets", json={"instructions": "be thorough"})
     assert r.status_code == 200 and r.json()["instructions"] == "be thorough", r.text
@@ -394,7 +395,8 @@ def test_update_card_tool_rejects_a_non_bool_archived():
 def test_list_projects_tool_gives_the_agent_path_and_instructions(tmp_path):
     core.create_project("Tickets", path=str(tmp_path), instructions="run the tests first")
     assert {"name": "Tickets", "path": str(tmp_path),
-            "instructions": "run the tests first", "color": "#00875a"} in app.list_projects()
+            "instructions": "run the tests first", "color": "#00875a",
+            "land": "merge"} in app.list_projects()
 
 
 def test_create_card_tool_rejects_an_unconfigured_project():
@@ -488,6 +490,26 @@ def test_update_card_tool_sets_the_session():
     assert c["session"] == "0f1e2d3c-4b5a"
     assert app.update_card(id=c["id"], actor="ann", lane="plan")["session"] == "0f1e2d3c-4b5a"
     assert "session" in app.update_card.__doc__
+
+
+def test_update_card_tool_sets_the_pr():
+    c = app.create_card(title="x", actor="ann", project="Home")
+    url = "https://github.com/o/r/pull/7"
+    assert app.update_card(id=c["id"], actor="claude-agent", pr=url)["pr"] == url
+    assert "`pr`" in app.update_card.__doc__ and "`land`" in app.list_projects.__doc__
+
+
+def test_project_land_over_rest(client):
+    r = client.post("/api/projects", json={"name": "Shop", "land": "pr"})
+    assert r.status_code == 201 and r.json()["land"] == "pr", r.text
+    r = client.patch("/api/projects/Shop", json={"land": "merge"})
+    assert r.status_code == 200 and r.json()["land"] == "merge", r.text
+    for bad in ({"land": "squash"}, {"land": None}):
+        r = client.patch("/api/projects/Shop", json=bad)
+        assert r.status_code == 400 and "'merge' or 'pr'" in r.text, r.text
+    r = client.post("/api/projects", json={"name": "Bad", "land": "x"})
+    assert r.status_code == 400, r.text
+    assert [p["land"] for p in client.get("/api/projects").json()] == ["merge", "merge"]
 
 
 def test_log_config_timestamps_the_access_row():

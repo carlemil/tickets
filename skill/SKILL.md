@@ -51,6 +51,10 @@ Re-list after each card: people edit the board while you work, and a card you mo
 may now be next (a card planned without questions goes straight on to develop). Never
 work the same card twice in one run — once it fails or waits, it is done for this run.
 
+Before working the queue, catch up on pull requests: for each of the project's `verify` cards with
+`pr` set and `merged` false, `gh pr view <pr> --json state -q .state`; `MERGED` →
+`update_card(merged=True)`. Any failure here is ignored.
+
 ## 3. Work a card
 
 For each card: `update_card(assignee="claude-agent", session="${CLAUDE_SESSION_ID}")`
@@ -115,8 +119,14 @@ Last line exactly `RESULT: PASS` or `RESULT: FAIL`. Comment its reply. FAIL → 
 PASS → (you) ship, land, deploy, clean up — in this order:
 1. **Ship:** `git -C <tree> add -A`, commit `#<id> <title>` if anything is staged,
    `git -C <tree> push -q -u origin card/<id>` (env `GIT_TERMINAL_PROMPT=0`). Any git
-   error → failure, card stays in test. Comment the commit pushed.
-2. **Land:** only if the repo is on `<base>` with nothing uncommitted
+   error → failure, card stays in test. Comment the commit pushed. If the project's
+   `land` is `pr`, then in the repo: `gh pr create --base <base> --head card/<id> --title
+   "#<id> <title>" --body "<short summary from the test reply>"` (a PR for the branch
+   already exists → `gh pr view card/<id> --json url -q .url` instead),
+   `update_card(pr=<url>)`, and comment the URL. gh missing or failing → failure, card
+   stays in test.
+2. **Land:** only when `land` is `merge` — with `pr`, skip it and say "landing by pull
+   request" in the deploy comment. Only if the repo is on `<base>` with nothing uncommitted
    (`git status --porcelain --untracked-files=no` empty):
    `git -C <repo> merge --no-ff card/<id> -m "Merge #<id> <title>"`; a conflict →
    `merge --abort`. Say which happened (or why it was skipped) in the deploy comment.
@@ -125,13 +135,14 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    backend, or an install on a connected phone (check `adb devices`; none → skip the
    phone) — never production, a public server or an app store unless the instructions
    clearly say so. Changed neither backend nor app → deploy nothing. It may merge, push
-   or restart services only as the instructions say; no other edits or commits. Last
+   or restart services only as the instructions say; no other edits or commits. With
+   `land` `pr` it never merges into the base, whatever the rules say: the PR does that. Last
    line `DEPLOY: OK`, `DEPLOY: SKIPPED` or `DEPLOY: FAILED`. (you) Comment it headed
    exactly `deployed: `, `deploy skipped: ` or `deploy failed: ` — the board lights the
    purple dot from that head. Then push the base if the land merged and the deploy did
    not already (`git -C <repo> push -q origin <base>`).
 4. **Merged dot:** `update_card(merged=True)` if `git -C <repo> branch --merged <base>
-   --list card/<id>` lists it.
+   --list card/<id>` lists it. Not with `pr`: the queue step sets it once the PR merges.
 5. **Clean up:** `git -C <repo> worktree remove --force <tree>`; if it will not go, say
    so in a comment (not a failure). The branch stays: it is the record.
 6. Move to `verify`.

@@ -13,7 +13,8 @@ LINK_KINDS = ["parent", "blocks"]
 DB_PATH = "tickets.db"  # reassign core.DB_PATH to point elsewhere (tests, alt board)
 
 CARD_FIELDS = ("project", "title", "description", "lane", "assignee", "pos", "labels", "checklist",
-               "archived", "plan", "questions", "answers", "merged", "deployed", "session")
+               "archived", "plan", "questions", "answers", "merged", "deployed", "session",
+               "pr")
 # merged: on the base branch on origin, set by the agent's deploy step from git.
 # deployed: on the local test backend or a device, set here from the deploy comment.
 BOOL_FIELDS = ("archived", "merged", "deployed")   # stored as 0/1, surfaced as true/false
@@ -24,9 +25,12 @@ JSON_FIELDS = ("labels", "checklist")
 # the planning round, kept apart from the request in `description`: the agent's plan, its
 # open questions, a person's answers
 PLAN_FIELDS = ("plan", "questions", "answers")
-# session: the id of the Claude Code session that last worked the card (`claude --resume`)
-TEXT_FIELDS = PLAN_FIELDS + ("session",)   # free text, '' when unset
-PROJECT_FIELDS = ("name", "path", "instructions", "color")
+# session: the id of the Claude Code session that last worked the card (`claude --resume`);
+# pr: the card's pull request URL, when its project lands by PR
+TEXT_FIELDS = PLAN_FIELDS + ("session", "pr")   # free text, '' when unset
+PROJECT_FIELDS = ("name", "path", "instructions", "color", "land")
+# how a card that passed its tests lands: merged locally into the base, or as a pull request
+LANDS = ("merge", "pr")
 # Where a deleted project's cards go. Agents never work a card in it; matched ignoring case.
 NO_PROJECT = "No Project"
 NO_PROJECT_COLOR = "#6b778c"
@@ -66,7 +70,8 @@ CREATE TABLE IF NOT EXISTS cards (
     plan TEXT NOT NULL DEFAULT '',
     questions TEXT NOT NULL DEFAULT '',
     answers TEXT NOT NULL DEFAULT '',
-    session TEXT NOT NULL DEFAULT ''
+    session TEXT NOT NULL DEFAULT '',
+    pr TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY,
@@ -86,7 +91,8 @@ CREATE TABLE IF NOT EXISTS projects (
     name TEXT PRIMARY KEY COLLATE NOCASE,
     path TEXT NOT NULL DEFAULT '',
     instructions TEXT NOT NULL DEFAULT '',
-    color TEXT NOT NULL DEFAULT ''
+    color TEXT NOT NULL DEFAULT '',
+    land TEXT NOT NULL DEFAULT 'merge'
 );
 CREATE TABLE IF NOT EXISTS activity (
     actor TEXT PRIMARY KEY,
@@ -131,8 +137,11 @@ def connect():
     # first so a plain read does not take the write lock.
     orphan = db.execute("SELECT 1 FROM cards c WHERE NOT EXISTS"
                         " (SELECT 1 FROM projects p WHERE p.name = c.project)").fetchone()
-    if "color" not in {r["name"] for r in db.execute("PRAGMA table_info(projects)")}:
+    have = {r["name"] for r in db.execute("PRAGMA table_info(projects)")}
+    if "color" not in have:
         db.execute("ALTER TABLE projects ADD COLUMN color TEXT NOT NULL DEFAULT ''")
+    if "land" not in have:
+        db.execute("ALTER TABLE projects ADD COLUMN land TEXT NOT NULL DEFAULT 'merge'")
     if orphan:
         with db:
             db.execute("INSERT OR IGNORE INTO projects (name) SELECT DISTINCT project FROM cards")
@@ -297,7 +306,7 @@ def _project(db, name):
 
 
 def _load_project(db, name):
-    row = db.execute("SELECT name, path, instructions, color FROM projects WHERE name=?",
+    row = db.execute("SELECT name, path, instructions, color, land FROM projects WHERE name=?",
                      (name,)).fetchone()
     if row is None:
         raise NotFound(f"no project {name!r}")
@@ -328,12 +337,18 @@ def _clean_color(color):
     return color.lower()
 
 
+def _clean_land(land):
+    if land not in LANDS:
+        raise ValueError(f"land must be 'merge' or 'pr', not {land!r}")
+    return land
+
+
 def list_projects():
     """Configured projects: name, path on disk ("" if unset), free-text agent instructions,
-    and the #rrggbb color their cards are tagged with."""
+    the #rrggbb color their cards are tagged with, and how a passed card lands (`land`)."""
     with closing(connect()) as db:
         return [dict(r) for r in db.execute(
-            "SELECT name, path, instructions, color FROM projects ORDER BY name")]
+            "SELECT name, path, instructions, color, land FROM projects ORDER BY name")]
 
 
 def get_project(name):
@@ -341,21 +356,23 @@ def get_project(name):
         return _load_project(db, name)
 
 
-def create_project(name, path="", instructions="", color=""):
+def create_project(name, path="", instructions="", color="", land="merge"):
     """`color` "" picks the least-used palette color."""
-    name, path = _clean_name(name), _clean_path(path)
+    name, path, land = _clean_name(name), _clean_path(path), _clean_land(land)
     color = color and _clean_color(color)
     with closing(connect()) as db, db:
         if db.execute("SELECT 1 FROM projects WHERE name=?", (name,)).fetchone():
             raise ValueError(f"project {name!r} already exists")
-        db.execute("INSERT INTO projects (name, path, instructions, color) VALUES (?,?,?,?)",
-                   (name, path, instructions or "", color or _next_color(db)))
+        db.execute("INSERT INTO projects (name, path, instructions, color, land)"
+                   " VALUES (?,?,?,?,?)",
+                   (name, path, instructions or "", color or _next_color(db), land))
     return get_project(name)
 
 
 def update_project(name, /, **fields):   # positional-only, so name= in fields is a rename
-    """Change a project's name, path, instructions or color. A rename carries every card with it
-    (archived ones too) and writes no card events: the cards did not change, the name did."""
+    """Change a project's name, path, instructions, color or land. A rename carries every card
+    with it (archived ones too) and writes no card events: the cards did not change, the name
+    did."""
     unknown = set(fields) - set(PROJECT_FIELDS)
     if unknown:
         raise ValueError(f"unknown field(s): {sorted(unknown)}")
@@ -365,6 +382,8 @@ def update_project(name, /, **fields):   # positional-only, so name= in fields i
         fields["instructions"] = fields["instructions"] or ""
     if "color" in fields:
         fields["color"] = _clean_color(fields["color"])
+    if "land" in fields:
+        fields["land"] = _clean_land(fields["land"])
     with closing(connect()) as db, db:
         old = _load_project(db, name)
         if "name" in fields:

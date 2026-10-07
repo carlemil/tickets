@@ -654,7 +654,8 @@ def test_the_projects_panel_lists_and_edits_projects(page, tmp_path):
     page.click("#panel button:text-is('done')")   # flushes the path, still focused
     page.wait_for_function("() => window.__inflight === 0")
     assert core.get_project("Tickets") == {"name": "Tickets", "path": str(tmp_path),
-                                           "instructions": "run uv run pytest -q", "color": "#00875a"}
+                                           "instructions": "run uv run pytest -q", "color": "#00875a",
+                                           "land": "merge"}
     assert page.locator("#panel.on").count() == 0
 
 
@@ -681,9 +682,27 @@ def test_add_a_project_from_the_panel(page, tmp_path):
     human_click(page, "#panel button:text-is('add project')")
     page.wait_for_selector("#panel .project h3:text-is('Fresh')")
     assert core.get_project("Fresh") == {"name": "Fresh", "path": str(tmp_path),
-                                         "instructions": "be careful", "color": "#00875a"}
+                                         "instructions": "be careful", "color": "#00875a",
+                                         "land": "merge"}
     assert "Fresh" in page.locator("#proj option").all_text_contents(), "the filter has it"
     assert project_block(page, "new project").locator("input >> nth=0").input_value() == ""
+
+
+def test_the_land_picker_saves_on_change_and_a_new_project_takes_it(page):
+    page.click("#projects")
+    land = project_block(page, "Home").locator("select.land")
+    assert land.input_value() == "merge"
+    assert land.get_attribute("title").startswith("How a card that passed its tests lands")
+    land.select_option("pr")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert core.get_project("Home")["land"] == "pr"
+    new = project_block(page, "new project")
+    new.locator("input >> nth=0").fill("Shop")
+    new.locator("select.land").select_option("pr")
+    human_click(page, "#panel button:text-is('add project')")
+    page.wait_for_selector("#panel .project h3:text-is('Shop')")
+    assert core.get_project("Shop")["land"] == "pr"
+    assert project_block(page, "Shop").locator("select.land").input_value() == "pr"
 
 
 def test_adding_a_project_with_nothing_set_puts_its_setup_cards_on_the_board(page):
@@ -1506,7 +1525,8 @@ def test_only_a_card_drag_is_dropped(page):
 def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     cid = core.create_card("tipped", actor="ce", project="Home", lane="plan", labels=["ui"],
                            checklist=[{"text": "a", "done": False}], assignee="ce")["id"]
-    core.update_card(cid, "claude-agent", plan="p", questions="q?", session="0f1e2d3c-4b5a")
+    core.update_card(cid, "claude-agent", plan="p", questions="q?", session="0f1e2d3c-4b5a",
+                     pr="https://github.com/o/r/pull/7")
     core.create_card("done", actor="ce", project="Home", lane="done")   # its archive buttons
     page.evaluate("load()")
     page.wait_for_selector(f'.card[data-id="{cid}"] .work')
@@ -1520,12 +1540,13 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
     assert tip.startswith("pulses while an agent is working on this card"), tip
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
-    assert page.locator("#panel .ses").count() == 1, "the session button is among them"
-    assert page.evaluate(untitled, "#panel input, #panel select, #panel textarea, #panel button, #panel h3") == []
+    assert page.locator("#panel .ses, #panel a.pr").count() == 2, "session and PR are among them"
+    assert page.evaluate(untitled, "#panel input, #panel select, #panel textarea, #panel button,"
+                                   " #panel a, #panel h3") == []
     close_sheet(page)
     page.click("#projects")
     page.wait_for_selector("#panel .project")
-    assert page.evaluate(untitled, "#panel input, #panel textarea, #panel button") == []
+    assert page.evaluate(untitled, "#panel input, #panel textarea, #panel button, #panel select") == []
 
 
 def test_the_header_links_to_the_docs_in_a_new_tab(page):
@@ -1636,6 +1657,24 @@ def test_the_session_button_copies_the_resume_command(page):
     assert ses.text_content() == "copied"
     page.wait_for_function("() => document.querySelector('#panel .ses').textContent"
                            " === 'session 0f1e2d3c'")
+
+
+@pytest.mark.parametrize("pr, link", [("https://github.com/o/r/pull/7", True), ("", False),
+                                      ("javascript:alert(1)", False)])
+def test_only_a_web_pr_url_becomes_a_link(page, pr, link):
+    [cid] = cards_in(page, "landed")
+    core.update_card(cid, core.AGENT, pr=pr)
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    a = page.locator("#panel .sub a.pr")
+    assert a.count() == int(link)
+    assert page.locator(".card a.pr").count() == 0, "nothing on the board card"
+    if link:
+        assert a.text_content() == "pull request"
+        assert (a.get_attribute("href"), a.get_attribute("target"), a.get_attribute("rel")) == (
+            pr, "_blank", "noopener")
+        assert a.get_attribute("title") == "Open this card's pull request"
 
 
 # ---------- selecting several cards ----------

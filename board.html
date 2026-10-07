@@ -724,6 +724,11 @@ function renderPanel() {
       };
       sub.append(" · ", ses);
     }
+    // only a web address becomes a link: a javascript: one would run on click
+    if (/^https?:\/\//i.test(c.pr))
+      sub.append(" · ", Object.assign(document.createElement("a"),
+        { className: "pr", href: c.pr, target: "_blank", rel: "noopener",
+          textContent: "pull request", title: "Open this card's pull request" }));
     p.append(sub);
   } else {
     // a draft has no other way out: cancel throws it away, dropping what is typed
@@ -920,12 +925,13 @@ function renderProjects(p, dismiss) {
     // a new project's picker starts black and means "pick one for me" until touched
     color: Object.assign(document.createElement("input"),
       { type: "color", value: x.color || "#000000", title: "the color its cards are tagged with" }),
+    land: landPicker(x.land),
   });
   const block = (label, f, extra) => {
     const w = document.createElement("div");
     w.className = "project";
     w.append(Object.assign(document.createElement("h3"), { textContent: label }),
-             f.name, f.path, f.instructions, f.color, ...(extra ? [extra] : []));
+             f.name, f.path, f.instructions, f.color, f.land, ...(extra ? [extra] : []));
     p.append(w);
   };
 
@@ -968,12 +974,22 @@ function renderProjects(p, dismiss) {
     try {
       await api("POST", "/api/projects", { name: f.name.value, path: f.path.value,
                                            instructions: f.instructions.value,
-                                           color: picked ? f.color.value : "" });
+                                           color: picked ? f.color.value : "",
+                                           land: f.land.value });
       await load();
       if (open === PROJECTS) renderPanel();
     } catch (e) { showErr(e.message); }   // the typed values stay for a retry
   };
   block("new project", f, add);
+}
+
+// core.LANDS: how a card that passed its tests lands
+function landPicker(land = "merge") {
+  const s = Object.assign(document.createElement("select"), { className: "land",
+    title: "How a card that passed its tests lands: merged locally into the base branch, or as a pull request" });
+  for (const [v, t] of [["merge", "merge into the base branch"], ["pr", "open a pull request"]])
+    s.append(new Option(t, v, false, v === land));
+  return s;
 }
 
 const NO_PROJECT = "No Project";   // core.NO_PROJECT: where a deleted project's cards go

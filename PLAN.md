@@ -67,11 +67,11 @@ example found online needs translating.
 users(id, name UNIQUE)
 cards(id, project, title, description, lane, assignee, created_by,
       created_at, updated_at, pos, labels, checklist, archived,
-      plan, questions, answers, merged, deployed, session)
+      plan, questions, answers, merged, deployed, session, pr)
       -- plus auto_advance, attention: the retired agent's, created but never read
 events(id, card_id, actor, kind, detail, at)     -- append-only
 links(from_id, to_id, kind)                      -- kind: 'parent' | 'blocks'
-projects(name PRIMARY KEY COLLATE NOCASE, path, instructions, color)
+projects(name PRIMARY KEY COLLATE NOCASE, path, instructions, color, land)
 activity(actor PRIMARY KEY, card_id, doing, since)   -- what agents are doing now
 ```
 
@@ -213,6 +213,10 @@ D:\source\Tickets\skill`). It uses only the existing MCP tools, as `claude-agent
   ship (commit, push `card/<id>`), land (merge into the base when the repo is on it and
   clean), deploy (local unless the instructions say production; the comment head lights
   the purple dot), `merged=True` from git, remove the worktree, move to `verify`.
+- **Landing by pull request (#6).** A project's `land` is `merge` (the default, above) or
+  `pr`: then ship also opens a PR with `gh` and stores its URL in the card's `pr`, the
+  local merge is skipped (the deploy never merges either), and the merged dot waits for
+  the PR — each run first asks `gh` about the project's unmerged `verify` cards with a PR.
 - **What only a person can do** (`## Blocked by`) becomes `todo` cards linked `blocks`.
   A failure is an `agent failed: …` comment, lane unchanged.
 - **Wrap-up:** follow-up ideas as `todo` cards, and a summary in the chat.
@@ -309,7 +313,8 @@ card events, like a rename) and removes the row. "No Project" itself has no dele
 button and the server refuses to delete it. The skill never works a card in it. Renaming "No Project" to something else makes its cards workable again.
 
 "projects…" in the header opens the panel on project settings: name, path, agent
-instructions and a color picker per project, each saving on change, plus a "new project"
+instructions, a color picker and the land select ("merge into the base branch" / "open a
+pull request") per project, each saving on change, plus a "new project"
 form (its picker means "pick one for me" until touched). Each board card carries a tag
 with its project's name in its project's color, with dark text on a light color. The card
 panel and the draft each have a project `<select>`, right under the title; a draft
@@ -388,8 +393,9 @@ no longer on the board.
 | 45 | the polling agent is gone: work starts by hand with the `/tickets` skill (`skill/SKILL.md`); auto advance, attention and #60 rework removed | done — 349 checks |
 | 46 | #5 the repo's `CLAUDE.md` counts for the setup cards and ranks in the skill; this repo has one | done — 352 checks |
 | 47 | #2 `cards.session`: the skill stores its session id on a card it takes; the sheet copies `claude --resume <id>` | done — 358 checks |
+| 48 | #6 `projects.land` (`merge` \| `pr`) and `cards.pr`: a `pr` project's passed card ships as a pull request, linked from the sheet; merged when the PR is | done — 371 checks |
 
-Gate for every task: `uv run pytest -q` — 358 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 371 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

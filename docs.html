@@ -95,7 +95,8 @@ again.</p>
     deploy. Fix it, then archive the card. The best home for a project's rules is the
     <code>CLAUDE.md</code> in its repo, which every Claude Code session reads anyway; it
     counts for these cards just like the instructions, which then only need what is
-    specific to the board, such as the deploy target.</li>
+    specific to the board, such as the deploy target. "merge into the base branch" or "open a
+    pull request" picks how a card that passed its tests lands.</li>
   <li><b>show archived</b>: shows the archived cards instead.</li>
   <li><b>New Card</b>: opens a draft. Nothing is saved until you close it.</li>
 </ul>
@@ -112,7 +113,7 @@ again.</p>
     activity log, comments and "archive". Cards are never deleted, only archived.</li>
   <li>A card the agent has worked shows "session" and the start of its id under the title:
     click it to copy <code>claude --resume &lt;id&gt;</code>, which reopens that run's Claude
-    Code session in a terminal.</li>
+    Code session in a terminal. A card that landed by pull request also links to it there.</li>
   <li>An agent's comment has a "claude's output" box under it, closed: open it to read the
     whole run as you would have seen it in the terminal — every file it read, every command
     it ran, and what it cost.</li>
@@ -146,7 +147,10 @@ session in the project's folder and run the <code>/tickets</code> skill. It work
 ready card of that project in <code>plan</code>, <code>develop</code> and <code>test</code>
 through to <code>verify</code>, and writes what it does onto the board as
 <code>claude-agent</code>: the plan, comments, the moves, and a new idea card for any
-follow-up it finds. Cards in "No Project" are never worked.</p>
+follow-up it finds. Cards in "No Project" are never worked. A card that passes its tests
+is pushed as <code>card/&lt;id&gt;</code> and then lands the project's way: merged locally
+into the base branch, or opened as a pull request with <code>gh</code>, whose merge the next
+run notices and marks with the blue dot.</p>
 
 <h2 id="workflow">5. How you work with it</h2>
 <ol>

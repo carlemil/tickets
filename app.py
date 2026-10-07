@@ -199,7 +199,8 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
                 project: str | None = None, archived: bool | None = None,
                 plan: str | None = None, questions: str | None = None,
                 answers: str | None = None, merged: bool | None = None,
-                deployed: bool | None = None, session: str | None = None) -> dict:
+                deployed: bool | None = None, session: str | None = None,
+                pr: str | None = None) -> dict:
     """Change a card: this is how you move it between lanes, assign it, and tick checklist items.
 
     `actor` is you — every change is logged under that name. Pass only the fields you are
@@ -217,6 +218,7 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     to the local test backend or a device) are the board agent's to set after a deploy.
     `session`: the board agent sets it to its Claude Code session id when it takes a card,
     so a person can reopen the run with `claude --resume`.
+    `pr`: the board agent sets it to the card's pull request URL when the project lands by PR.
 
     Where text goes — each field REPLACES what is there: `description` is the request;
     leave it to the person who asked, do not put a plan in it. `plan` is the
@@ -230,7 +232,8 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
         title=title, description=description, lane=lane, assignee=assignee,
         labels=labels, checklist=checklist, project=project, archived=archived,
         plan=plan, questions=questions,
-        answers=answers, merged=merged, deployed=deployed, session=session).items()
+        answers=answers, merged=merged, deployed=deployed, session=session,
+        pr=pr).items()
         if v is not None}
     if fields.get("assignee") == "":
         fields["assignee"] = None   # None already means "not passed", so "" is how you unassign
@@ -244,7 +247,8 @@ def list_projects() -> list[dict]:
     Each has a `name` (what cards and the `project` filters use, matched ignoring case),
     a `path` — the project's folder on this machine, "" if not set — and free-text
     `instructions`: how the humans want agents to work on that project. Read them before
-    working a card, and follow them.
+    working a card, and follow them. `land` is how a card that passed its tests lands:
+    "merge" (merged locally into the base branch) or "pr" (as a pull request).
 
     "No Project" holds the cards of deleted projects: do not work on cards in it.
     """

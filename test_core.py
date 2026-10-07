@@ -594,13 +594,15 @@ def test_text_round_trips_unchanged():
 
 def test_create_project_with_path_and_instructions(tmp_path):
     p = core.create_project("  Tickets  ", path=str(tmp_path), instructions="run uv run pytest")
-    assert p == {"name": "Tickets", "path": str(tmp_path), "instructions": "run uv run pytest", "color": "#00875a"}
+    assert p == {"name": "Tickets", "path": str(tmp_path), "instructions": "run uv run pytest", "color": "#00875a",
+                 "land": "merge"}
     assert core.get_project("tickets") == p, "looked up ignoring case"
     assert p in core.list_projects()
 
 
 def test_path_and_instructions_are_optional():
-    assert core.create_project("Bare") == {"name": "Bare", "path": "", "instructions": "", "color": "#00875a"}
+    assert core.create_project("Bare") == {"name": "Bare", "path": "", "instructions": "",
+                                            "color": "#00875a", "land": "merge"}
 
 
 @pytest.mark.parametrize("name", ["", "   ", None])
@@ -633,7 +635,8 @@ def test_a_path_that_is_not_a_folder_is_rejected(tmp_path):
 def test_update_path_and_instructions(tmp_path):
     projects("Tickets")
     p = core.update_project("tickets", path=str(tmp_path), instructions="be brief")
-    assert p == {"name": "Tickets", "path": str(tmp_path), "instructions": "be brief", "color": "#00875a"}
+    assert p == {"name": "Tickets", "path": str(tmp_path), "instructions": "be brief", "color": "#00875a",
+                 "land": "merge"}
     assert core.update_project("Tickets", path="")["path"] == "", "a path can be cleared"
 
 
@@ -642,7 +645,7 @@ def test_update_rejects_a_bad_path_and_writes_nothing(tmp_path):
     with pytest.raises(ValueError):
         core.update_project("Tickets", path=str(tmp_path / "missing"), instructions="lost")
     assert core.get_project("Tickets") == {"name": "Tickets", "path": str(tmp_path),
-                                           "instructions": "", "color": "#00875a"}
+                                           "instructions": "", "color": "#00875a", "land": "merge"}
 
 
 def test_rename_carries_every_card_including_archived_and_writes_no_events():
@@ -680,7 +683,8 @@ def test_rename_onto_another_project_is_rejected():
 def test_any_project_can_be_renamed_and_configured(tmp_path):
     c = card()
     assert core.update_project("Home", name="Misc", path=str(tmp_path)) == {
-        "name": "Misc", "path": str(tmp_path), "instructions": "", "color": "#0052cc"}
+        "name": "Misc", "path": str(tmp_path), "instructions": "", "color": "#0052cc",
+        "land": "merge"}
     assert core.get_card(c["id"])["project"] == "Misc"
 
 
@@ -779,6 +783,18 @@ def test_the_session_round_trips_and_logs_an_edit():
     assert e["detail"] == {"field": "session", "from": "", "to": "0f1e2d3c-4b5a"}
 
 
+def test_the_pr_round_trips_and_logs_an_edit():
+    url = "https://github.com/o/r/pull/7"
+    c = card()
+    assert c["pr"] == ""
+    c = core.update_card(c["id"], core.AGENT, pr=url)
+    assert core.get_card(c["id"])["pr"] == url
+    [e] = [e for e in c["events"] if e["kind"] == "edited"]
+    assert e["detail"] == {"field": "pr", "from": "", "to": url}
+    with pytest.raises(ValueError, match="pr must be text"):
+        core.update_card(c["id"], core.AGENT, pr=7)
+
+
 def test_the_session_must_be_text():
     with pytest.raises(ValueError, match="session must be text"):
         core.update_card(card()["id"], core.AGENT, session=None)
@@ -838,7 +854,7 @@ def test_a_bad_color_is_refused_on_update_and_writes_nothing(bad):
     with pytest.raises(ValueError, match="color must be #rrggbb"):
         core.update_project("Home", color=bad, instructions="lost")
     assert core.get_project("Home") == {"name": "Home", "path": "", "instructions": "",
-                                        "color": core.PALETTE[0]}
+                                        "color": core.PALETTE[0], "land": "merge"}
 
 
 @pytest.mark.parametrize("bad", ["red", "#abc", "#12345g"])
@@ -872,7 +888,38 @@ def test_projects_backfilled_from_cards_get_colors_too(db):
     raw.commit()
     raw.close()
     assert core.list_projects() == [{"name": "Legacy", "path": "", "instructions": "",
-                                     "color": core.PALETTE[0]}]
+                                     "color": core.PALETTE[0], "land": "merge"}]
+
+
+# ---------- how a project's passed cards land ----------
+
+def test_land_defaults_to_merge_and_can_be_set_and_changed():
+    assert core.create_project("A")["land"] == "merge"
+    assert core.create_project("B", land="pr")["land"] == "pr"
+    assert core.update_project("A", land="pr")["land"] == "pr"
+    assert {p["name"]: p["land"] for p in core.list_projects()} == {
+        "A": "pr", "B": "pr", "Home": "merge"}
+
+
+@pytest.mark.parametrize("bad", ["PR", "rebase", "", None])
+def test_a_bad_land_is_refused_and_writes_nothing(bad):
+    with pytest.raises(ValueError, match="land must be 'merge' or 'pr'"):
+        core.create_project("X", land=bad)
+    with pytest.raises(ValueError, match="land must be 'merge' or 'pr'"):
+        core.update_project("Home", land=bad, instructions="lost")
+    assert [p["name"] for p in core.list_projects()] == ["Home"]
+    assert core.get_project("Home")["instructions"] == ""
+
+
+def test_a_database_without_land_gains_it(db):
+    import sqlite3
+    core.list_projects()
+    old = sqlite3.connect(db)
+    old.execute("ALTER TABLE projects DROP COLUMN land")
+    old.commit()
+    old.close()
+    assert core.get_project("Home")["land"] == "merge"
+    assert core.update_project("Home", land="pr")["land"] == "pr"
 
 
 # ---------- activity ----------
