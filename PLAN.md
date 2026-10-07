@@ -28,6 +28,7 @@ test_app.py    status codes, the actor rule, both error mappings, ToolError, the
 test_board.py  the board in a real browser, plus one lock per bug that shipped
 test_e2e.py    one card, browser and MCP, one attributed history
 skill/SKILL.md the /tickets Claude Code skill: works a project's cards, over MCP
+skill-setup/SKILL.md  /tickets-setup: starts the board, sets a repo up as a project
 CLAUDE.md      this repo's own rules (test gate, docs, deploy), read by every session
 log-config.json uvicorn log format: a timestamp per row
 ```
@@ -229,6 +230,16 @@ D:\source\Tickets\skill`). It uses only the existing MCP tools, as `claude-agent
   A failure is an `agent failed: …` comment, lane unchanged.
 - **Wrap-up:** follow-up ideas as `todo` cards, and a summary in the chat.
 
+**Setup: `/tickets-setup` (`skill-setup/SKILL.md`).** A second global skill, linked the
+same way into `~/.claude/skills/tickets-setup`, run by hand once per repo before the first
+`/tickets`. Idempotent, fixing only what is missing: the backend (started with
+`restart-backend.ps1 -Delay 1`, because a uvicorn started straight from a tool call dies
+with it), the user-scope MCP server, the `/tickets` junction, the repo and its `origin`,
+the repo's `CLAUDE.md` test/deploy rules (asked for, never committed), and the project row.
+Being a person's command, it may configure the project, which the MCP tools cannot: it
+uses `/api/projects` and creates the project last, so its setup cards see the new
+`CLAUDE.md`. It finds the Tickets repo as `${CLAUDE_SKILL_DIR}/..`.
+
 **Docs.** `docs.html` is the user's manual, written by hand from this file and
 `skill/SKILL.md`: a change to how the board or the agent behaves updates it too.
 `test_docs_page_is_served_and_covers_the_essentials` checks the lanes and key terms.
@@ -410,6 +421,7 @@ no longer on the board.
 | 50 | #3 the plan's steps become the checklist, ticked by the develop subagent as it goes | done — 375 checks |
 | 51 | #1 one run works up to 3 cards at once in background subagents, one in test at a time | done — 375 checks |
 | 52 | #7 the test stage reviews with Claude Code's `/code-review` on the card's ref range, its own review as fallback | done — 375 checks |
+| 53 | `/tickets-setup` (`skill-setup/SKILL.md`): starts the board and sets a repo up as a project, fixing only what is missing | done — 375 checks |
 
 Gate for every task: `uv run pytest -q` — 375 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

@@ -162,7 +162,10 @@ run notices and marks with the blue dot.</p>
   <li>Create a project under "projects…". Point its path at a git repo, put its test and
     deploy rules in the repo's <code>CLAUDE.md</code> and anything board-specific in its
     agent instructions. Whatever you leave out shows up as a card in <code>todo</code> telling you
-    what is still missing.</li>
+    what is still missing. Or let <code>/tickets-setup</code> do it: run in a Claude Code
+    session in the repo's folder, it starts the board if it is down, checks the MCP server
+    and the <code>/tickets</code> skill, helps write the <code>CLAUDE.md</code> rules and
+    creates the project, fixing only what is missing.</li>
   <li>New Card in <code>todo</code>: a title and a clear description of what you want and
     why.</li>
   <li>Drag it to <code>plan</code>, then run <code>/tickets</code> in the project's folder.

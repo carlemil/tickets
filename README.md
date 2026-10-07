@@ -50,6 +50,17 @@ tests.
 8123 is not a runtime setting. Any free port works, but `restart-backend.ps1` and the
 `claude mcp add` URL must match.
 
+### Each new repo: `/tickets-setup`
+
+Link the two skills once (Windows; `ln -s` elsewhere):
+
+    New-Item -ItemType Junction "$HOME\.claude\skills\tickets" -Target <this repo>\skill
+    New-Item -ItemType Junction "$HOME\.claude\skills\tickets-setup" -Target <this repo>\skill-setup
+
+Then, in a Claude Code session opened in any repo, `/tickets-setup` starts the board if it
+is down, registers the MCP server if it is missing, helps write the repo's `CLAUDE.md`
+test and deploy rules, and creates the project, fixing only what is missing.
+
 ## Your first card
 
 Create a card in `todo`, then drag it to `plan`. Open a Claude Code session in the
