@@ -28,10 +28,9 @@ test_app.py    status codes, the actor rule, both error mappings, ToolError, the
 test_board.py  the board in a real browser, plus one lock per bug that shipped
 test_e2e.py    one card, browser and MCP, one attributed history
 skill/SKILL.md the /tickets Claude Code skill: works a project's cards, over MCP
-skill-setup/SKILL.md  /tickets-setup: starts the board, sets a repo up as a project
+skill-start/SKILL.md  /tickets-start: sets a repo up where needed, then /tickets every N minutes via /loop
 skill-open-board/SKILL.md  /tickets-open-board: opens the board in the browser
-skill-run-loop/SKILL.md  /tickets-run-loop: /tickets every N minutes via /loop
-skill-stop-loop/SKILL.md  /tickets-stop-loop: cancels that loop
+skill-stop/SKILL.md  /tickets-stop: cancels that loop
 CLAUDE.md      this repo's own rules (test gate, docs, deploy), read by every session
 log-config.json uvicorn log format: a timestamp per row
 ```
@@ -242,34 +241,36 @@ exists for that. Over HTTP an unassign is `null`; core stores `""` as NULL too, 
 surfaces agree (an `""` used to be stored as is, and a later null logged a second
 unassign).
 
-**Setup: `/tickets-setup` (`skill-setup/SKILL.md`).** A second global skill, linked the
-same way into `~/.claude/skills/tickets-setup`, run by hand once per repo before the first
-`/tickets`. Idempotent, fixing only what is missing: the backend (started with
+**`/tickets-start [interval]` (`skill-start/SKILL.md`).** A second global skill, linked
+the same way into `~/.claude/skills/tickets-start`, run by hand in the repo's folder. It
+merges what were `/tickets-setup` and `/tickets-run-loop` (#59): first the setup,
+idempotent and fixing only what is missing — the backend (started with
 `restart-backend.ps1 -Delay 1`, because a uvicorn started straight from a tool call dies
 with it), the user-scope MCP server, the `/tickets` junction, the repo and its `origin`,
 the repo's `CLAUDE.md` test/deploy rules (asked for, never committed), and the project row.
 Being a person's command, it may configure the project, which the MCP tools cannot: it
-uses `/api/projects` and creates the project last, and offers to start the board at
-logon (`tickets-backend.cmd` in the Startup folder), so it is up before any session
-connects; so its setup cards see the new
-`CLAUDE.md`. It finds the Tickets repo as `git -C ${CLAUDE_SKILL_DIR} rev-parse
---show-toplevel`: the skill folder is a junction, so `${CLAUDE_SKILL_DIR}/..` is
-`~/.claude/skills`. Its summary ends with a clickable link to the board.
+uses `/api/projects` and creates the project last, so its setup cards see the new
+`CLAUDE.md`, and it offers to start the board at logon (`tickets-backend.cmd` in the
+Startup folder), so it is up before any session connects. It finds the Tickets repo as
+`git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel`: the skill folder is a junction,
+so `${CLAUDE_SKILL_DIR}/..` is `~/.claude/skills`.
+
+Then the loop: `/loop` (default 15m, at least 5m) on a tick prompt that reads
+`~/.claude/skills/tickets/SKILL.md` and does one run. `/loop` cannot call `/tickets`
+itself — that skill refuses model invocation, so starting work stays a person's act —
+and a file read that way has its placeholders unfilled, so the tick prompt supplies the
+session id and the skill folder. A tick with cards still in flight or an empty queue
+answers one line. It starts no second loop if one already runs, and none when there is
+no project row. Session-only: it ends with the session (or after the 7 days a session
+loop lives). Its summary ends with a clickable link to the board.
 
 **`/tickets-open-board` (`skill-open-board/SKILL.md`)**, linked the same way: starts the
 backend if it is down, opens the board in the system browser and prints the link
 (clickable and as a bare URL). The only one of them Claude may invoke by itself.
 
-**`/tickets-run-loop [interval]` (`skill-run-loop/SKILL.md`)**, linked the same way: for
-a day you want hands-off, it starts `/loop` (default 15m, at least 5m) on a tick prompt
-that reads `~/.claude/skills/tickets/SKILL.md` and does one run. `/loop` cannot call
-`/tickets` itself — that skill refuses model invocation, so starting work stays a
-person's act — and a file read that way has its placeholders unfilled, so the tick
-prompt supplies the session id and the skill folder. A tick with cards still in flight
-or an empty queue answers one line. Session-only: it ends with the session (or after
-the 7 days a session loop lives). `/tickets-stop-loop` (`skill-stop-loop/SKILL.md`) deletes
-the session's cron jobs whose prompt starts `Tickets loop tick.` and lets cards in flight
-finish; Claude may invoke it by itself, since stopping starts no work.
+**`/tickets-stop` (`skill-stop/SKILL.md`)** deletes the session's cron jobs whose prompt
+starts `Tickets loop tick.` and lets cards in flight finish; Claude may invoke it by
+itself, since stopping starts no work.
 
 **Docs.** `docs.html` is the user's manual, written by hand from this file and
 `skill/SKILL.md`: a change to how the board or the agent behaves updates it too.
@@ -465,6 +466,7 @@ no longer on the board.
 | 56 | `/tickets-run-loop [interval]`: `/loop` runs one `/tickets` run per tick by reading the skill file, placeholders filled by the tick prompt | done — 377 checks |
 | 57 | `/tickets-stop-loop`: deletes the session's `Tickets loop tick.` cron jobs, cards in flight finish | done — 377 checks |
 | 58 | the board reloads itself when anyone else writes: `GET /api/version` (newest event id) polled with the status bar; the open sheet catches up, never over a focused field | done — 383 checks |
+| 59 | `/tickets-setup` and `/tickets-run-loop` merged into `/tickets-start [interval]` (setup where needed, then the loop); `/tickets-stop-loop` renamed `/tickets-stop` | done — 383 checks |
 
 Gate for every task: `uv run pytest -q` — 383 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

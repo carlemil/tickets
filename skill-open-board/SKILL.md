@@ -11,7 +11,7 @@ description: Open the Tickets board (http://127.0.0.1:8123) in the system's defa
    -Delay 1`, wait ~12 s, ask again. The Tickets repo is
    `git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel` (not `${CLAUDE_SKILL_DIR}/..`:
    the skill folder is a link, and `..` would land in `~/.claude/skills`). Still down →
-   stop: show the tail of `<tickets repo>/restart-backend.log` and suggest `/tickets-setup`.
+   stop: show the tail of `<tickets repo>/restart-backend.log` and suggest `/tickets-start`.
 2. Open it in the default browser, not the in-app one: Windows
    `Start-Process "http://127.0.0.1:8123/"`, macOS `open http://127.0.0.1:8123/`, Linux
    `xdg-open http://127.0.0.1:8123/`.

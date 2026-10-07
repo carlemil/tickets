@@ -149,7 +149,7 @@ session in the project's folder and run the <code>/tickets</code> skill. If the 
 down it starts it, and if the session has no board tools (Claude Code connects them only
 when a session starts, so a session opened before the board has none until
 <code>/mcp</code> reconnects) it works over the board's web API instead.
-<code>/tickets-setup</code> can start the board when you log in, so that rarely happens. It works every
+<code>/tickets-start</code> can start the board when you log in, so that rarely happens. It works every
 ready card of that project in <code>plan</code>, <code>develop</code> and <code>test</code>
 through to <code>verify</code>, and writes what it does onto the board as
 <code>claude-agent</code>: the plan, comments, the moves, and a new idea card for any
@@ -166,14 +166,13 @@ run notices and marks with the blue dot.</p>
   <li>Create a project under "projects…". Point its path at a git repo, put its test and
     deploy rules in the repo's <code>CLAUDE.md</code> and anything board-specific in its
     agent instructions. Whatever you leave out shows up as a card in <code>todo</code> telling you
-    what is still missing. Or let <code>/tickets-setup</code> do it: run in a Claude Code
+    what is still missing. Or let <code>/tickets-start</code> do it: run in a Claude Code
     session in the repo's folder, it starts the board if it is down, checks the MCP server
     and the <code>/tickets</code> skill, helps write the <code>CLAUDE.md</code> rules and
-    creates the project, fixing only what is missing, and ends with a link to the board.
-    <code>/tickets-open-board</code> opens the board in your browser any time, and
-    <code>/tickets-run-loop</code> (optionally <code>/tickets-run-loop 10m</code>) runs
-    <code>/tickets</code> every 15 minutes for as long as that session stays open;
-    <code>/tickets-stop-loop</code> stops it.</li>
+    creates the project, fixing only what is missing. Then it runs <code>/tickets</code>
+    every 15 minutes (or <code>/tickets-start 10m</code>) for as long as that session stays
+    open, and ends with a link to the board; <code>/tickets-stop</code> stops it.
+    <code>/tickets-open-board</code> opens the board in your browser any time.</li>
   <li>New Card in <code>todo</code>: a title and a clear description of what you want and
     why.</li>
   <li>Drag it to <code>plan</code>, then run <code>/tickets</code> in the project's folder.

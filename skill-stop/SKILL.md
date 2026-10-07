@@ -1,6 +1,6 @@
 ---
-name: tickets-stop-loop
-description: Stop the Tickets loop that /tickets-run-loop started in this session, so the board is no longer worked on a timer. Use when the user asks to stop, cancel or pause the tickets loop.
+name: tickets-stop
+description: Stop the Tickets loop that /tickets-start started in this session, so the board is no longer worked on a timer. Use when the user asks to stop, cancel or pause the tickets loop.
 ---
 
 # Stop the Tickets loop
@@ -13,5 +13,5 @@ description: Stop the Tickets loop that /tickets-run-loop started in this sessio
    and the run wraps up. Say how many are still working, if any; ask before stopping
    them — a card cut off mid-stage keeps its lane and worktree, and the next `/tickets`
    picks it up again.
-4. Reply in one line: the loop is stopped (job ids), and `/tickets-run-loop` starts it
+4. Reply in one line: the loop is stopped (job ids), and `/tickets-start` starts it
    again.

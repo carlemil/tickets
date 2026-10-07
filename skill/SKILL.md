@@ -44,7 +44,7 @@ A missing board never stops a run:
   charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes(($fields | ConvertTo-Json -Depth
   6)))`. Subagents ticking the checklist get the same instructions. The summary says the
   run used HTTP and that `/mcp` (or a new session) brings the tools back; if the server
-  is not registered at all, `/tickets-setup` registers it.
+  is not registered at all, `/tickets-start` registers it.
 
 ## 1. Find the project
 
