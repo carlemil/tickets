@@ -709,7 +709,6 @@ async function createDraft(c, typed) {
     for (const text of [...comments, ...(typed ? [typed] : [])])
       await api("POST", `/api/cards/${card.id}/comment`, { text });
   } catch (e) { showErr(`#${card.id} was created, but: ${e.message}`); }
-  localStorage.setItem("lastProject", card.project);   // the next new card starts there
   $("#showArch").checked = false;   // a new card is active: show the board it landed on
   if (proj() && proj().toLowerCase() !== card.project.toLowerCase())
     localStorage.setItem("project", card.project);   // and the project it landed in
@@ -1033,8 +1032,6 @@ function renderProjects(p, dismiss) {
           if (key === "name") {
             if (proj().toLowerCase() === name.toLowerCase())
               localStorage.setItem("project", saved.name);   // the filter follows the rename
-            if ((localStorage.getItem("lastProject") || "").toLowerCase() === name.toLowerCase())
-              localStorage.setItem("lastProject", saved.name);   // and so does the last used
             name = saved.name;
           }
           el.value = saved[key];   // as stored: trimmed
@@ -1123,10 +1120,9 @@ $("#add").onclick = () => {
     renderPanel();
     return $("#panel .project:last-child input").focus();
   }
-  // the filtered project, else the one last created in, if it still exists (it may have
-  // been renamed or deleted elsewhere)
+  // the current tab's project; under All (or a stale tab) the first project in tab order
   const find = n => projects.find(p => p.name.toLowerCase() === (n || "").toLowerCase());
-  const home = find(proj()) || find(localStorage.getItem("lastProject"));
+  const home = find(proj());
   open = { title: "", description: "", lane: "todo", assignee: null,
            labels: [], checklist: [], project: (home || projects[0]).name,
            events: [], links: [], comments: [] };
