@@ -1364,6 +1364,31 @@ def test_an_idle_unmerged_card_shows_no_dot_until_something_lights_one(page):
         "ns => ns.filter(n => n.offsetParent !== null).map(n => n.className)") == ["st merged"]
 
 
+def test_a_stale_status_poll_does_not_undo_a_newer_one(page):
+    cid, = cards_in(page, "racing")
+    card = f'.card[data-id="{cid}"]'
+    core.set_activity("claude-agent", cid, "planning")
+    # the first poll is answered late with the old "nothing running"; the second, newer one first
+    page.evaluate("""async () => {
+        const real = api;
+        let first = true;
+        window.api = async (m, p, b) => {
+            if (p === "/api/activity" && first) {
+                first = false;
+                await new Promise(r => setTimeout(r, 400));
+                return [];
+            }
+            return real(m, p, b);
+        };
+        const stale = loadStatus();
+        await loadStatus();
+        await stale;
+        window.api = real;
+    }""")
+    assert page.locator(f"{card} .work.working").is_visible()
+    core.set_activity("claude-agent")
+
+
 def test_the_pulse_survives_a_board_reload(page):
     cid = core.create_card("busy", actor="ce", project="Home")["id"]
     core.set_activity("claude-agent", cid, "planning")

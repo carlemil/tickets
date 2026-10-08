@@ -489,8 +489,9 @@ no longer on the board.
 | 64 | the loop's one-line idle answers (`nothing to do`, `previous run still working`) carry the local date and time | done — 387 checks |
 | 65 | UI cleanup: dots only when lit, project pill only under All, no per-card archive button, sheet meta line is just created/by, the log hides bookkeeping | done — 390 checks |
 | 66 | New Card preselects the current tab's project, the first project under All; `localStorage` `lastProject` is gone | done — 389 checks |
+| 67 | A status poll answered after a newer one is dropped, so a slow poll no longer turns a card's work dot off (the idle-dot test flaked on it) | done — 390 checks |
 
-Gate for every task: `uv run pytest -q` — 389 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 390 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

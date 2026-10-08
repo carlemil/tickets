@@ -1148,12 +1148,15 @@ let working = new Set();   // the same ids, for the pulsing dots
 let version = null;   // the newest event id at the last poll: every card write bumps it
 let recheck = false;   // the open card may be behind: refresh the sheet when it is safe to
 
+let statusCall = 0;
 async function loadStatus() {
-  const bar = $("#status");
+  const bar = $("#status"), call = ++statusCall;
   let jobs, ver;
   try {
     [jobs, ver] = await Promise.all([api("GET", "/api/activity"), api("GET", "/api/version")]);
-  } catch { bar.textContent = "agent status unavailable"; return; }
+  } catch { if (call === statusCall) bar.textContent = "agent status unavailable"; return; }
+  // a poll that started before a newer call must not undo what that call showed
+  if (call !== statusCall) return;
   bar.textContent = jobs.length ? "" : "no agent is working on anything";
   for (const j of jobs) {
     const n = document.createElement("span");
