@@ -800,14 +800,13 @@ def test_an_edit_then_a_human_click_on_add_project_is_not_lost(page, tmp_path):
 def test_renaming_a_project_moves_its_cards_and_the_filter_follows(page):
     core.create_project("Old")
     cid = core.create_card("mine", actor="ce", project="Old")["id"]
-    page.evaluate("localStorage.setItem('project', 'Old'); localStorage.setItem('lastProject', 'old'); load()")
+    page.evaluate("localStorage.setItem('project', 'Old'); load()")
     page.wait_for_selector(f'.card[data-id="{cid}"]')
     page.click("#projects")
     name = project_block(page, "Old").locator("input >> nth=0")
     name.fill("New")
     name.blur()
     page.wait_for_function("() => localStorage.getItem('project') === 'New'")
-    assert page.evaluate("localStorage.getItem('lastProject')") == "New"
     page.wait_for_function("() => window.__inflight === 0")
     assert core.get_card(cid)["project"] == "New"
     assert page.locator(f'.card[data-id="{cid}"]').count() == 1, "still on the filtered board"
@@ -842,43 +841,37 @@ def test_a_new_card_lands_in_the_filtered_project_or_the_chosen_one(page):
     assert core.list_cards()[0]["project"] == "Other"
 
 
-def test_a_new_card_defaults_to_the_project_last_created_in(page):
+def test_under_all_a_new_card_starts_in_the_first_project(page):
     core.create_project("Alpha")
     core.create_project("Other")
     page.evaluate("load()")
     page.wait_for_function("() => projects.some(p => p.name === 'Other')")
+    first = page.evaluate("projects[0].name")
+    assert first != "Other"
     page.click("#add")
+    assert page.eval_on_selector("#panel select >> nth=0", "s => s.value") == first
     page.fill("#panel input[type=text] >> nth=0", "in other")
     page.select_option("#panel select >> nth=0", "Other")
     close_sheet(page)
     created(page)
     assert page.evaluate("proj()") == "", "the filter stays on All"
+    assert page.evaluate("localStorage.getItem('lastProject')") is None
     page.click("#add")
-    assert page.eval_on_selector("#panel select >> nth=0", "s => s.value") == "Other"
+    assert page.eval_on_selector("#panel select >> nth=0", "s => s.value") == first
     page.reload()
     page.wait_for_function("() => projects.some(p => p.name === 'Other')")
     page.click("#add")
-    assert page.eval_on_selector("#panel select >> nth=0", "s => s.value") == "Other"
-
-
-def test_the_filter_beats_the_last_created_project(page):
-    core.create_project("Alpha")
-    core.create_project("Other")
-    page.evaluate("localStorage.setItem('project', 'Alpha'); "
-                  "localStorage.setItem('lastProject', 'Other'); load()")
-    page.wait_for_function("() => projects.some(p => p.name === 'Other')")
-    page.click("#add")
-    assert page.eval_on_selector("#panel select >> nth=0", "s => s.value") == "Alpha"
-
-
-def test_a_deleted_last_project_falls_back_to_the_first(page):
-    core.create_project("Alpha")
-    core.create_project("Other")
-    page.evaluate("localStorage.setItem('lastProject', 'Gone'); load()")
-    page.wait_for_function("() => projects.some(p => p.name === 'Other')")
-    page.click("#add")
-    first = page.evaluate("projects[0].name")
     assert page.eval_on_selector("#panel select >> nth=0", "s => s.value") == first
+
+
+def test_a_project_tab_preselects_its_project(page):
+    core.create_project("Alpha")
+    core.create_project("Other")
+    page.evaluate("localStorage.setItem('project', 'Other'); load()")
+    page.wait_for_function("() => projects.some(p => p.name === 'Other')")
+    assert page.evaluate("projects[0].name") != "Other", "not just the fallback"
+    page.click("#add")
+    assert page.eval_on_selector("#panel select >> nth=0", "s => s.value") == "Other"
 
 
 def test_a_stale_filter_falls_back_to_the_first_project_for_new_cards(page):

@@ -394,7 +394,8 @@ pull request") per project, each saving on change, plus a "new project"
 form (its picker means "pick one for me" until touched). Each board card carries a tag
 with its project's name in its project's color, with dark text on a light color. The card
 panel and the draft each have a project `<select>`, right under the title; a draft
-starts in the filtered project, or the first one. With no projects at all, "New Card"
+starts in the selected tab's project; under All (or a tab whose project is gone) in the
+first project in tab order. With no projects at all, "New Card"
 says "create a project first" and opens the project settings with the name field
 focused. Creating a card in a project the filter hides switches the filter to it, so a
 new card is always on screen. Renaming the filtered project carries the filter with it.
@@ -487,8 +488,9 @@ no longer on the board.
 | 63 | project tabs replace the project dropdown: All first, one tab per project with its color | done — 387 checks |
 | 64 | the loop's one-line idle answers (`nothing to do`, `previous run still working`) carry the local date and time | done — 387 checks |
 | 65 | UI cleanup: dots only when lit, project pill only under All, no per-card archive button, sheet meta line is just created/by, the log hides bookkeeping | done — 390 checks |
+| 66 | New Card preselects the current tab's project, the first project under All; `localStorage` `lastProject` is gone | done — 389 checks |
 
-Gate for every task: `uv run pytest -q` — 390 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 389 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
