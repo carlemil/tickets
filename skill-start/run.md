@@ -39,7 +39,7 @@ A missing board never stops a run:
   Every write carries `"actor": "claude-agent"`. Send UTF-8 (plans hold non-ASCII): in
   PowerShell `Invoke-RestMethod -Method Patch <url> -ContentType 'application/json;
   charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes(($fields | ConvertTo-Json -Depth
-  6)))`. Subagents ticking the checklist get the same instructions. The summary says the
+  6)))`. Subagents posting a plan or ticking the checklist get the same instructions. The summary says the
   run used HTTP and that `/mcp` (or a new session) brings the tools back; if the server
   is not registered at all, `/tickets-start` registers it.
 
@@ -58,7 +58,8 @@ CLAUDE.md, this skill.
 
 The **repo** is the git toplevel of the path; the **base** branch is the repo's current
 branch (`git -C <repo> rev-parse --abbrev-ref HEAD`). Develop and test need a git repo:
-if the path is not one, cards can still be planned but fail in develop/test.
+if the path is not one, cards can still be planned (the plan is posted, nothing is
+built) but fail in develop/test.
 
 ## 2. Build the queue
 
@@ -76,7 +77,8 @@ final summary:
 - **already in flight** in this run (see 3).
 
 Re-list whenever a slot frees: people edit the board while you work, and a card you
-moved may now be next (a card planned without questions goes straight on to develop).
+moved may now be next (a card planned without questions is built by the same agent and
+goes on to test).
 Never work the same card twice in one run — once it fails or waits, it is done for this
 run.
 
@@ -91,13 +93,17 @@ You are the dispatcher. Each stage of a card runs in its own **background** suba
 once and a long run does not fill this session's context. When one finishes you are
 notified: do that card's (you) steps for the stage, then start its next stage in a
 **new** subagent, or, when the card is out of your hands, fill the freed slot from a
-fresh re-list. Never continue a finished subagent (no SendMessage): every stage starts
-from a clean context holding only the card, so nothing an earlier stage assumed or got
-wrong leaks into the next, and the test stage reviews work it did not write.
+fresh re-list. A card in `plan` gets one **plan & develop** subagent: it plans, posts the
+plan, and — with no questions — builds in the same context, so the code is read once.
+A card already in `develop` gets a develop subagent; `test` always a fresh one. Never
+continue a finished subagent (no SendMessage): every stage starts from a clean context
+holding only the card, so nothing an earlier stage assumed or got wrong leaks into the
+next, and the test stage reviews work it did not write.
 
-**Slots.** At most **3 cards in flight**. Plan stages are read-only and may always run
-side by side. At most **one card in `test`** at a time — from the test stage through
-ship, land, deploy and clean-up to `verify` — because tests, the deploy and service
+**Slots.** At most **3 cards in flight**. Plan & develop and develop stages run side by
+side within that limit, each in its card's own worktree. At most **one card in `test`**
+at a time — from the test stage through ship, land, deploy and clean-up to `verify` —
+because tests, the deploy and service
 restarts share ports, devices and the base checkout; a card whose next stage is test
 waits, with no subagent, until that slot is free. Land merges and pushes of the base are
 yours, one card at a time: never interleave two cards' land/deploy sequences. Each card
@@ -107,8 +113,9 @@ the `card/<id>` branch and its worktree path are the record.
 Starting a card: `update_card(assignee="claude-agent", session="<session id>")`
 (the board's link back to this session's transcript). `set_activity` holds one entry
 for you, so point it at the card you started last and say how many are in flight:
-`set_activity(card_id=…, doing="developing (3 in flight)")` (`planning`, `developing`,
-`testing`); clear it (`set_activity` with no card) when the last card leaves your hands.
+`set_activity(card_id=…, doing="developing (3 in flight)")` (`planning & developing`,
+`developing`, `testing`); clear it (`set_activity` with no card) when the last card
+leaves your hands.
 Before every board write after a stage, `get_card` again: **a person's move wins** — if
 the lane changed under you, post your output as a comment saying it was moved during the
 run, and leave the card where they put it.
@@ -125,36 +132,69 @@ include, each under its own heading:
 - the project: name, instructions verbatim, `land`, the repo path and base branch, and
   that the repo's `CLAUDE.md` holds its rules (read it first);
 - where to work: the folder (absolute path — tell it to use absolute paths or `git -C`),
-  and for develop/test the worktree path and the `card/<id>` branch;
+  and for plan & develop, develop and test the worktree path and the `card/<id>` branch;
 - the stage's rules below, the `## Blocked by` request, and the verdict line it must end
   with. You — not the
-subagent — write to the board and run the git steps marked (you); the one exception is
-the develop subagent ticking checklist items.
+subagent — write to the board and run the git steps marked (you); the exceptions are the
+plan & develop subagent posting its plan, and it and the develop subagent ticking
+checklist items.
 
 On a card's way out: `update_card(assignee="")` unless a person had it before you.
 
-### plan  (read-only, in the repo)
+### plan & develop  (in the card's worktree)
 
 (you) `git -C <repo> pull --ff-only` first; if it fails, tell the subagent the code may
-be behind. The subagent reads code, changes nothing, and replies with the complete plan
-in markdown (Context section restates the request). If it already has `questions` and
-`answers`, those are a person's answers: build them in, do not ask again. The plan has a
-`## Steps` section: a numbered list of concrete implementation steps, at most ~10, one
-line each. Anything
-needing a person's decision goes in a last `## Open questions` section, numbered 1., 2.,
-…; a question with sensible choices lists 2–4 of them under it as indented `- ` bullets,
-the recommended one first and suffixed ` (recommended)` (the board shows them as radio
-buttons), otherwise it is free text. Last line `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
+be behind. Then set up the card's worktree as under develop below, before spawning.
 
-(you) Cut the verdict line and the questions section off. Empty plan → failure. The
-steps become the card's checklist, its live task list: the existing items as they are,
-plus one `{"text": <step>, "done": false}` per step whose text is not already on it (so a
-replan adds only new steps); pass it as `checklist=…` in the same `update_card`.
-- NONE → `update_card(plan=…, checklist=…)`, move to `develop`.
-- OPEN → `update_card(plan=…, questions=…, checklist=…)`, comment "open questions: answer them in
-  the card; the next run replans with them", leave it in `plan`.
+**Plan.** The subagent reads code in the worktree, changes nothing yet, and writes the
+complete plan in markdown (Context section restates the request). If the card already
+has `questions` and `answers`, those are a person's answers: build them in, do not ask
+again. The plan has a `## Steps` section: a numbered list of concrete implementation
+steps, at most ~10, one line each. Anything needing a person's decision goes in a last
+`## Open questions` section, numbered 1., 2., …; a question with sensible choices lists
+2–4 of them under it as indented `- ` bullets, the recommended one first and suffixed
+` (recommended)` (the board shows them as radio buttons), otherwise it is free text.
+Last line `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
+
+**Post.** The subagent writes the plan to the board itself (`actor="claude-agent"`):
+- `get_card` first: **a person's move wins** — lane no longer `plan` or assignee no
+  longer `claude-agent` → `comment` the plan saying the card was moved during the run,
+  build nothing, end `STAGE: MOVED`.
+- Cut the verdict line and the `## Open questions` section off; empty plan → post
+  nothing, end `STAGE: FAILED`. The steps become the card's checklist, its live task
+  list: the existing items as they are, plus one `{"text": <step>, "done": false}` per
+  step whose text is not already on it (so a replan adds only new steps).
+- OPEN → `update_card(plan=…, questions=<the cut section>, checklist=…)`, build nothing,
+  end `STAGE: QUESTIONS`.
+- A `## Blocked by` → `update_card(plan=…, checklist=…)` (plus `questions=…` if OPEN),
+  lane unchanged, build nothing, end with the section and `STAGE: BLOCKED`.
+- NONE → `update_card(plan=…, checklist=…, lane="develop")`, so a person sees the plan
+  while the code is written, then build.
+
+**Build** (NONE only), in the same context: follow the develop subagent's rules below —
+worktree only, tests, commits on `card/<id>`, never push, tick each checklist item as it
+is done. Blocked while building → stop, end with the section and `STAGE: BLOCKED`.
+Otherwise reply with a short summary and the test result, last line `STAGE: BUILT`
+(`STAGE: FAILED` if it could not finish). No git repo → no worktree: plan in the folder,
+post as above, never build; NONE then ends `STAGE: FAILED` ("no git repo").
+
+(you) Per verdict, after `get_card`:
+- BUILT → comment the summary plus the worktree path, move to `test` (it waits for the
+  test slot).
+- QUESTIONS → comment "open questions: answer them in the card; the next run replans
+  with them".
+- BLOCKED → the blocker cards (Blocked by a person, below).
+- FAILED → failure. Posted already → the card sits in `develop` and a later run develops
+  it fresh; otherwise it stays in `plan`.
+- QUESTIONS, MOVED, or BLOCKED/FAILED with the card still in `plan` → `git -C <repo>
+  worktree remove <tree>` (no `--force`; will not go → leave it, say so), and
+  `git -C <repo> branch -d card/<id>` only if `git -C <repo> rev-list --count
+  <base>..card/<id>` is 0.
 
 ### develop  (in the card's worktree)
+
+For a card already in `develop` (a person put it there, or a plan & develop run failed
+after posting); plan & develop builds by the subagent rules here.
 
 (you) The worktree is `<repo-parent>/<repo-name>.worktrees/card-<id>` on branch
 `card/<id>`:
@@ -239,7 +279,8 @@ card and leave it in its lane. It will be skipped until they reach `verify` or `
 
 Anything that stops a stage (a crash, an empty plan, RESULT: FAIL, a git error, no git
 repo for develop/test): `comment("agent failed: <why>")`, leave the lane as it is; its
-slot is free for the next card.
+slot is free for the next card. A plan & develop run that fails after posting its plan
+leaves the card in `develop`; a later run develops it in a fresh subagent.
 
 ## 4. Wrap up
 

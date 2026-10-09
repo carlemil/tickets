@@ -223,15 +223,20 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   blocker not yet finished, #62), assigned to a person. `todo` is the backlog: moving a card to
   `plan` queues it. One run drains the queue unattended, working each card once.
 - **Several at once (#1).** The session dispatches: each card's stage is a background
-  subagent, up to 3 cards in flight, plans always side by side, one card at a time from
-  test through land/deploy (shared ports, devices, the base checkout). `set_activity` is
+  subagent, up to 3 cards in flight, plan & develop and develop side by side in their
+  own worktrees (#84), one card at a time from test through land/deploy (shared ports, devices, the base checkout). `set_activity` is
   one row per actor, so it points at the card started last with the count in its text.
 - **Stages,** each by a new subagent so the session's context stays small and each
   stage starts clean (#61: never a continued one; the brief pastes the whole card
   verbatim, comments without their CLI output, plus project, repo and worktree); the session
-  writes the board and does the git: plan (read-only; open questions stop the card in
-  `plan`), develop in the card's worktree (`<repo>.worktrees/card-<id>`, branch
-  `card/<id>`, base merged in first), test (`/code-review` on `<base>...card/<id>` plus a check against the card, #7; `RESULT: PASS` or the card stays), then
+  writes the board and does the git: plan & develop (#84: one subagent for a card in
+  `plan`, in the card's worktree `<repo>.worktrees/card-<id>`, branch `card/<id>`, base
+  merged in first; it plans read-only, posts plan and checklist itself after a
+  `get_card` — a person's move wins — and with no open questions moves the card to
+  `develop` and builds in the same context, so the code is read once; open questions stop
+  it in `plan` and the session removes the unused worktree), develop (a fresh subagent,
+  only for a card already in `develop`), test (always fresh: it reviews work it did not
+  write; `/code-review` on `<base>...card/<id>` plus a check against the card, #7; `RESULT: PASS` or the card stays), then
   ship (commit, push `card/<id>`), land (merge into the base when the repo is on it and
   clean), deploy (local unless the instructions say production; the comment head lights
   the purple dot), `merged=True` from git, remove the worktree, move to `verify`.
@@ -240,8 +245,8 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   local merge is skipped (the deploy never merges either), and the merged dot waits for
   the PR — each run first asks `gh` about the project's unmerged `verify` cards with a PR.
 - **The checklist is the live task list (#3).** The plan's `## Steps` become checklist
-  items (new texts only, existing items kept); the develop subagent ticks each as it
-  finishes — its one board write — so the board card's `☑ done/total` chip moves while it
+  items (new texts only, existing items kept); the subagent that builds ticks each as it
+  finishes — its one board write besides plan & develop's plan post — so the board card's `☑ done/total` chip moves while it
   works, and the test review names any step left unticked.
 - **What only a person can do** (`## Blocked by`) becomes `todo` cards linked `blocks`.
   A failure is an `agent failed: …` comment, lane unchanged.
@@ -544,6 +549,7 @@ no longer on the board.
 | 71 | #37 arrows from blocking to blocked cards on the board: an svg overlay in the board's scroll coordinates, redrawn on render and resize, only between cards on screen, faint until a card is hovered; one skipping lanes passes between the cards there | done — 413 checks |
 | 72 | #62 a blocker in `verify` with no open unmerged PR no longer blocks (stripes, pills, arrows, the run's queue, the idle gate); computed, so moving it back to work re-blocks | done — 420 checks |
 | 73 | #64 arrow heads point along the line: every arrow ends in a 10 px straight run into the card edge, with a slim notched amber head, tip on the edge | done — 421 checks |
+| 76 | #84 one subagent plans and develops: a card in `plan` gets one plan & develop agent in its worktree that posts plan and checklist itself (a person's move wins) and, with no open questions, moves the card to `develop` and builds in the same context; questions stop it in `plan` and the unused worktree goes; develop-lane cards and test keep fresh agents | done — 421 checks |
 
 Gate for every task: `uv run pytest -q` — 421 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
