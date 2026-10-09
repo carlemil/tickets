@@ -38,6 +38,15 @@ yes recommended); yes → write that file with the single line
 Removing the file undoes it. Elsewhere, suggest the platform's equivalent (a launchd
 agent, a systemd user unit) and do not install it.
 
+**Free idle ticks.** A loop tick that finds nothing still wakes the model, which re-reads
+the whole session to say so (hundreds of thousands of tokens in a long one).
+`${CLAUDE_SKILL_DIR}/idle_gate.py` answers such a tick before the model sees it, as a
+`UserPromptSubmit` hook in `~/.claude/settings.json`. Read that file; no hook whose
+`args` name `idle_gate.py` → add `{"matcher": "", "hooks": [{"type": "command",
+"command": "python", "args": ["${CLAUDE_SKILL_DIR}/idle_gate.py"], "timeout": 10}]}`
+to `hooks.UserPromptSubmit`, merging with what is there, never replacing it. It needs a
+`python` on PATH (stdlib only); none → say so and skip it.
+
 ## 2. The board's tools
 
 - `claude mcp get tickets`. Missing → `claude mcp add --scope user --transport http

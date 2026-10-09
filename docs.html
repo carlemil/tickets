@@ -152,7 +152,10 @@ it is lit; a card with none of them has no dot.</p>
 
 <h2 id="agent">4. The agent</h2>
 <p>Nothing works the board by itself. You start the work by hand: open a Claude Code
-session in the project's folder and run <code>/tickets-start</code>: it works the board every 15 minutes while that session is open (<code>/tickets-start once</code> for one run, <code>/tickets-start 12</code> for card 12 only). If the board is
+session in the project's folder and run <code>/tickets-start</code>: it works the board every 15 minutes while that session is open (<code>/tickets-start once</code> for one run, <code>/tickets-start 12</code> for card 12 only).
+A tick with nothing to do costs no tokens: a hook that <code>/tickets-start</code> installs
+answers it with <code>tickets: nothing to do (&lt;time&gt;)</code> before the model wakes,
+and lets it through when a card is ready, the board is down or the folder has no project. If the board is
 down it starts it, and if the session has no board tools (Claude Code connects them only
 when a session starts, so a session opened before the board has none until
 <code>/mcp</code> reconnects) it works over the board's web API instead.
