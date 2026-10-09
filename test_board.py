@@ -436,6 +436,44 @@ def test_every_event_kind_reads_as_a_sentence(page):
     assert "unarchived it" in page.text_content("#panel .log"), "and the panel shows it"
 
 
+def test_blocked_and_blocking_cards_are_marked_and_unmarked_by_the_poll(page):
+    """Links and moves made elsewhere reach the marks through the status poll's reload."""
+    a, b, c = (core.create_card(t, actor="ce", project="Home")["id"] for t in "abc")
+    card = lambda i: page.locator(f'.card[data-id="{i}"]')
+    poll = lambda: page.evaluate("loadStatus()")
+
+    core.link_cards(a, b, "blocks", "ce")
+    poll()
+    page.wait_for_selector(f'.card.blocked[data-id="{b}"]')
+    assert card(b).locator(".pill.blocked-by").text_content() == f"blocked by #{a}"
+    assert card(a).get_attribute("class").split() == ["card", "blocking"]
+    assert card(a).locator(".pill.blocks").text_content() == f"blocks #{b}"
+    assert card(c).locator(".pill.blocks, .pill.blocked-by").count() == 0
+
+    core.link_cards(b, c, "blocks", "ce")
+    poll()
+    page.wait_for_selector(f'.card.blocked.blocking[data-id="{b}"]')
+    stripe = card(b).evaluate("n => getComputedStyle(n, '::before').backgroundImage")
+    assert "linear-gradient" in stripe, "both: half red, half amber"
+
+    core.update_card(a, "ce", lane="done")
+    poll()
+    page.wait_for_selector(f'.card:not(.blocked)[data-id="{b}"]')
+    assert card(a).get_attribute("class").split() == ["card"], "a done card is never marked"
+    assert card(b).get_attribute("class").split() == ["card", "blocking"], "still blocks c"
+
+
+def test_dragging_a_blocker_to_done_unmarks_the_card_it_blocked_at_once(page):
+    """The board's own move reloads when the marks change, not five seconds later."""
+    a, b = (core.create_card(t, actor="ce", project="Home")["id"] for t in "ab")
+    core.link_cards(a, b, "blocks", "ce")
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card.blocked[data-id="{b}"]')
+    drag(page, a, "done")
+    page.wait_for_selector(f'.card:not(.blocked)[data-id="{b}"]', timeout=2000)
+    assert page.locator(f'.card[data-id="{b}"] .pill.blocked-by').count() == 0
+
+
 def test_assignee_and_links_from_the_panel(page):
     core.ensure_user("bob")
     other = core.create_card("other", actor="ce", project="Home")

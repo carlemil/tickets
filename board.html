@@ -83,6 +83,16 @@
   .card.drop-at { box-shadow: inset 0 3px 0 var(--accent); }
   .pill { background: #dfe1e6; border-radius: 10px; padding: 1px 7px; font-size: 11px; color: #42526e; }
   .pill.who { background: #deebff; color: #0747a6; }
+  /* blocked red, blocking amber: a stripe down the left edge (not box-shadow, which
+     .drop-at uses, nor outline, which .selected uses) and a pill naming the other cards */
+  .card.blocked::before, .card.blocking::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    border-radius: 4px 0 0 4px; background: #ff991f;
+  }
+  .card.blocked::before { background: var(--warn); }
+  .card.blocked.blocking::before { background: linear-gradient(var(--warn) 50%, #ff991f 50%); }
+  .pill.blocked-by { background: #ffebe6; color: var(--warn); }
+  .pill.blocks { background: #fffae6; color: #974f0c; }
   /* shown only when lit: the work dot pulses green while an agent works the card. It stays
      in the DOM when idle, so markWorking can light it without a re-render */
   .work, .st { width: 8px; height: 8px; border-radius: 50%; flex: none; }
@@ -394,6 +404,17 @@ function cardNode(c) {
   if (c.checklist.length) meta.append(Object.assign(document.createElement("span"),
     { className: "pill checks",
       textContent: `☑ ${c.checklist.filter(i => i.done).length}/${c.checklist.length}` }));
+  // computed by the server across projects, done cards left out; #37 reads them too.
+  // A card optimistically dropped into done still carries its old lists: never mark it.
+  const by = c.lane === "done" ? [] : c.blocked_by, blocks = c.lane === "done" ? [] : c.blocking;
+  n.classList.toggle("blocked", by.length > 0);
+  n.classList.toggle("blocking", blocks.length > 0);
+  if (by.length) meta.append(Object.assign(document.createElement("span"),
+    { className: "pill blocked-by", title: "blocked: can't start until these are done",
+      textContent: "blocked by " + by.map(i => "#" + i).join(" ") }));
+  if (blocks.length) meta.append(Object.assign(document.createElement("span"),
+    { className: "pill blocks", title: "blocking: these cards wait for this one",
+      textContent: "blocks " + blocks.map(i => "#" + i).join(" ") }));
   n.append(t, meta);
 
   n.ondragstart = ev => {
@@ -543,9 +564,15 @@ async function archive(ids) {
 // Responses can land out of order, so an older copy of a card must never replace a newer
 // one already shown. Board fields all bump updated_at; links and comments do not, but
 // every write appends an event, so for the panel the newest event id names the state.
+// A write that changes this card's block marks changed the other end's too (#35): reload.
+const marks = c => String(c.blocked_by) + "|" + String(c.blocking);
 function replace(card) {
   const i = cards.findIndex(c => c.id === card.id);
-  if (i >= 0 && card.updated_at >= cards[i].updated_at) cards[i] = card;
+  if (i >= 0 && card.updated_at >= cards[i].updated_at) {
+    const ripple = marks(cards[i]) !== marks(card);
+    cards[i] = card;
+    if (ripple) return load();
+  }
   renderBoard();
 }
 
@@ -899,6 +926,7 @@ function renderPanel() {
         await api("DELETE", "/api/links",
                   { from_id: l.from_id, to_id: l.to_id, kind: l.kind });
         openCard(c.id);
+        if (l.kind === "blocks") load();   // both ends' marks change
       } catch (e) { showErr(e.message); }
     };
     li.append(rm);
@@ -925,6 +953,7 @@ function renderPanel() {
       await api("POST", "/api/links",
                 { from_id: c.id, to_id: Number(lid.value), kind: lkind.value });
       openCard(c.id);
+      if (lkind.value === "blocks") load();   // both ends' marks change
     } catch (e) { showErr(e.message); }
   };
   lk.append(document.createTextNode("this is a "), lkind,

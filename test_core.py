@@ -182,6 +182,65 @@ def test_unlink_round_trips_and_repeating_it_writes_nothing():
     assert len(again["events"]) == before, "repeat unlink must write no event"
 
 
+def marks(id):
+    """(blocked_by, blocking) for a card, checked to agree between get_card and list_cards."""
+    one = core.get_card(id)
+    listed = next(c for c in core.list_cards(archived=one["archived"]) if c["id"] == id)
+    assert (listed["blocked_by"], listed["blocking"]) == (one["blocked_by"], one["blocking"])
+    return one["blocked_by"], one["blocking"]
+
+
+def test_a_blocks_link_marks_both_ends():
+    a, b, c = card(), card("Second"), card("Unlinked")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    assert marks(a["id"]) == ([], [b["id"]])
+    assert marks(b["id"]) == ([a["id"]], [])
+    assert marks(c["id"]) == ([], []), "a card with no links has empty lists, not missing ones"
+
+
+def test_a_done_blocker_blocks_nothing():
+    a, b = card(), card("Second")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    core.update_card(a["id"], "ann", lane="done")
+    assert marks(a["id"]) == marks(b["id"]) == ([], [])
+
+
+def test_blocking_a_done_card_does_not_count():
+    a, b = card(), card("Second")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    core.update_card(b["id"], "ann", lane="done")
+    assert marks(a["id"]) == marks(b["id"]) == ([], [])
+
+
+def test_an_archived_blocker_that_is_not_done_still_blocks():
+    a, b = card(), card("Second")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    core.update_card(a["id"], "ann", archived=True)
+    assert marks(b["id"]) == ([a["id"]], [])
+
+
+def test_a_card_can_be_blocked_and_blocking_and_lists_are_sorted():
+    a, b, c, d = card(), card("B"), card("C"), card("D")
+    core.link_cards(c["id"], b["id"], "blocks", "ann")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    core.link_cards(b["id"], d["id"], "blocks", "ann")
+    assert marks(b["id"]) == ([a["id"], c["id"]], [d["id"]])
+
+
+def test_a_parent_link_marks_nothing():
+    a, b = card(), card("Second")
+    core.link_cards(a["id"], b["id"], "parent", "ann")
+    assert marks(a["id"]) == marks(b["id"]) == ([], [])
+
+
+def test_a_blocker_in_another_project_still_marks_the_card():
+    projects("Other")
+    a, b = card(project="Other"), card("Second")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    [listed] = core.list_cards(project="Home")
+    assert listed["blocked_by"] == [a["id"]], listed
+
+
 # ---------- unknown ids ----------
 
 def test_unknown_id_raises_notfound_everywhere():

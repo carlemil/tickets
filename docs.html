@@ -146,6 +146,14 @@ it is lit; a card with none of them has no dot.</p>
     <span class="dot" style="background:#6554c0"></span> <b>purple dot</b>: it is deployed to
     the local test backend or a device, lit by the agent's <code>deployed: </code> comment.
     Moving the card back to plan, develop or test clears them.</li>
+  <li><span style="display:inline-block;width:4px;height:12px;background:#bf2600;vertical-align:middle"></span>
+    <b>red stripe</b> down a card's left edge, with a "blocked by #12" pill: the card is
+    blocked, it can't start until those cards are done.
+    <span style="display:inline-block;width:4px;height:12px;background:#ff991f;vertical-align:middle"></span>
+    <b>amber stripe</b>, with a "blocks #37" pill: other cards wait for this one. A card that
+    is both has a half red, half amber stripe and both pills. The other card can be in
+    another project. A link to or from a done card no longer counts, and done cards are
+    never marked; the marks update by themselves when a blocker moves to done.</li>
   <li><b>status bar</b>, at the bottom: which agent is working on which card, doing what, and
     since when. Click a card in it to open it.</li>
 </ul>
