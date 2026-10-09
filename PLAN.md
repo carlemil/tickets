@@ -306,8 +306,11 @@ A blocked card (#35, `blocked_by` not empty) gets the `blocked` class: a red 4 p
 down its left edge (`::before`, as box-shadow is `.drop-at`'s and outline is
 `.selected`'s) and a red "blocked by #12 #14" pill. A blocking one gets `blocking`: amber
 stripe, amber "blocks #37" pill. Both: the stripe is half red, half amber. Done cards
-are never marked. A link, unlink or move elsewhere bumps the version, so the status
-poll's reload updates the marks; no extra code. #37 builds on the classes and fields.
+are never marked, not even while an optimistic drop into done waits for its PATCH. A
+link, unlink or move elsewhere bumps the version, so the status poll's reload updates the
+marks. The board's own writes reload at once instead: `replace` reloads when the written
+card's marks changed (the other end's changed too), and the panel's `blocks` link and
+unlink reload. #37 builds on the classes and fields.
 No dark-theme colours: the board has no dark theme yet.
 
 Once a card has a plan, questions or answers, the sheet shows each in its own box under
@@ -508,9 +511,9 @@ no longer on the board.
 | 67 | A status poll answered after a newer one is dropped, so a slow poll no longer turns a card's work dot off (the idle-dot test flaked on it) | done — 390 checks |
 | 68 | An idle loop tick never reaches the model: `skill-start/idle_gate.py`, a `UserPromptSubmit` hook that `/tickets-start` installs, answers "nothing to do" when the folder's project has no card a run would take (an idle tick cost ~400k cached tokens in a long session) | done — 398 checks |
 | 69 | The idle gate also skips a card blocked by one not yet `done` (any project), as the run does | done — 399 checks |
-| 70 | #35 blocked cards get a red stripe and "blocked by" pill, blocking cards amber; cards carry computed `blocked_by` / `blocking` | done — 407 checks |
+| 70 | #35 blocked cards get a red stripe and "blocked by" pill, blocking cards amber; cards carry computed `blocked_by` / `blocking`; the board's own moves and links update the other end at once | done — 408 checks |
 
-Gate for every task: `uv run pytest -q` — 407 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 408 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
