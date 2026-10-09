@@ -100,7 +100,7 @@
   #links { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
   #links > path { fill: none; stroke: #ff991f; stroke-width: 2; opacity: .3; }
   #links > path.hot { opacity: 1; }
-  #links marker path { fill: var(--warn); }
+  #links marker path { fill: #ff991f; }   /* the line's amber: one arrow, not a red tag */
   .card { z-index: 1; }   /* over the arrows: one crossing a card goes under it, not over its text */
   /* shown only when lit: the work dot pulses green while an agent works the card. It stays
      in the DOM when idle, so markWorking can light it without a re-render */
@@ -493,8 +493,11 @@ function drawLinks() {
   svg.id = "links";
   svg.setAttribute("width", b.scrollWidth);
   svg.setAttribute("height", b.scrollHeight);
-  svg.innerHTML = '<defs><marker id="head" viewBox="0 0 10 10" refX="9" refY="5" ' +
-    'markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>';
+  // A slim notched head, tip on the card edge; it turns with the path's last 10 px, a
+  // straight run into the edge (R), so it points along the line the eye sees (#64)
+  svg.innerHTML = '<defs><marker id="head" viewBox="0 0 10 10" refX="10" refY="5" ' +
+    'markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 L3,5 z"/></marker></defs>';
+  const R = 10;
   const br = b.getBoundingClientRect();
   const rect = n => {   // in board coordinates
     const r = n.getBoundingClientRect();
@@ -515,14 +518,15 @@ function drawLinks() {
       if (!t) continue;
       let d;
       if (f.left === t.left) {   // same lane: out of the right edge and back in, a C into the gap
-        d = `M${f.right},${f.y} C${f.right + 24},${f.y} ${t.right + 24},${t.y} ${t.right},${t.y}`;
+        d = `M${f.right},${f.y} C${f.right + 24},${f.y} ${t.right + 24},${t.y} ${t.right + R},${t.y} L${t.right},${t.y}`;
       } else {                   // across lanes: from the facing side to the facing side
         const s = t.left > f.left ? 1 : -1;
-        const x1 = s > 0 ? f.right : f.left, x2 = s > 0 ? t.left : t.right;
+        const x1 = s > 0 ? f.right : f.left, x2 = s > 0 ? t.left : t.right, xr = x2 - s * R;
         const mid = lanes.filter(l => l.left > Math.min(f.right, t.right) && l.right < Math.max(f.left, t.left));
         if (!mid.length) {
-          const k = s * Math.max(30, Math.abs(x2 - x1) / 2);
-          d = `M${x1},${f.y} C${x1 + k},${f.y} ${x2 - k},${t.y} ${x2},${t.y}`;
+          // no more than the span: past it the curve doubles back in x before the run
+          const w = Math.abs(xr - x1), k = s * Math.min(w, Math.max(30, w / 2));
+          d = `M${x1},${f.y} C${x1 + k},${f.y} ${xr - k},${t.y} ${xr},${t.y} L${x2},${t.y}`;
         } else {
           // Skipping lanes: under a card there it would seem to start from that card. Cross
           // them at the free height nearest both ends (in a gap between cards, above or below
@@ -533,8 +537,8 @@ function drawLinks() {
           const y = [f.y, t.y, ...busy.flatMap(r => [r.top - 4, r.bottom + 4])].filter(free)
             .reduce((a, z) => cost(z) < cost(a) ? z : a);
           const g1 = s > 0 ? mid[0].left : mid.at(-1).right, g2 = s > 0 ? mid.at(-1).right : mid[0].left;
-          const h1 = (x1 + g1) / 2, h2 = (x2 + g2) / 2;
-          d = `M${x1},${f.y} C${h1},${f.y} ${h1},${y} ${g1},${y} L${g2},${y} C${h2},${y} ${h2},${t.y} ${x2},${t.y}`;
+          const h1 = (x1 + g1) / 2, h2 = (xr + g2) / 2;
+          d = `M${x1},${f.y} C${h1},${f.y} ${h1},${y} ${g1},${y} L${g2},${y} C${h2},${y} ${h2},${t.y} ${xr},${t.y} L${x2},${t.y}`;
         }
       }
       const p = document.createElementNS(SVG, "path");
