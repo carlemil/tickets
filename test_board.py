@@ -589,6 +589,54 @@ def test_hovering_a_card_lights_its_arrows_and_arrows_never_take_a_click(page):
     assert near(e["start"], e["f"]["left"], e["f"]["y"]) and near(e["end"], e["t"]["right"], e["t"]["y"]), e
 
 
+def under(page, frm, to):
+    """The cards, other than its two ends, that the frm→to arrow passes under, sampled every
+    2px; and how far right it reaches, in client coordinates."""
+    return page.evaluate("""([f, t]) => {
+        const p = document.querySelector(`#links > path[data-from="${f}"][data-to="${t}"]`);
+        const o = p.ownerSVGElement.getBoundingClientRect(), n = p.getTotalLength(), hit = new Set();
+        let right = -Infinity;
+        for (let l = 0; l <= n; l += 2) {
+            const q = p.getPointAtLength(l), x = q.x + o.left, y = q.y + o.top;
+            right = Math.max(right, x);
+            for (const c of document.querySelectorAll('.card')) {
+                const r = c.getBoundingClientRect();
+                if (x > r.left && x < r.right && y > r.top && y < r.bottom
+                    && c.dataset.id != f && c.dataset.id != t) hit.add(+c.dataset.id);
+            }
+        }
+        return {under: [...hit], right};
+    }""", [frm, to])
+
+
+def test_an_arrow_skipping_a_lane_passes_by_the_cards_there_not_under_them(page):
+    # #3 in plan sits level with #1 and #2: a straight curve would seem to start from it
+    a, mid, mid2, b, c, d = on_board(page, ("a", "todo"), ("in plan", "plan"), ("also plan", "plan"),
+                                     ("b", "develop"), ("c", "todo"), ("d", "todo"))
+    core.link_cards(a, b, "blocks", "ce")
+    core.link_cards(b, a, "blocks", "ce")   # leftwards too
+    core.link_cards(c, d, "blocks", "ce")
+    core.link_cards(mid2, b, "blocks", "ce")   # and the next lane over
+    page.evaluate("load()")
+    page.wait_for_function("() => document.querySelectorAll('#links > path').length === 4")
+    for f, t in ((a, b), (b, a), (mid2, b)):
+        assert under(page, f, t)["under"] == [], (f, t)
+        e = ends(page, f, t)   # still from facing edge to facing edge
+        x1, x2 = ("right", "left") if f != b else ("left", "right")
+        assert near(e["start"], e["f"][x1], e["f"]["y"]) and near(e["end"], e["t"][x2], e["t"]["y"]), e
+        left, right = sorted((e["f"]["right"], e["t"]["left"]) if f != b else (e["t"]["right"], e["f"]["left"]))
+        reach = page.evaluate("""([f, t]) => { const p = document.querySelector(`#links > path[data-from="${f}"][data-to="${t}"]`);
+            const r = p.getBoundingClientRect(); return [r.left, r.right]; }""", [f, t])
+        assert left - 2 <= reach[0] and reach[1] <= right + 2, ("it stays between the two cards", reach, left, right)
+    # the same-lane C stays in the gap before the next lane
+    plan_left = page.evaluate("document.querySelector('.lane[data-lane=plan]').getBoundingClientRect().left")
+    assert under(page, c, d)["right"] < plan_left
+    # a hovered card's arrows stay lit through a redraw (a poll reload, a resize)
+    page.hover(f'.card[data-id="{c}"]')
+    page.evaluate("drawLinks()")
+    assert page.locator("#links > path.hot").count() == 1
+
+
 def test_assignee_and_links_from_the_panel(page):
     core.ensure_user("bob")
     other = core.create_card("other", actor="ce", project="Home")

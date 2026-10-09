@@ -322,8 +322,13 @@ link and unlink all end there) and from one `ResizeObserver` on `#board` (window
 wrap, fonts). It removes the old svg before measuring, so a stale one never holds the
 board wide. An arrow is drawn only when both ends are on screen and not done (the
 `blocking` lists, plus the local lane for an optimistic drop): an end in another tab,
-hidden or archived has only its pill. Across lanes it is a Bézier from the facing side
-edges' middles; within a lane a C out of the right edge and back in, into the lane gap.
+hidden or archived has only its pill. Between neighbouring lanes it is a Bézier from the
+facing side edges' middles; within a lane a C out of the right edge and back in, into the
+lane gap. An arrow that skips lanes never passes under a card there (it would read as
+starting from that card): it jogs up or down in the lane gaps and crosses the lanes in
+between at the free height (between cards, above or below them) nearest both ends. A
+redraw keeps a hovered card's arrows lit, and the status poll redraws when a work dot
+lights or goes out (it can wrap a card's meta row).
 Amber `#ff991f` line, red `var(--warn)` head, as the stripes. Against clutter they are
 faint (opacity .3); hovering a card lights its arrows, both ways (`.hot`). No on/off
 toggle yet: add one if real boards get crowded.
@@ -528,9 +533,9 @@ no longer on the board.
 | 68 | An idle loop tick never reaches the model: `skill-start/idle_gate.py`, a `UserPromptSubmit` hook that `/tickets-start` installs, answers "nothing to do" when the folder's project has no card a run would take (an idle tick cost ~400k cached tokens in a long session) | done — 398 checks |
 | 69 | The idle gate also skips a card blocked by one not yet `done` (any project), as the run does | done — 399 checks |
 | 70 | #35 blocked cards get a red stripe and "blocked by" pill, blocking cards amber; cards carry computed `blocked_by` / `blocking`; the board's own moves and links update the other end at once | done — 408 checks |
-| 71 | #37 arrows from blocking to blocked cards on the board: an svg overlay in the board's scroll coordinates, redrawn on render and resize, only between cards on screen, faint until a card is hovered | done — 412 checks |
+| 71 | #37 arrows from blocking to blocked cards on the board: an svg overlay in the board's scroll coordinates, redrawn on render and resize, only between cards on screen, faint until a card is hovered; one skipping lanes passes between the cards there | done — 413 checks |
 
-Gate for every task: `uv run pytest -q` — 412 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 413 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

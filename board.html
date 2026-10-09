@@ -481,8 +481,10 @@ function renderBoard() {
 // The #37 arrows, redrawn from scratch: after every render and whenever the board resizes.
 // Scrolling needs nothing: the svg lives in the board's own scroll coordinates.
 // An end that isn't on screen (another project, done, archived) gets no arrow: the pill names it.
-// ponytail: O(links) rect reads per render; fine for hundreds of cards.
+// ponytail: every card's rect read per draw, lane-skipping arrows scan the lanes between;
+// fine for hundreds of cards.
 const SVG = "http://www.w3.org/2000/svg";
+let hotId = null;   // the hovered card's id
 function drawLinks() {
   const b = $("#board");
   const old = $("#links");
@@ -494,37 +496,61 @@ function drawLinks() {
   svg.innerHTML = '<defs><marker id="head" viewBox="0 0 10 10" refX="9" refY="5" ' +
     'markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>';
   const br = b.getBoundingClientRect();
-  const box = id => {   // a card on screen and not done, in board coordinates
-    const c = cards.find(x => x.id === id);
-    const n = c && c.lane !== "done" && b.querySelector(`.card[data-id="${id}"]`);
-    if (!n) return null;
+  const rect = n => {   // in board coordinates
     const r = n.getBoundingClientRect();
     const left = r.left - br.left + b.scrollLeft, top = r.top - br.top + b.scrollTop;
-    return { left, right: left + r.width, y: top + r.height / 2 };
+    return { left, right: left + r.width, top, bottom: top + r.height, y: top + r.height / 2 };
   };
-  for (const c of cards) for (const to of c.blocking || []) {
-    const f = box(c.id), t = box(to);
-    if (!f || !t) continue;
-    let d;
-    if (f.left === t.left) {   // same lane: out of the right edge and back in, a C into the gap
-      d = `M${f.right},${f.y} C${f.right + 32},${f.y} ${t.right + 32},${t.y} ${t.right},${t.y}`;
-    } else {                   // across lanes: from the facing side to the facing side
-      const s = t.left > f.left ? 1 : -1;
-      const x1 = s > 0 ? f.right : f.left, x2 = s > 0 ? t.left : t.right;
-      const k = s * Math.max(30, Math.abs(x2 - x1) / 2);
-      d = `M${x1},${f.y} C${x1 + k},${f.y} ${x2 - k},${t.y} ${x2},${t.y}`;
+  const box = id => {   // a card on screen and not done
+    const c = cards.find(x => x.id === id);
+    const n = c && c.lane !== "done" && b.querySelector(`.card[data-id="${id}"]`);
+    return n ? rect(n) : null;
+  };
+  const lanes = [...b.querySelectorAll(".lane")]
+    .map(l => ({ ...rect(l), cards: [...l.querySelectorAll(".card")].map(rect) }));
+  for (const c of cards) {
+    const f = box(c.id);
+    if (f) for (const to of c.blocking || []) {
+      const t = box(to);
+      if (!t) continue;
+      let d;
+      if (f.left === t.left) {   // same lane: out of the right edge and back in, a C into the gap
+        d = `M${f.right},${f.y} C${f.right + 24},${f.y} ${t.right + 24},${t.y} ${t.right},${t.y}`;
+      } else {                   // across lanes: from the facing side to the facing side
+        const s = t.left > f.left ? 1 : -1;
+        const x1 = s > 0 ? f.right : f.left, x2 = s > 0 ? t.left : t.right;
+        const mid = lanes.filter(l => l.left > Math.min(f.right, t.right) && l.right < Math.max(f.left, t.left));
+        if (!mid.length) {
+          const k = s * Math.max(30, Math.abs(x2 - x1) / 2);
+          d = `M${x1},${f.y} C${x1 + k},${f.y} ${x2 - k},${t.y} ${x2},${t.y}`;
+        } else {
+          // Skipping lanes: under a card there it would seem to start from that card. Cross
+          // them at the free height nearest both ends (in a gap between cards, above or below
+          // them), jogging up or down in the lane gaps on either side.
+          const busy = mid.flatMap(l => l.cards);
+          const free = y => busy.every(r => y < r.top - 2 || y > r.bottom + 2);
+          const cost = y => Math.abs(y - f.y) + Math.abs(y - t.y);
+          const y = [f.y, t.y, ...busy.flatMap(r => [r.top - 4, r.bottom + 4])].filter(free)
+            .reduce((a, z) => cost(z) < cost(a) ? z : a);
+          const g1 = s > 0 ? mid[0].left : mid.at(-1).right, g2 = s > 0 ? mid.at(-1).right : mid[0].left;
+          const h1 = (x1 + g1) / 2, h2 = (x2 + g2) / 2;
+          d = `M${x1},${f.y} C${h1},${f.y} ${h1},${y} ${g1},${y} L${g2},${y} C${h2},${y} ${h2},${t.y} ${x2},${t.y}`;
+        }
+      }
+      const p = document.createElementNS(SVG, "path");
+      p.setAttribute("d", d);
+      p.setAttribute("marker-end", "url(#head)");
+      p.dataset.from = c.id; p.dataset.to = to;
+      p.classList.toggle("hot", p.dataset.from === hotId || p.dataset.to === hotId);
+      svg.append(p);
     }
-    const p = document.createElementNS(SVG, "path");
-    p.setAttribute("d", d);
-    p.setAttribute("marker-end", "url(#head)");
-    p.dataset.from = c.id; p.dataset.to = to;
-    svg.append(p);
   }
   b.append(svg);
 }
 new ResizeObserver(drawLinks).observe($("#board"));
-// hovering a card lights its arrows, both ways
+// hovering a card lights its arrows, both ways; a redraw under a still pointer keeps them lit
 function hot(id) {
+  hotId = id;
   for (const p of document.querySelectorAll("#links > path"))
     p.classList.toggle("hot", p.dataset.from === id || p.dataset.to === id);
 }
@@ -1270,6 +1296,8 @@ async function loadStatus() {
   // set before any reload, so the rebuilt cards pulse too; the open editor is updated in place
   working = new Set(jobs.map(j => j.card_id));
   for (const d of document.querySelectorAll(".work[data-id]")) markWorking(d);
+  // a dot lit or put out can wrap a card's meta row and move the cards under it
+  if (jobs.map(j => j.card_id).join() !== busy) drawLinks();
   // An agent finishing moves its card, and anyone's write bumps the version (a card the
   // agent creates, a move, a comment): reload the board then, once, but never under a drag.
   // A version change seen while a pointer is held is not recorded, so the next poll retries.
