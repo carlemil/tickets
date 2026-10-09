@@ -180,6 +180,7 @@ def test_list_is_lean_and_a_single_card_is_full(client):
     client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home"})
     listed = client.get("/api/cards").json()[0]
     assert "events" not in listed and "links" not in listed, "the board's list view stays lean"
+    assert listed["blocked_by"] == listed["blocking"] == [], "but carries the block marks"
     full = client.get(f"/api/cards/{listed['id']}").json()
     assert full["events"] and full["links"] == [], full
 

@@ -499,9 +499,28 @@ def create_card(
     return get_card(id)
 
 
+def _blocks(db):
+    """{id: (blocked_by, blocking)} over live `blocks` links: both ends not done, any
+    project, archived or not. The board marks cards with these and #37 draws arrows."""
+    out = {}
+    for f, t in db.execute(
+        "SELECT l.from_id, l.to_id FROM links l JOIN cards a ON a.id=l.from_id"
+        " JOIN cards b ON b.id=l.to_id WHERE l.kind='blocks' AND a.lane!='done'"
+        " AND b.lane!='done' ORDER BY l.from_id, l.to_id"
+    ):
+        out.setdefault(t, ([], []))[0].append(f)
+        out.setdefault(f, ([], []))[1].append(t)
+    return out
+
+
+def _mark(card, blocks):
+    card["blocked_by"], card["blocking"] = blocks.get(card["id"], ([], []))   # sorted by the ORDER BY
+    return card
+
+
 def get_card(id):
     with closing(connect()) as db:
-        card = _load(db, id)
+        card = _mark(_load(db, id), _blocks(db))
         card["events"] = [
             {**dict(r), "detail": json.loads(r["detail"])}
             for r in db.execute("SELECT * FROM events WHERE card_id=? ORDER BY id", (id,))
@@ -528,7 +547,8 @@ def list_cards(lane=None, assignee=None, label=None, project=None, archived=Fals
         args.append(project)
     sql = "SELECT * FROM cards WHERE " + " AND ".join(where)
     with closing(connect()) as db:
-        cards = [_card(r) for r in db.execute(sql + " ORDER BY pos, id", args)]
+        blocks = _blocks(db)
+        cards = [_mark(_card(r), blocks) for r in db.execute(sql + " ORDER BY pos, id", args)]
     # ponytail: label filter scans in Python — fine to a few thousand cards.
     # Past that, index labels with json1 (json_each) and push it into the WHERE clause.
     return [c for c in cards if label is None or label in c["labels"]]

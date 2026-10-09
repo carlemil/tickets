@@ -120,6 +120,14 @@ activity(actor PRIMARY KEY, card_id, doing, since)   -- what agents are doing no
 `create_project(name, path, instructions)` / `update_project(name, /, **fields)` /
 `setup_cards(name)`
 
+Every card `list_cards` and `get_card` return carries two computed lists (#35), sorted
+ids, empty when none: `blocked_by`, the cards with a `blocks` link to it, and `blocking`,
+the cards it has a `blocks` link to. Only live links count: both ends not `done` (an
+archived card that is not done still counts, as in the run and the idle gate). The
+other end may be in any project, so the server works them out (`_blocks`, one query)
+rather than the board, which loads one project. The list stays without `links` and
+`events`. #37 draws its arrows from these.
+
 `update_card` is one function covering move-lane, assign, retitle, edit body and tick
 checklist. It diffs old against new and writes one event per changed field — that is
 what makes the audit trail free instead of something every caller must remember. Every
@@ -293,6 +301,14 @@ the person scrolled it (the board reloads itself on others' writes).
 Dragging inside a column reorders it: `dropBefore` finds the card the pointer is above
 (shown with a `.drop-at` insertion line) and `slots` gives the dropped cards their `pos`
 values between its neighbours.
+
+A blocked card (#35, `blocked_by` not empty) gets the `blocked` class: a red 4 px stripe
+down its left edge (`::before`, as box-shadow is `.drop-at`'s and outline is
+`.selected`'s) and a red "blocked by #12 #14" pill. A blocking one gets `blocking`: amber
+stripe, amber "blocks #37" pill. Both: the stripe is half red, half amber. Done cards
+are never marked. A link, unlink or move elsewhere bumps the version, so the status
+poll's reload updates the marks; no extra code. #37 builds on the classes and fields.
+No dark-theme colours: the board has no dark theme yet.
 
 Once a card has a plan, questions or answers, the sheet shows each in its own box under
 the description: "plan" is a fixed 10 lines and scrolls, "open questions" and "your
@@ -492,8 +508,9 @@ no longer on the board.
 | 67 | A status poll answered after a newer one is dropped, so a slow poll no longer turns a card's work dot off (the idle-dot test flaked on it) | done — 390 checks |
 | 68 | An idle loop tick never reaches the model: `skill-start/idle_gate.py`, a `UserPromptSubmit` hook that `/tickets-start` installs, answers "nothing to do" when the folder's project has no card a run would take (an idle tick cost ~400k cached tokens in a long session) | done — 398 checks |
 | 69 | The idle gate also skips a card blocked by one not yet `done` (any project), as the run does | done — 399 checks |
+| 70 | #35 blocked cards get a red stripe and "blocked by" pill, blocking cards amber; cards carry computed `blocked_by` / `blocking` | done — 407 checks |
 
-Gate for every task: `uv run pytest -q` — 399 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 407 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
