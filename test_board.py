@@ -474,6 +474,169 @@ def test_dragging_a_blocker_to_done_unmarks_the_card_it_blocked_at_once(page):
     assert page.locator(f'.card[data-id="{b}"] .pill.blocked-by').count() == 0
 
 
+# ---------- #37: arrows from blocking cards to the cards they block ----------
+
+def arrows(page):
+    """The drawn arrows as (from, to) id pairs."""
+    return sorted(page.evaluate("""() => [...document.querySelectorAll('#links > path')]
+        .map(p => [+p.dataset.from, +p.dataset.to])"""))
+
+
+def ends(page, frm, to):
+    """The a→b arrow's start and end, and both cards' rects, all in client coordinates."""
+    return page.evaluate("""([f, t]) => {
+        const p = document.querySelector(`#links > path[data-from="${f}"][data-to="${t}"]`);
+        const o = p.ownerSVGElement.getBoundingClientRect();
+        const at = l => { const q = p.getPointAtLength(l); return [q.x + o.left, q.y + o.top]; };
+        const r = id => document.querySelector(`.card[data-id="${id}"]`).getBoundingClientRect();
+        const box = n => ({left: n.left, right: n.right, y: n.top + n.height / 2});
+        return {start: at(0), end: at(p.getTotalLength()), f: box(r(f)), t: box(r(t))};
+    }""", [frm, to])
+
+
+def near(point, x, y):
+    return abs(point[0] - x) < 3 and abs(point[1] - y) < 3
+
+
+def frames(page):
+    """Two animation frames: a ResizeObserver has run by then."""
+    page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+
+
+def test_arrows_go_from_the_blocker_to_the_blocked_card_across_and_within_lanes(page):
+    a, b, c, d = on_board(page, ("a", "todo"), ("b", "plan"), ("c", "todo"), ("d", "todo"))
+    core.link_cards(a, b, "blocks", "ce")
+    core.link_cards(c, d, "blocks", "ce")
+    page.evaluate("load()")
+    page.wait_for_function("() => document.querySelectorAll('#links > path').length === 2")
+    assert arrows(page) == [[a, b], [c, d]]
+    e = ends(page, a, b)   # across: a's right edge to b's left edge
+    assert near(e["start"], e["f"]["right"], e["f"]["y"]), e
+    assert near(e["end"], e["t"]["left"], e["t"]["y"]), e
+    e = ends(page, c, d)   # same lane: right edge out, right edge in
+    assert near(e["start"], e["f"]["right"], e["f"]["y"]), e
+    assert near(e["end"], e["t"]["right"], e["t"]["y"]), e
+    # leftwards too: the blocked card's lane is left of the blocker's
+    core.unlink_cards(a, b, "blocks", "ce")
+    core.link_cards(b, a, "blocks", "ce")
+    page.evaluate("load()")
+    page.wait_for_function(f"() => document.querySelector('#links > path[data-from=\"{b}\"]')")
+    e = ends(page, b, a)
+    assert near(e["start"], e["f"]["left"], e["f"]["y"]), e
+    assert near(e["end"], e["t"]["right"], e["t"]["y"]), e
+
+
+def test_no_arrow_from_a_done_card_or_to_a_card_the_board_does_not_show(page):
+    core.create_project("Other")
+    a, b, x = on_board(page, ("a", "done"), ("b", "todo"), ("x", "todo", "Other"))
+    core.link_cards(a, b, "blocks", "ce")
+    core.link_cards(x, b, "blocks", "ce")
+    page.evaluate("localStorage.setItem('project', 'Home'); load()")
+    page.wait_for_selector(f'.card.blocked[data-id="{b}"]')
+    assert page.locator(f'.card[data-id="{x}"]').count() == 0, "x is under another tab"
+    assert page.text_content(f'.card[data-id="{b}"] .pill.blocked-by') == f"blocked by #{x}"
+    assert arrows(page) == [], "the done blocker and the hidden one draw nothing"
+    page.click('#proj button[value=""]')   # under All both ends show
+    page.wait_for_selector(f'.card[data-id="{x}"]')
+    assert arrows(page) == [[x, b]]
+
+
+def test_arrows_follow_the_cards_through_a_sideways_scroll_and_a_resize(page):
+    page.set_viewport_size({"width": 500, "height": 700})
+    a, b = on_board(page, ("a", "todo"), ("b", "test"))
+    core.link_cards(a, b, "blocks", "ce")
+    page.evaluate("load()")
+    page.wait_for_selector("#links > path", state="attached")   # a level line has no height
+    assert page.evaluate("document.querySelector('#board').scrollWidth > innerWidth"), "it scrolls"
+    page.evaluate("document.querySelector('#board').scrollLeft = 200")
+    frames(page)
+    e = ends(page, a, b)
+    assert near(e["start"], e["f"]["right"], e["f"]["y"]) and near(e["end"], e["t"]["left"], e["t"]["y"]), e
+    page.set_viewport_size({"width": 1280, "height": 700})
+    frames(page)
+    e = ends(page, a, b)
+    assert near(e["start"], e["f"]["right"], e["f"]["y"]) and near(e["end"], e["t"]["left"], e["t"]["y"]), e
+    assert page.evaluate("document.querySelector('#board').scrollWidth <= innerWidth"), \
+        "the old arrows don't hold the board wide"
+
+
+def test_hovering_a_card_lights_its_arrows_and_arrows_never_take_a_click(page):
+    a, b, c = on_board(page, ("a", "todo"), ("b", "test"), ("c", "plan"))
+    core.link_cards(a, b, "blocks", "ce")
+    core.link_cards(b, c, "blocks", "ce")
+    page.evaluate("load()")
+    page.wait_for_function("() => document.querySelectorAll('#links > path').length === 2")
+    hot = lambda: sorted(page.evaluate("""() => [...document.querySelectorAll('#links > path.hot')]
+        .map(p => [+p.dataset.from, +p.dataset.to])"""))
+    assert hot() == []
+    page.hover(f'.card[data-id="{a}"]')
+    assert hot() == [[a, b]]
+    page.hover(f'.card[data-id="{b}"] .t')   # either end, from anywhere on the card
+    assert hot() == [[a, b], [b, c]]
+    page.hover("header h1")
+    assert hot() == []
+    hits = page.evaluate("""() => [...document.querySelectorAll('#links > path')].flatMap(p => {
+        const o = p.ownerSVGElement.getBoundingClientRect(), n = p.getTotalLength();
+        return [.25, .5, .75].map(k => { const q = p.getPointAtLength(n * k);
+            return document.elementFromPoint(q.x + o.left, q.y + o.top).closest('#links') !== null; });
+    })""")
+    assert hits == [False] * 6, "clicks go through to the board under the arrows"
+    drag(page, b, "develop")   # a move re-renders: the arrows follow the card
+    page.wait_for_function(f"() => document.querySelector('.lane[data-lane=develop] .card[data-id=\"{b}\"]')")
+    e = ends(page, a, b)
+    assert near(e["end"], e["t"]["left"], e["t"]["y"]), e
+    e = ends(page, b, c)   # now c is left of b
+    assert near(e["start"], e["f"]["left"], e["f"]["y"]) and near(e["end"], e["t"]["right"], e["t"]["y"]), e
+
+
+def under(page, frm, to):
+    """The cards, other than its two ends, that the frm→to arrow passes under, sampled every
+    2px; and how far right it reaches, in client coordinates."""
+    return page.evaluate("""([f, t]) => {
+        const p = document.querySelector(`#links > path[data-from="${f}"][data-to="${t}"]`);
+        const o = p.ownerSVGElement.getBoundingClientRect(), n = p.getTotalLength(), hit = new Set();
+        let right = -Infinity;
+        for (let l = 0; l <= n; l += 2) {
+            const q = p.getPointAtLength(l), x = q.x + o.left, y = q.y + o.top;
+            right = Math.max(right, x);
+            for (const c of document.querySelectorAll('.card')) {
+                const r = c.getBoundingClientRect();
+                if (x > r.left && x < r.right && y > r.top && y < r.bottom
+                    && c.dataset.id != f && c.dataset.id != t) hit.add(+c.dataset.id);
+            }
+        }
+        return {under: [...hit], right};
+    }""", [frm, to])
+
+
+def test_an_arrow_skipping_a_lane_passes_by_the_cards_there_not_under_them(page):
+    # #3 in plan sits level with #1 and #2: a straight curve would seem to start from it
+    a, mid, mid2, b, c, d = on_board(page, ("a", "todo"), ("in plan", "plan"), ("also plan", "plan"),
+                                     ("b", "develop"), ("c", "todo"), ("d", "todo"))
+    core.link_cards(a, b, "blocks", "ce")
+    core.link_cards(b, a, "blocks", "ce")   # leftwards too
+    core.link_cards(c, d, "blocks", "ce")
+    core.link_cards(mid2, b, "blocks", "ce")   # and the next lane over
+    page.evaluate("load()")
+    page.wait_for_function("() => document.querySelectorAll('#links > path').length === 4")
+    for f, t in ((a, b), (b, a), (mid2, b)):
+        assert under(page, f, t)["under"] == [], (f, t)
+        e = ends(page, f, t)   # still from facing edge to facing edge
+        x1, x2 = ("right", "left") if f != b else ("left", "right")
+        assert near(e["start"], e["f"][x1], e["f"]["y"]) and near(e["end"], e["t"][x2], e["t"]["y"]), e
+        left, right = sorted((e["f"]["right"], e["t"]["left"]) if f != b else (e["t"]["right"], e["f"]["left"]))
+        reach = page.evaluate("""([f, t]) => { const p = document.querySelector(`#links > path[data-from="${f}"][data-to="${t}"]`);
+            const r = p.getBoundingClientRect(); return [r.left, r.right]; }""", [f, t])
+        assert left - 2 <= reach[0] and reach[1] <= right + 2, ("it stays between the two cards", reach, left, right)
+    # the same-lane C stays in the gap before the next lane
+    plan_left = page.evaluate("document.querySelector('.lane[data-lane=plan]').getBoundingClientRect().left")
+    assert under(page, c, d)["right"] < plan_left
+    # a hovered card's arrows stay lit through a redraw (a poll reload, a resize)
+    page.hover(f'.card[data-id="{c}"]')
+    page.evaluate("drawLinks()")
+    assert page.locator("#links > path.hot").count() == 1
+
+
 def test_assignee_and_links_from_the_panel(page):
     core.ensure_user("bob")
     other = core.create_card("other", actor="ce", project="Home")
