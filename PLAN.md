@@ -333,7 +333,11 @@ starting from that card): it jogs up or down in the lane gaps and crosses the la
 between at the free height (between cards, above or below them) nearest both ends. A
 redraw keeps a hovered card's arrows lit, and the status poll redraws when a work dot
 lights or goes out (it can wrap a card's meta row).
-Amber `#ff991f` line, red `var(--warn)` head, as the stripes. Against clutter they are
+Amber `#ff991f` line and head, one arrow (red already means "blocked" on the card it
+points at). The head (#64) is a slim notched one, tip on the card edge, and `orient="auto"`
+turns it with the path's end, so every path ends in a 10 px straight run into the edge
+(`R`): the curve stops short and an `L` finishes it, and the head points along the line
+the eye sees, not along a curve that levels off in its last pixel. Against clutter they are
 faint (opacity .3); hovering a card lights its arrows, both ways (`.hot`). No on/off
 toggle yet: add one if real boards get crowded.
 No dark-theme colours: the board has no dark theme yet.
@@ -539,6 +543,7 @@ no longer on the board.
 | 70 | #35 blocked cards get a red stripe and "blocked by" pill, blocking cards amber; cards carry computed `blocked_by` / `blocking`; the board's own moves and links update the other end at once | done — 408 checks |
 | 71 | #37 arrows from blocking to blocked cards on the board: an svg overlay in the board's scroll coordinates, redrawn on render and resize, only between cards on screen, faint until a card is hovered; one skipping lanes passes between the cards there | done — 413 checks |
 | 72 | #62 a blocker in `verify` with no open unmerged PR no longer blocks (stripes, pills, arrows, the run's queue, the idle gate); computed, so moving it back to work re-blocks | done — 420 checks |
+| 73 | #64 arrow heads point along the line: every arrow ends in a 10 px straight run into the card edge, with a slim notched amber head, tip on the edge | done — 421 checks |
 
 Gate for every task: `uv run pytest -q` — 420 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

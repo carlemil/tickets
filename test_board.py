@@ -656,6 +656,31 @@ def test_an_arrow_skipping_a_lane_passes_by_the_cards_there_not_under_them(page)
     assert page.locator("#links > path.hot").count() == 1
 
 
+def test_arrow_heads_point_along_the_last_stretch_of_the_line(page):
+    # #64: the head turns with the path's end, so the path must end in a straight run the
+    # eye sees, not a curve that levels off in its last pixel
+    a, mid, b, c, d, e = on_board(page, ("a", "todo"), ("in plan", "plan"), ("b", "develop"),
+                                  ("c", "todo"), ("d", "todo"), ("e", "plan"))
+    core.link_cards(a, b, "blocks", "ce")   # skips plan, rightwards
+    core.link_cards(b, a, "blocks", "ce")   # skips plan, leftwards
+    core.link_cards(c, d, "blocks", "ce")   # same lane
+    core.link_cards(c, e, "blocks", "ce")   # next lane, rightwards
+    core.link_cards(e, d, "blocks", "ce")   # next lane, leftwards
+    page.evaluate("load()")
+    page.wait_for_function("() => document.querySelectorAll('#links > path').length === 5")
+    for f, t, way in ((a, b, 1), (b, a, -1), (c, d, -1), (c, e, 1), (e, d, -1)):
+        dx, dy = page.evaluate("""([f, t]) => {
+            const p = document.querySelector(`#links > path[data-from="${f}"][data-to="${t}"]`);
+            const n = p.getTotalLength();
+            return [0, 2, 4, 6].map(l => [p.getPointAtLength(n - 8 + l), p.getPointAtLength(n - 6 + l)])
+                .reduce(([x, y], [q, r]) => [x.concat(r.x - q.x), y.concat(Math.abs(r.y - q.y))], [[], []]);
+        }""", [f, t])
+        assert all(x * way > 1.5 for x in dx) and max(dy) < 0.5, (f, t, dx, dy)
+    head, line = page.evaluate("""() => [getComputedStyle(document.querySelector('#links marker path')).fill,
+                                         getComputedStyle(document.querySelector('#links > path')).stroke]""")
+    assert head == line, "the head is the line's colour"
+
+
 def test_assignee_and_links_from_the_panel(page):
     core.ensure_user("bob")
     other = core.create_card("other", actor="ce", project="Home")
