@@ -59,17 +59,38 @@ hand coding tasks to an agent on your machine and review what comes back.</p>
 "User"; agents log under their own names. Never put it on a network, never host it online and never share it with a group.</p>
 
 <h2 id="run">2. Run it</h2>
-<p>You need Python 3.12 or newer and <code>uv</code>. Chrome too, but only for the browser
-tests.</p>
-<p>Start the server:</p>
+<p>You need Python 3.12 or newer, <code>uv</code>, <code>git</code> and the Claude Code CLI
+(<code>claude</code>). Chrome too, but only for the browser tests.</p>
+<ol>
+  <li>In the Tickets repo, install the dependencies with <code>uv sync</code>.</li>
+  <li>Start the server:
 <pre>uv run uvicorn app:app --host 127.0.0.1 --port 8123 --log-config log-config.json</pre>
-<p>Give Claude Code the board's tools:</p>
-<pre>claude mcp add --transport http tickets http://127.0.0.1:8123/mcp</pre>
-<p>8123 is the port the repo's scripts use. Any other free port works, but it is not a
-runtime setting: change <code>restart-backend.ps1</code> and the <code>claude mcp add</code>
-URL to match.</p>
+    On Windows, <code>powershell -NoProfile -File restart-backend.ps1</code> starts or
+    restarts it in the background.</li>
+  <li>Link the three skill folders (<code>skill-start</code>, <code>skill-open-board</code>,
+    <code>skill-stop</code>) into <code>~/.claude/skills</code> as
+    <code>tickets-start</code>, <code>tickets-open-board</code> and
+    <code>tickets-stop</code>, once; the README shows the commands. They are links, so a
+    change to a skill reaches every session.</li>
+  <li>Open a Claude Code session in the folder of the repo you want worked and run
+    <code>/tickets-start</code>. It does the rest, fixing only what is missing: it offers to
+    start the board at every logon, installs the idle gate, registers the board's MCP server,
+    writes the repo's <code>CLAUDE.md</code> test and deploy rules with you, creates the
+    project, and then works the board (see <a href="#agent">the agent</a>).</li>
+</ol>
+<p>The <b>idle gate</b> is a <code>UserPromptSubmit</code> hook in
+<code>~/.claude/settings.json</code> (<code>skill-start/idle_gate.py</code>): when a loop
+tick finds no card a run would take, it answers "nothing to do" before the model wakes, so
+an idle tick costs no tokens. It needs a system <code>python</code> on PATH; without one
+<code>/tickets-start</code> says so and skips it, and idle ticks still work, just not for free.</p>
+<p>Without <code>/tickets-start</code>, give Claude Code the board's tools by hand, at user
+scope so every project's sessions see them:</p>
+<pre>claude mcp add --scope user --transport http tickets http://127.0.0.1:8123/mcp</pre>
 <p>Then open <a href="/">the board</a> and create a project under "projects…". There is no
 default project, and a card needs one.</p>
+<p>8123 is the port the repo's scripts use. Any other free port works, but it is not a
+runtime setting: <code>restart-backend.ps1</code>, the <code>claude mcp add</code> URL, the
+skills and <code>skill-start/idle_gate.py</code> all name it, so change them to match.</p>
 
 <h2 id="board">3. The board</h2>
 <h3>Lanes</h3>
@@ -102,6 +123,7 @@ again.</p>
     specific to the board, such as the deploy target. "merge into the base branch" or "open a
     pull request" picks how a card that passed its tests lands.</li>
   <li><b>show archived</b>: shows the archived cards instead.</li>
+  <li><b>docs</b>: opens this manual in a new tab.</li>
   <li><b>New Card</b>: opens a draft. Nothing is saved until you close it. The draft
     starts in the project of the tab you are on, or the first project under All; the
     project picker under the title changes it.</li>
@@ -114,7 +136,7 @@ again.</p>
     page puts it in the nearest column. A card an agent moves lands at the bottom of the
     lane it arrives in.</li>
   <li>Click a card to open its sheet. Every field saves as soon as you leave it, so there is
-    no save button; "close", or a click on the board around the sheet, closes it. The sheet holds the description, the plan, the
+    no save button; "close", or a click on the board around the sheet, closes it. The sheet holds the project, assignee and lane, the description, the plan, the
     open questions and your answers, the checklist, labels, links (parent and blocks), the
     activity log, comments and "archive". Cards are never deleted, only archived. The log
     leaves out what the dots, the session button and the pull request link already show,
@@ -142,7 +164,9 @@ it is lit; a card with none of them has no dot.</p>
   <li><span class="dot" style="background:#36b37e"></span> <b>green dot</b>: it pulses while
     an agent is working on the card.</li>
   <li><span class="dot" style="background:#0052cc"></span> <b>blue dot</b>:
-    the card's branch is on the project's base branch, set by the agent's deploy step.
+    the card's branch is merged into the project's base branch: lit by the agent after the
+    land and deploy once git shows the branch merged, or, for a pull request, by the next
+    run once the PR is merged.
     <span class="dot" style="background:#6554c0"></span> <b>purple dot</b>: it is deployed to
     the local test backend or a device, lit by the agent's <code>deployed: </code> comment.
     Moving the card back to plan, develop or test clears them.</li>
@@ -191,6 +215,14 @@ run notices and marks with the blue dot. Moving a card from todo, verify or done
 develop or test drops its pull request link, and its next ship opens a new pull request,
 or picks up the branch's PR again if that one is still open: a closed or merged one is
 never reused.</p>
+<p>You can still move a card while the agent works it: <b>a person's move wins</b>. The
+agent then posts its output as a comment saying the card was moved during the run and
+leaves it where you put it. A card assigned to a person is never taken.</p>
+<p><b>Blocked by a person.</b> When a stage needs something only you can do (a credential,
+an account, a service to enable, a device to plug in), the agent opens a <code>todo</code>
+card for each such task, links it as blocking the card, and comments the new cards' numbers.
+The card stays in its lane, marked blocked, and runs skip it until those cards reach
+<code>verify</code> (one with an open pull request: once it is merged) or <code>done</code>.</p>
 
 <h2 id="workflow">5. How you work with it</h2>
 <ol>
@@ -198,9 +230,9 @@ never reused.</p>
     deploy rules in the repo's <code>CLAUDE.md</code> and anything board-specific in its
     agent instructions. Whatever you leave out shows up as a card in <code>todo</code> telling you
     what is still missing. Or let <code>/tickets-start</code> do it: run in a Claude Code
-    session in the repo's folder, it starts the board if it is down, checks the MCP server
-    , helps write the <code>CLAUDE.md</code> rules and
-    creates the project, fixing only what is missing. Then it works the board
+    session in the repo's folder, it starts the board if it is down (and offers to start it
+    at every logon), registers the MCP server, installs the idle gate, helps write the
+    <code>CLAUDE.md</code> rules and creates the project, fixing only what is missing. Then it works the board
     every 15 minutes (or <code>/tickets-start 10m</code>) for as long as that session stays
     open, and ends with a link to the board; <code>/tickets-stop</code> stops it.
     <code>/tickets-open-board</code> opens the board in your browser any time.</li>
@@ -215,8 +247,12 @@ never reused.</p>
     buttons under the questions, the agent's pick marked "recommended": a click writes
     <code>N. &lt;option&gt;</code> into your answers, and you can still type there.</li>
   <li>In <code>verify</code>: read the comments, look at the branch, try the deployed build.
-    Then merge <code>card/&lt;id&gt;</code> yourself and move the card to <code>done</code>.
-    A project whose deploy instructions do the merge leaves you only the last one.</li>
+    With "merge into the base branch" the agent has already merged <code>card/&lt;id&gt;</code>
+    and pushed the base: the deploy comment says so, or why it skipped the merge (the repo
+    was on another branch or had uncommitted changes) or that it conflicted; only then
+    merge it yourself (unless the project's deploy instructions merged it; the blue dot
+    shows it is on the base). With "open a pull request", merge the PR linked under the title.
+    Then click "move to done".</li>
 </ol>
 <ul>
   <li><b>Not what you asked for?</b> Rewrite the description, move the card back to

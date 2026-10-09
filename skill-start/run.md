@@ -19,7 +19,7 @@ Every board write uses `actor="claude-agent"`. Tools are the `tickets` MCP serve
 A missing board never stops a run:
 - `GET http://127.0.0.1:8123/api/projects` does not answer → start it detached (a
   uvicorn started straight from a tool call dies with the call):
-  `powershell -NoProfile -File <tickets repo>/restart-backend.ps1 -Delay 1`, ; wait ~12 s and
+  `powershell -NoProfile -File <tickets repo>/restart-backend.ps1 -Delay 1`; wait ~12 s and
   ask again. Still down → stop, with the tail of `<tickets repo>/restart-backend.log`.
 - The `tickets` tools are missing (the session started while the board was down, or the
   server is not registered) → do the whole run over the board's HTTP API instead; a

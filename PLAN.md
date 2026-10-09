@@ -1,7 +1,8 @@
 # Tickets — lane-based board with an MCP interface
 
-A personal Jira replacement. A lane board a human drives in a browser and an AI agent
-drives over MCP, sharing one SQLite file. Cards record who did what.
+A personal lane board that sits next to JIRA, not in place of it. A human drives it in a
+browser and an AI agent drives it over MCP, sharing one SQLite file. Cards record who did
+what.
 
 **No auth.** Users are identities (a name), not accounts — nothing is enforced. Bind to
 `127.0.0.1` only. Do not expose this to a network without adding auth first.
@@ -27,8 +28,10 @@ test_core.py   core operations, rejections and no-ops
 test_app.py    status codes, the actor rule, both error mappings, ToolError, the MCP wire
 test_board.py  the board in a real browser, plus one lock per bug that shipped
 test_e2e.py    one card, browser and MCP, one attributed history
+test_idle_gate.py  the idle gate: which boards let a loop tick through
 skill-start/SKILL.md  /tickets-start: sets a repo up where needed, then works its cards, on a /loop or once
 skill-start/run.md    one run over a project's cards, over MCP (read by /tickets-start, not a skill)
+skill-start/idle_gate.py  UserPromptSubmit hook: answers an idle loop tick before the model wakes
 skill-open-board/SKILL.md  /tickets-open-board: opens the board in the browser
 skill-stop/SKILL.md  /tickets-stop: cancels that loop
 CLAUDE.md      this repo's own rules (test gate, docs, deploy), read by every session
@@ -39,8 +42,8 @@ Run: `uv run uvicorn app:app --host 127.0.0.1 --port 8123 --log-config log-confi
 Agent hookup, once, at user scope so every project's session sees the board:
 `claude mcp add --scope user --transport http tickets http://127.0.0.1:8123/mcp`
 
-8123 is the port the MCP registration, `restart-backend.ps1` and the docs use; any free
-port works, as long as all three match.
+8123 is the port the MCP registration, `restart-backend.ps1`, the skills,
+`skill-start/idle_gate.py` and the docs use; any free port works, as long as they all match.
 
 **The restart waits for the port.** `restart-backend.ps1` kills what holds 8123 and starts
 a new backend, and a deploy schedules one 30 s out (`-Delay 30`) so its own report gets
@@ -371,8 +374,9 @@ pos-only reorder, project renames) do not trigger it.
 **On master, deployed (#41).** After the auto dot come two more, on the board card and in
 the sheet header: blue when `merged` (the card's branch is on the base branch, locally or
 on origin), purple when `deployed` (on the local test backend or a device), absent when not (#65).
-Not clickable. The skill's deploy step merges the card's branch into the base branch
-(#106) and sets `merged` from git.
+Not clickable. The skill's land step merges the card's branch into the base branch
+(#106) and the run then sets `merged` from git; with `land` `pr` the run's pull request
+catch-up sets it once the PR is merged.
 `deployed` the board sets itself, from the head of the deploy comment: `core.comment`
 lights it on `deployed: ` from `claude-agent` and darkens it on `deploy skipped: ` or
 `deploy failed: ` (a skip — nothing to deploy, or no phone — is not a failure). The head
@@ -548,6 +552,7 @@ no longer on the board.
 | 72 | #62 a blocker in `verify` with no open unmerged PR no longer blocks (stripes, pills, arrows, the run's queue, the idle gate); computed, so moving it back to work re-blocks | done — 420 checks |
 | 73 | #64 arrow heads point along the line: every arrow ends in a 10 px straight run into the card edge, with a slim notched amber head, tip on the edge | done — 421 checks |
 | 74 | #72 rework clears a card's `pr` with `merged` and `deployed`, and ship reuses only an open PR, so an old merged PR never vouches for (or unblocks) reworked code | done — 431 checks |
+| 75 | #76 docs brought up to date: setup through `/tickets-start` (user-scope MCP, skills, idle gate), the verify step after the agent's land, the blue dot, blocked-by-a-person and a person's move winning; board tooltips no longer say "master" or describe the retired agent prompt | done — 431 checks |
 
 Gate for every task: `uv run pytest -q` — 431 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
