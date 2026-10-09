@@ -539,6 +539,17 @@ def test_update_card_tool_sets_the_pr():
     assert "`pr`" in app.update_card.__doc__ and "`land`" in app.list_projects.__doc__
 
 
+def test_a_reworked_pr_card_drops_its_pr_over_rest(client):
+    c = client.post("/api/cards", json={"title": "x", "actor": "ann", "project": "Home",
+                                        "lane": "verify"}).json()
+    url = "https://github.com/o/r/pull/7"
+    r = client.patch(f"/api/cards/{c['id']}", json={"actor": "ann", "pr": url, "merged": True})
+    assert r.json()["pr"] == url, r.text
+    r = client.patch(f"/api/cards/{c['id']}", json={"actor": "ann", "lane": "develop"})
+    assert r.status_code == 200, r.text
+    assert (r.json()["pr"], r.json()["merged"]) == ("", False)
+
+
 def test_project_land_over_rest(client):
     r = client.post("/api/projects", json={"name": "Shop", "land": "pr"})
     assert r.status_code == 201 and r.json()["land"] == "pr", r.text

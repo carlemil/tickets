@@ -1182,6 +1182,61 @@ def test_rework_that_sets_them_in_the_same_write_wins():
     assert (c["merged"], c["deployed"]) == (True, False)
 
 
+PR = "https://example.test/pr/1"
+
+
+def shipped_pr(lane="verify"):
+    c = card(lane=lane)
+    return core.update_card(c["id"], "agent", pr=PR, merged=True, deployed=True)
+
+
+@pytest.mark.parametrize("lane", ["plan", "develop", "test"])
+def test_rework_clears_the_old_pr(lane):
+    c = core.update_card(shipped_pr()["id"], "ce", lane=lane)
+    assert (c["pr"], c["merged"], c["deployed"]) == ("", False, False)
+    ev = [e["detail"] for e in c["events"] if e["kind"] == "edited"
+          and e["detail"]["field"] == "pr"]
+    assert ev[-1]["from"] == PR and ev[-1]["to"] == "", "history keeps the old URL"
+
+
+@pytest.mark.parametrize("lane", ["done", "todo"])
+def test_a_move_out_of_the_work_lanes_keeps_the_pr(lane):
+    c = core.update_card(shipped_pr()["id"], "ce", lane=lane)
+    assert (c["pr"], c["merged"]) == (PR, True)
+
+
+def test_a_move_between_work_lanes_or_an_edit_keeps_the_pr():
+    c = core.update_card(shipped_pr("develop")["id"], "ce", lane="test")
+    assert c["pr"] == PR
+    c = core.update_card(shipped_pr()["id"], "ce", title="renamed")
+    assert c["pr"] == PR
+
+
+def test_rework_that_sets_the_pr_in_the_same_write_wins():
+    new = "https://example.test/pr/2"
+    c = core.update_card(shipped_pr()["id"], "ce", lane="develop", pr=new)
+    assert (c["pr"], c["merged"]) == (new, False)
+
+
+def test_a_card_with_no_pr_reworked_writes_no_pr_event():
+    c = core.update_card(shipped()["id"], "ce", lane="develop")
+    assert not [e for e in c["events"] if e["detail"].get("field") == "pr"]
+
+
+def test_a_reworked_pr_blocker_blocks_until_its_new_pr_merges():
+    a, b = card(), card("Second")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    core.update_card(a["id"], "ann", lane="verify", pr=PR, merged=True)
+    assert marks(b["id"]) == ([], []), "its PR merged"
+    core.update_card(a["id"], "ann", lane="develop")   # rework
+    assert marks(b["id"]) == ([a["id"]], [])
+    assert core.get_card(a["id"])["pr"] == ""
+    core.update_card(a["id"], "ann", lane="verify", pr="https://example.test/pr/2")
+    assert marks(b["id"]) == ([a["id"]], []), "the new PR is not merged yet"
+    core.update_card(a["id"], "ann", merged=True)
+    assert marks(b["id"]) == ([], [])
+
+
 @pytest.mark.parametrize("f", ["merged", "deployed"])
 @pytest.mark.parametrize("bad", ["yes", 1, None])
 def test_merged_and_deployed_reject_everything_but_a_bool(f, bad):

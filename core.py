@@ -503,7 +503,9 @@ def _blocks(db):
     """{id: (blocked_by, blocking)} over live `blocks` links: the blocker not finished
     (#62: finished = done, or verify with no open unmerged PR) and the blocked card not
     done, any project, archived or not. Computed, never deleted: a blocker moved back
-    from verify blocks again. The board marks cards with these and #37 draws arrows."""
+    from verify blocks again, and rework clears its `pr` with `merged` (#72), so a
+    reworked PR card blocks until its new PR merges. The board marks cards with these
+    and #37 draws arrows."""
     out = {}
     for f, t in db.execute(
         "SELECT l.from_id, l.to_id FROM links l JOIN cards a ON a.id=l.from_id"
@@ -590,11 +592,13 @@ def update_card(id, actor, **fields):
         if to != frm:
             fields.setdefault("pos", _bottom(db, LANES[to]))
         # back into plan, develop or test is rework: the new work is neither on master
-        # nor deployed
+        # nor deployed. The old PR goes too (#72): a merged one would vouch for code
+        # that is not on the base, and the next ship opens a new one.
         work = ("plan", "develop", "test")
         if to != frm and LANES[to] in work and LANES[frm] not in work:
             fields.setdefault("merged", False)
             fields.setdefault("deployed", False)
+            fields.setdefault("pr", "")
         sets, args, evs = [], [], []
         for f, new in fields.items():
             if new == old[f]:
