@@ -419,7 +419,7 @@ function cardNode(c) {
   n.classList.toggle("blocked", by.length > 0);
   n.classList.toggle("blocking", blocks.length > 0);
   if (by.length) meta.append(Object.assign(document.createElement("span"),
-    { className: "pill blocked-by", title: "blocked: can't start until these are done",
+    { className: "pill blocked-by", title: "blocked: can't start until these reach verify (with an open PR: until it is merged) or done",
       textContent: "blocked by " + by.map(i => "#" + i).join(" ") }));
   if (blocks.length) meta.append(Object.assign(document.createElement("span"),
     { className: "pill blocks", title: "blocking: these cards wait for this one",

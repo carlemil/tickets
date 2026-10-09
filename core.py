@@ -500,12 +500,15 @@ def create_card(
 
 
 def _blocks(db):
-    """{id: (blocked_by, blocking)} over live `blocks` links: both ends not done, any
-    project, archived or not. The board marks cards with these and #37 draws arrows."""
+    """{id: (blocked_by, blocking)} over live `blocks` links: the blocker not finished
+    (#62: finished = done, or verify with no open unmerged PR) and the blocked card not
+    done, any project, archived or not. Computed, never deleted: a blocker moved back
+    from verify blocks again. The board marks cards with these and #37 draws arrows."""
     out = {}
     for f, t in db.execute(
         "SELECT l.from_id, l.to_id FROM links l JOIN cards a ON a.id=l.from_id"
         " JOIN cards b ON b.id=l.to_id WHERE l.kind='blocks' AND a.lane!='done'"
+        " AND NOT (a.lane='verify' AND (COALESCE(a.pr,'')='' OR a.merged=1))"
         " AND b.lane!='done' ORDER BY l.from_id, l.to_id"
     ):
         out.setdefault(t, ([], []))[0].append(f)

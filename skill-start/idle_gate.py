@@ -36,10 +36,8 @@ def workable(card, base):
         return False  # waiting for a person's answers
     if card["assignee"] not in (None, "", "claude-agent"):
         return False
-    # blocked by a card not yet done (the blocker may sit in another project)
-    blockers = [l["from_id"] for l in get(base, "/api/cards/%d" % card["id"])["links"]
-                if l["kind"] == "blocks" and l["to_id"] == card["id"]]
-    return all(get(base, "/api/cards/%d" % b)["lane"] == "done" for b in blockers)
+    # blocked by an unfinished card, any project: the server's own rule (#35, #62)
+    return not card["blocked_by"]
 
 
 def idle_line(prompt, cwd, base=BASE):
