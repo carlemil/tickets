@@ -231,6 +231,8 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     `session`: the board agent sets it to its Claude Code session id when it takes a card,
     so a person can reopen the run with `claude --resume`.
     `pr`: the board agent sets it to the card's pull request URL when the project lands by PR.
+    A move from todo, verify or done into plan, develop or test (rework) clears `pr`,
+    `merged` and `deployed`, unless the same call sets them.
 
     Where text goes — each field REPLACES what is there: `description` is the request;
     leave it to the person who asked, do not put a plan in it. `plan` is the

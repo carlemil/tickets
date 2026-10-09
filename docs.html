@@ -205,7 +205,10 @@ the deploy and the merge into the base branch go one card after another. The sta
 shows the card it started last and how many are in flight. A card that passes its tests
 is pushed as <code>card/&lt;id&gt;</code> and then lands the project's way: merged locally
 into the base branch, or opened as a pull request with <code>gh</code>, whose merge the next
-run notices and marks with the blue dot.</p>
+run notices and marks with the blue dot. Moving a card from todo, verify or done back to plan,
+develop or test drops its pull request link, and its next ship opens a new pull request,
+or picks up the branch's PR again if that one is still open: a closed or merged one is
+never reused.</p>
 <p>You can still move a card while the agent works it: <b>a person's move wins</b>. The
 agent then posts its output as a comment saying the card was moved during the run and
 leaves it where you put it. A card assigned to a person is never taken.</p>

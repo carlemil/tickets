@@ -196,7 +196,9 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    error → failure, card stays in test. Comment the commit pushed. If the project's
    `land` is `pr`, then in the repo: `gh pr create --base <base> --head card/<id> --title
    "#<id> <title>" --body "<short summary from the test reply>"` (a PR for the branch
-   already exists → `gh pr view card/<id> --json url -q .url` instead),
+   already exists → `gh pr list --head card/<id> --state open --json url -q ".[0].url"`
+   instead; only an OPEN PR is reused, a closed or merged one never is (#72); no
+   http(s) URL back, e.g. empty or `null` → failure, card stays in test),
    `update_card(pr=<url>)`, and comment the URL. gh missing or failing → failure, card
    stays in test.
 2. **Land:** only when `land` is `merge` — with `pr`, skip it and say "landing by pull
