@@ -549,7 +549,7 @@ no longer on the board.
 | 73 | #64 arrow heads point along the line: every arrow ends in a 10 px straight run into the card edge, with a slim notched amber head, tip on the edge | done — 421 checks |
 | 74 | #72 rework clears a card's `pr` with `merged` and `deployed`, and ship reuses only an open PR, so an old merged PR never vouches for (or unblocks) reworked code | done — 431 checks |
 
-Gate for every task: `uv run pytest -q` — 421 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 431 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
