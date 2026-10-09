@@ -72,7 +72,20 @@ project's folder.
 **Setup** only fixes what is missing, so running it again is quick. It starts the board
 if it is down and offers to start it at every logon. It registers the `tickets` MCP
 server, checks the repo has `git` and an `origin`, helps write the repo's `CLAUDE.md`
-test and deploy rules, and creates the project on the board.
+test and deploy rules, and creates the project on the board. It also installs the idle
+gate (below).
+
+**The idle gate** keeps the loop from spending tokens when it has nothing to do.
+`skill-start/idle_gate.py` runs as a `UserPromptSubmit` hook in
+`~/.claude/settings.json` and checks the board before each loop tick reaches the model.
+If this folder's project has no card a run would take, it blocks the tick and prints
+`tickets: nothing to do (<time>)`, so the model never wakes. Otherwise the tick goes
+through as usual. A card that is ready, in progress or has an open PR is one a run would
+take. Cards waiting for your answers, assigned to someone else or blocked by an unfinished
+card are not. When the board is down, or the folder has no project, the tick also goes
+through, so the run can deal with it. Without the gate, an idle tick in a long session
+cost about 400k cached tokens. The gate needs `python` on PATH and uses only the standard
+library.
 
 **A run** takes every ready card of this folder's project in `plan`, `develop` and
 `test` through to `verify`, up to 3 at once and one in test at a time. It plans first:
@@ -100,7 +113,8 @@ in `verify` looks right, click "move to done".
     docs.html      the user manual, served at /docs
     conftest.py    fixtures: temp DB, TestClient, uvicorn thread, Chrome page
     test_*.py      the suite: core, app, board, end-to-end
-    skill*/        the Claude Code skills, one folder each (see Skills)
+    skill*/        the Claude Code skills, one folder each (see Skills);
+                   skill-start/idle_gate.py is the idle gate hook
     CLAUDE.md      this repo's own rules for Claude Code sessions
     PLAN.md        the design document
 
