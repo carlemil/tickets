@@ -93,6 +93,15 @@
   .card.blocked.blocking::before { background: linear-gradient(var(--warn) 50%, #ff991f 50%); }
   .pill.blocked-by { background: #ffebe6; color: var(--warn); }
   .pill.blocks { background: #fffae6; color: #974f0c; }
+  /* #37: an arrow from each blocking card to each card it blocks, both on screen. One svg
+     over the whole board, in its scroll coordinates, so it scrolls with it; clicks and
+     drags go through. Faint, so many links don't drown the cards; a hovered card's are lit */
+  #board { position: relative; }
+  #links { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+  #links > path { fill: none; stroke: #ff991f; stroke-width: 2; opacity: .3; }
+  #links > path.hot { opacity: 1; }
+  #links marker path { fill: var(--warn); }
+  .card { z-index: 1; }   /* over the arrows: one crossing a card goes under it, not over its text */
   /* shown only when lit: the work dot pulses green while an agent works the card. It stays
      in the DOM when idle, so markWorking can light it without a re-render */
   .work, .st { width: 8px; height: 8px; border-radius: 50%; flex: none; }
@@ -466,7 +475,64 @@ function renderBoard() {
 
     b.append(col);
   }
+  drawLinks();
 }
+
+// The #37 arrows, redrawn from scratch: after every render and whenever the board resizes.
+// Scrolling needs nothing: the svg lives in the board's own scroll coordinates.
+// An end that isn't on screen (another project, done, archived) gets no arrow: the pill names it.
+// ponytail: O(links) rect reads per render; fine for hundreds of cards.
+const SVG = "http://www.w3.org/2000/svg";
+function drawLinks() {
+  const b = $("#board");
+  const old = $("#links");
+  if (old) old.remove();   // first, so the old size doesn't hold the scroll size up
+  const svg = document.createElementNS(SVG, "svg");
+  svg.id = "links";
+  svg.setAttribute("width", b.scrollWidth);
+  svg.setAttribute("height", b.scrollHeight);
+  svg.innerHTML = '<defs><marker id="head" viewBox="0 0 10 10" refX="9" refY="5" ' +
+    'markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>';
+  const br = b.getBoundingClientRect();
+  const box = id => {   // a card on screen and not done, in board coordinates
+    const c = cards.find(x => x.id === id);
+    const n = c && c.lane !== "done" && b.querySelector(`.card[data-id="${id}"]`);
+    if (!n) return null;
+    const r = n.getBoundingClientRect();
+    const left = r.left - br.left + b.scrollLeft, top = r.top - br.top + b.scrollTop;
+    return { left, right: left + r.width, y: top + r.height / 2 };
+  };
+  for (const c of cards) for (const to of c.blocking || []) {
+    const f = box(c.id), t = box(to);
+    if (!f || !t) continue;
+    let d;
+    if (f.left === t.left) {   // same lane: out of the right edge and back in, a C into the gap
+      d = `M${f.right},${f.y} C${f.right + 32},${f.y} ${t.right + 32},${t.y} ${t.right},${t.y}`;
+    } else {                   // across lanes: from the facing side to the facing side
+      const s = t.left > f.left ? 1 : -1;
+      const x1 = s > 0 ? f.right : f.left, x2 = s > 0 ? t.left : t.right;
+      const k = s * Math.max(30, Math.abs(x2 - x1) / 2);
+      d = `M${x1},${f.y} C${x1 + k},${f.y} ${x2 - k},${t.y} ${x2},${t.y}`;
+    }
+    const p = document.createElementNS(SVG, "path");
+    p.setAttribute("d", d);
+    p.setAttribute("marker-end", "url(#head)");
+    p.dataset.from = c.id; p.dataset.to = to;
+    svg.append(p);
+  }
+  b.append(svg);
+}
+new ResizeObserver(drawLinks).observe($("#board"));
+// hovering a card lights its arrows, both ways
+function hot(id) {
+  for (const p of document.querySelectorAll("#links > path"))
+    p.classList.toggle("hot", p.dataset.from === id || p.dataset.to === id);
+}
+$("#board").addEventListener("mouseover", ev => {
+  const n = ev.target.closest(".card");
+  hot(n && n.dataset.id);
+});
+$("#board").addEventListener("mouseleave", () => hot(null));
 
 // A card drops into the column under the pointer, wherever on the page: below a lane's
 // end, in the gap between lanes or on the status bar too. A lane is as tall as the tallest
