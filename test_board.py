@@ -659,23 +659,34 @@ def test_an_arrow_skipping_a_lane_passes_by_the_cards_there_not_under_them(page)
 def test_arrow_heads_point_along_the_last_stretch_of_the_line(page):
     # #64: the head turns with the path's end, so the path must end in a straight run the
     # eye sees, not a curve that levels off in its last pixel
-    a, mid, b, c, d, e = on_board(page, ("a", "todo"), ("in plan", "plan"), ("b", "develop"),
-                                  ("c", "todo"), ("d", "todo"), ("e", "plan"))
+    a, mid, b, c, d, mid2, e = on_board(page, ("a", "todo"), ("in plan", "plan"), ("b", "develop"),
+                                        ("c", "todo"), ("d", "todo"), ("also plan", "plan"), ("e", "plan"))
     core.link_cards(a, b, "blocks", "ce")   # skips plan, rightwards
     core.link_cards(b, a, "blocks", "ce")   # skips plan, leftwards
     core.link_cards(c, d, "blocks", "ce")   # same lane
-    core.link_cards(c, e, "blocks", "ce")   # next lane, rightwards
+    core.link_cards(c, e, "blocks", "ce")   # next lane, rightwards, e lower than c: a curve
     core.link_cards(e, d, "blocks", "ce")   # next lane, leftwards
     page.evaluate("load()")
     page.wait_for_function("() => document.querySelectorAll('#links > path').length === 5")
     for f, t, way in ((a, b, 1), (b, a, -1), (c, d, -1), (c, e, 1), (e, d, -1)):
-        dx, dy = page.evaluate("""([f, t]) => {
+        dx, dy, back = page.evaluate("""([f, t]) => {
             const p = document.querySelector(`#links > path[data-from="${f}"][data-to="${t}"]`);
             const n = p.getTotalLength();
-            return [0, 2, 4, 6].map(l => [p.getPointAtLength(n - 8 + l), p.getPointAtLength(n - 6 + l)])
+            const [dx, dy] = [0, 2, 4, 6].map(l => [p.getPointAtLength(n - 8 + l), p.getPointAtLength(n - 6 + l)])
                 .reduce(([x, y], [q, r]) => [x.concat(r.x - q.x), y.concat(Math.abs(r.y - q.y))], [[], []]);
+            // how far x ever runs back against the arrow's way (a wiggle before the run)
+            const way = Math.sign(p.getPointAtLength(n).x - p.getPointAtLength(0).x);
+            let best = -Infinity, back = 0;
+            for (let l = 0; l <= n; l += 1) { const x = p.getPointAtLength(l).x * way;
+                best = Math.max(best, x); back = Math.max(back, best - x); }
+            return [dx, dy, back];
         }""", [f, t])
         assert all(x * way > 1.5 for x in dx) and max(dy) < 0.5, (f, t, dx, dy)
+        if (f, t) != (c, d):   # the same-lane loop goes out and back by design
+            assert back < 0.5, ("the line never doubles back", f, t, back)
+    ys = page.evaluate(f"""() => [{c}, {e}].map(id => document.querySelector(`.card[data-id="${{id}}"]`)
+                                    .getBoundingClientRect().top)""")
+    assert ys[1] > ys[0] + 20, "c→e is a curve, not a flat line"
     head, line = page.evaluate("""() => [getComputedStyle(document.querySelector('#links marker path')).fill,
                                          getComputedStyle(document.querySelector('#links > path')).stroke]""")
     assert head == line, "the head is the line's colour"

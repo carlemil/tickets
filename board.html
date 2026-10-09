@@ -524,7 +524,8 @@ function drawLinks() {
         const x1 = s > 0 ? f.right : f.left, x2 = s > 0 ? t.left : t.right, xr = x2 - s * R;
         const mid = lanes.filter(l => l.left > Math.min(f.right, t.right) && l.right < Math.max(f.left, t.left));
         if (!mid.length) {
-          const k = s * Math.max(30, Math.abs(xr - x1) / 2);
+          // no more than the span: past it the curve doubles back in x before the run
+          const w = Math.abs(xr - x1), k = s * Math.min(w, Math.max(30, w / 2));
           d = `M${x1},${f.y} C${x1 + k},${f.y} ${xr - k},${t.y} ${xr},${t.y} L${x2},${t.y}`;
         } else {
           // Skipping lanes: under a card there it would seem to start from that card. Cross

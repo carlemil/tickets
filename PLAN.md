@@ -545,7 +545,7 @@ no longer on the board.
 | 72 | #62 a blocker in `verify` with no open unmerged PR no longer blocks (stripes, pills, arrows, the run's queue, the idle gate); computed, so moving it back to work re-blocks | done — 420 checks |
 | 73 | #64 arrow heads point along the line: every arrow ends in a 10 px straight run into the card edge, with a slim notched amber head, tip on the edge | done — 421 checks |
 
-Gate for every task: `uv run pytest -q` — 420 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 421 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
