@@ -64,8 +64,8 @@ built) but fail in develop/test.
 ## 2. Build the queue
 
 `list_cards(project=…)` and keep the cards in `plan`, `develop`, `test` (with a
-card id: just that card, wherever it is among those lanes). Order: `plan` first (plans are
-cheap, and their questions reach a person sooner), then `develop`, then `test`; within
+card id: just that card, wherever it is among those lanes). Order: `plan` first (their
+questions reach a person sooner), then `develop`, then `test`; within
 a lane, the board's order. Skip, and name in the
 final summary:
 
@@ -117,7 +117,8 @@ for you, so point it at the card you started last and say how many are in flight
 `developing`, `testing`); clear it (`set_activity` with no card) when the last card
 leaves your hands.
 Before every board write after a stage, `get_card` again: **a person's move wins** — if
-the lane changed under you, post your output as a comment saying it was moved during the
+the lane changed under you (other than by your own move, or plan & develop's move to
+`develop`), post your output as a comment saying it was moved during the
 run, and leave the card where they put it.
 
 **The brief is the subagent's whole world** — it starts empty, like a session after
@@ -144,9 +145,12 @@ On a card's way out: `update_card(assignee="")` unless a person had it before yo
 ### plan & develop  (in the card's worktree)
 
 (you) `git -C <repo> pull --ff-only` first; if it fails, tell the subagent the code may
-be behind. Then set up the card's worktree as under develop below, before spawning.
+be behind. Then set up the card's worktree as under develop below, before spawning; note
+whether `card/<id>` already existed. Not a git repo → no pull, no worktree: the subagent
+plans in the folder.
 
-**Plan.** The subagent reads code in the worktree, changes nothing yet, and writes the
+**Plan.** The subagent reads code in the worktree, changes nothing yet (beyond resolving
+and committing the base merge's conflicts if you told it to), and writes the
 complete plan in markdown (Context section restates the request). If the card already
 has `questions` and `answers`, those are a person's answers: build them in, do not ask
 again. The plan has a `## Steps` section: a numbered list of concrete implementation
@@ -178,18 +182,20 @@ Otherwise reply with a short summary and the test result, last line `STAGE: BUIL
 (`STAGE: FAILED` if it could not finish). No git repo → no worktree: plan in the folder,
 post as above, never build; NONE then ends `STAGE: FAILED` ("no git repo").
 
-(you) Per verdict, after `get_card`:
+(you) Per verdict, after `get_card` (a person's move wins: expect `develop` after BUILT,
+`plan` after QUESTIONS, either after BLOCKED or FAILED):
 - BUILT → comment the summary plus the worktree path, move to `test` (it waits for the
   test slot).
 - QUESTIONS → comment "open questions: answer them in the card; the next run replans
   with them".
-- BLOCKED → the blocker cards (Blocked by a person, below).
+- BLOCKED → the blocker cards (Blocked by a person, below), plus the open-questions
+  comment if it posted questions.
 - FAILED → failure. Posted already → the card sits in `develop` and a later run develops
   it fresh; otherwise it stays in `plan`.
-- QUESTIONS, MOVED, or BLOCKED/FAILED with the card still in `plan` → `git -C <repo>
-  worktree remove <tree>` (no `--force`; will not go → leave it, say so), and
-  `git -C <repo> branch -d card/<id>` only if `git -C <repo> rev-list --count
-  <base>..card/<id>` is 0.
+- QUESTIONS, MOVED, or BLOCKED/FAILED (or a crash) with the card still in `plan` →
+  `git -C <repo> worktree remove <tree>` (no `--force`; will not go → leave it, say so),
+  and `git -C <repo> branch -d card/<id>` only if you created the branch for this run and
+  `git -C <repo> rev-list --count <base>..card/<id>` is 0 (an older branch is the record).
 
 ### develop  (in the card's worktree)
 
@@ -209,7 +215,8 @@ after posting); plan & develop builds by the subagent rules here.
 The subagent implements the card following `plan` and `answers` (later comments win),
 works only inside the worktree, runs the project's tests, commits on `card/<id>` — never
 pushes, never switches branch — and replies with a short summary and the test result.
-Its one board write: as it finishes a step it ticks that checklist item — `get_card`,
+Its one board write (plan & develop's plan post came before): as it finishes a step it
+ticks that checklist item — `get_card`,
 flip that item's `done`, `update_card(checklist=<the full list>, actor="claude-agent")` —
 nothing else; tell it so in the brief.
 (you) Comment the summary plus the worktree path, move to `test`.
