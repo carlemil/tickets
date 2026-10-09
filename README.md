@@ -52,11 +52,11 @@ tests.
    They are links, so editing a skill here takes effect in every session at once.
 
 4. In a Claude Code session opened in the repo you want worked, run `/tickets-start`. It
-   does the rest (MCP server, `CLAUDE.md` rules, the project on the board) and starts
-   working the board.
+   does the rest (the logon start, the idle gate hook, the MCP server, `CLAUDE.md` rules,
+   the project on the board) and starts working the board.
 
 8123 is not a runtime setting. Any free port works, but `restart-backend.ps1`, the
-`claude mcp add` URL and the skills must match.
+`claude mcp add` URL, the skills and `skill-start/idle_gate.py` must match.
 
 ## Skills
 

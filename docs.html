@@ -73,11 +73,16 @@ hand coding tasks to an agent on your machine and review what comes back.</p>
     <code>tickets-stop</code>, once; the README shows the commands. They are links, so a
     change to a skill reaches every session.</li>
   <li>Open a Claude Code session in the folder of the repo you want worked and run
-    <code>/tickets-start</code>. It does the rest, fixing only what is missing: it registers
-    the board's MCP server, writes the repo's <code>CLAUDE.md</code> test and deploy rules
-    with you, creates the project, installs the idle gate, and then works the board (see
-    <a href="#agent">the agent</a>).</li>
+    <code>/tickets-start</code>. It does the rest, fixing only what is missing: it offers to
+    start the board at every logon, installs the idle gate, registers the board's MCP server,
+    writes the repo's <code>CLAUDE.md</code> test and deploy rules with you, creates the
+    project, and then works the board (see <a href="#agent">the agent</a>).</li>
 </ol>
+<p>The <b>idle gate</b> is a <code>UserPromptSubmit</code> hook in
+<code>~/.claude/settings.json</code> (<code>skill-start/idle_gate.py</code>): when a loop
+tick finds no card a run would take, it answers "nothing to do" before the model wakes, so
+an idle tick costs no tokens. It needs a system <code>python</code> on PATH; without one
+<code>/tickets-start</code> says so and skips it, and idle ticks still work, just not for free.</p>
 <p>Without <code>/tickets-start</code>, give Claude Code the board's tools by hand, at user
 scope so every project's sessions see them:</p>
 <pre>claude mcp add --scope user --transport http tickets http://127.0.0.1:8123/mcp</pre>
@@ -159,8 +164,9 @@ it is lit; a card with none of them has no dot.</p>
   <li><span class="dot" style="background:#36b37e"></span> <b>green dot</b>: it pulses while
     an agent is working on the card.</li>
   <li><span class="dot" style="background:#0052cc"></span> <b>blue dot</b>:
-    the card's branch is merged into the project's base branch: lit by the agent's land
-    step, or, for a pull request, by the next run once the PR is merged.
+    the card's branch is merged into the project's base branch: lit by the agent after the
+    land and deploy once git shows the branch merged, or, for a pull request, by the next
+    run once the PR is merged.
     <span class="dot" style="background:#6554c0"></span> <b>purple dot</b>: it is deployed to
     the local test backend or a device, lit by the agent's <code>deployed: </code> comment.
     Moving the card back to plan, develop or test clears them.</li>
@@ -216,7 +222,7 @@ leaves it where you put it. A card assigned to a person is never taken.</p>
 an account, a service to enable, a device to plug in), the agent opens a <code>todo</code>
 card for each such task, links it as blocking the card, and comments the new cards' numbers.
 The card stays in its lane, marked blocked, and runs skip it until those cards reach
-<code>verify</code> or <code>done</code>.</p>
+<code>verify</code> (one with an open pull request: once it is merged) or <code>done</code>.</p>
 
 <h2 id="workflow">5. How you work with it</h2>
 <ol>
@@ -244,7 +250,8 @@ The card stays in its lane, marked blocked, and runs skip it until those cards r
     With "merge into the base branch" the agent has already merged <code>card/&lt;id&gt;</code>
     and pushed the base: the deploy comment says so, or why it skipped the merge (the repo
     was on another branch or had uncommitted changes) or that it conflicted; only then
-    merge it yourself. With "open a pull request", merge the PR linked under the title.
+    merge it yourself (unless the project's deploy instructions merged it; the blue dot
+    shows it is on the base). With "open a pull request", merge the PR linked under the title.
     Then click "move to done".</li>
 </ol>
 <ul>

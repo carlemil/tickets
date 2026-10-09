@@ -374,8 +374,9 @@ pos-only reorder, project renames) do not trigger it.
 **On master, deployed (#41).** After the auto dot come two more, on the board card and in
 the sheet header: blue when `merged` (the card's branch is on the base branch, locally or
 on origin), purple when `deployed` (on the local test backend or a device), absent when not (#65).
-Not clickable. The skill's deploy step merges the card's branch into the base branch
-(#106) and sets `merged` from git.
+Not clickable. The skill's land step merges the card's branch into the base branch
+(#106) and the run then sets `merged` from git; with `land` `pr` the run's pull request
+catch-up sets it once the PR is merged.
 `deployed` the board sets itself, from the head of the deploy comment: `core.comment`
 lights it on `deployed: ` from `claude-agent` and darkens it on `deploy skipped: ` or
 `deploy failed: ` (a skip — nothing to deploy, or no phone — is not a failure). The head
@@ -551,7 +552,7 @@ no longer on the board.
 | 72 | #62 a blocker in `verify` with no open unmerged PR no longer blocks (stripes, pills, arrows, the run's queue, the idle gate); computed, so moving it back to work re-blocks | done — 420 checks |
 | 73 | #64 arrow heads point along the line: every arrow ends in a 10 px straight run into the card edge, with a slim notched amber head, tip on the edge | done — 421 checks |
 | 74 | #72 rework clears a card's `pr` with `merged` and `deployed`, and ship reuses only an open PR, so an old merged PR never vouches for (or unblocks) reworked code | done — 431 checks |
-| 75 | #76 docs brought up to date: setup through `/tickets-start` (user-scope MCP, skills, idle gate), the verify step after the agent's land, the blue dot, blocked-by-a-person and a person's move winning; board tooltips no longer say "master" or describe the retired agent prompt | done — 421 checks |
+| 75 | #76 docs brought up to date: setup through `/tickets-start` (user-scope MCP, skills, idle gate), the verify step after the agent's land, the blue dot, blocked-by-a-person and a person's move winning; board tooltips no longer say "master" or describe the retired agent prompt | done — 431 checks |
 
 Gate for every task: `uv run pytest -q` — 431 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
