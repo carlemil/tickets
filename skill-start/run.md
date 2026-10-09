@@ -19,7 +19,7 @@ Every board write uses `actor="claude-agent"`. Tools are the `tickets` MCP serve
 A missing board never stops a run:
 - `GET http://127.0.0.1:8123/api/projects` does not answer → start it detached (a
   uvicorn started straight from a tool call dies with the call):
-  `powershell -NoProfile -File <tickets repo>/restart-backend.ps1 -Delay 1`, ; wait ~12 s and
+  `powershell -NoProfile -File <tickets repo>/restart-backend.ps1 -Delay 1`; wait ~12 s and
   ask again. Still down → stop, with the tail of `<tickets repo>/restart-backend.log`.
 - The `tickets` tools are missing (the session started while the board was down, or the
   server is not registered) → do the whole run over the board's HTTP API instead; a
@@ -236,7 +236,9 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    error → failure, card stays in test. Comment the commit pushed. If the project's
    `land` is `pr`, then in the repo: `gh pr create --base <base> --head card/<id> --title
    "#<id> <title>" --body "<short summary from the test reply>"` (a PR for the branch
-   already exists → `gh pr view card/<id> --json url -q .url` instead),
+   already exists → `gh pr list --head card/<id> --state open --json url -q ".[0].url"`
+   instead; only an OPEN PR is reused, a closed or merged one never is (#72); no
+   http(s) URL back, e.g. empty or `null` → failure, card stays in test),
    `update_card(pr=<url>)`, and comment the URL. gh missing or failing → failure, card
    stays in test.
 2. **Land:** only when `land` is `merge` — with `pr`, skip it and say "landing by pull

@@ -18,7 +18,10 @@ accounts — users are just names, nothing is enforced. Never put it on a networ
 - `plan` — the agent writes a plan, and any open questions for you.
 - `develop` — the agent implements it on a `card/<id>` branch in its own worktree.
 - `test` — the agent runs the project's tests and fixes what fails.
-- `verify` — yours: read the comments, look at the branch, merge it.
+- `verify` — yours: read the comments, look at the branch, try the deployed build. With
+  `land: merge` the agent already merged `card/<id>` into the base and pushed; merge it
+  yourself only if the deploy comment says the merge was skipped or conflicted. With
+  `land: pr`, merge the pull request.
 - `done` — finished.
 
 ## Setup
@@ -33,7 +36,7 @@ tests.
 
 2. Start the backend:
 
-       uv run uvicorn app:app --host 127.0.0.1 --port 8123
+       uv run uvicorn app:app --host 127.0.0.1 --port 8123 --log-config log-config.json
 
    On Windows, `powershell -NoProfile -File restart-backend.ps1` starts or restarts it.
 
@@ -49,11 +52,11 @@ tests.
    They are links, so editing a skill here takes effect in every session at once.
 
 4. In a Claude Code session opened in the repo you want worked, run `/tickets-start`. It
-   does the rest (MCP server, `CLAUDE.md` rules, the project on the board) and starts
-   working the board.
+   does the rest (the logon start, the idle gate hook, the MCP server, `CLAUDE.md` rules,
+   the project on the board) and starts working the board.
 
 8123 is not a runtime setting. Any free port works, but `restart-backend.ps1`, the
-`claude mcp add` URL and the skills must match.
+`claude mcp add` URL, the skills and `skill-start/idle_gate.py` must match.
 
 ## Skills
 
@@ -65,7 +68,7 @@ project's folder.
 | `/tickets-start` | Sets the repo up where needed, then works the board every 15 minutes for as long as this session stays open. |
 | `/tickets-start 10m` | The same, at another interval (`30m`, `1h`; at least `5m`). |
 | `/tickets-start once` | Sets the repo up where needed, then works the board once. |
-| `/tickets-start 12` | Works only card 12, once. |
+| `/tickets-start 12` | Sets the repo up where needed, then works only card 12, once. |
 | `/tickets-stop` | Stops the loop. Cards already in progress finish. |
 | `/tickets-open-board` | Opens the board in your browser, starting it first if it is down, and prints the link. |
 
@@ -113,7 +116,7 @@ in `verify` looks right, click "move to done".
     board.html     the board, vanilla JS
     docs.html      the user manual, served at /docs
     conftest.py    fixtures: temp DB, TestClient, uvicorn thread, Chrome page
-    test_*.py      the suite: core, app, board, end-to-end
+    test_*.py      the suite: core, app, board, end-to-end, idle gate (test_idle_gate.py)
     skill*/        the Claude Code skills, one folder each (see Skills);
                    skill-start/idle_gate.py is the idle gate hook
     CLAUDE.md      this repo's own rules for Claude Code sessions

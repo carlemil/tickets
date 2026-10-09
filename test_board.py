@@ -2251,7 +2251,7 @@ def test_merged_and_deployed_dots_on_the_board_and_in_the_editor(page):
     lit = core.create_card("lit", actor="ce", project="Home", lane="verify")["id"]
     core.update_card(lit, "claude-agent", merged=True, deployed=True)
     [dark] = cards_in(page, "dark")
-    on = [["st merged", "on master: committed and pushed"],
+    on = [["st merged", "on the base branch: merged and pushed"],
           ["st deployed", "deployed to the local test backend or device"]]
     assert status(page, f'.card[data-id="{lit}"]') == on
     assert status(page, f'.card[data-id="{dark}"]') == [], "unlit dots are not drawn"
