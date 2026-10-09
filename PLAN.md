@@ -239,6 +239,8 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   `pr`: then ship also opens a PR with `gh` and stores its URL in the card's `pr`, the
   local merge is skipped (the deploy never merges either), and the merged dot waits for
   the PR — each run first asks `gh` about the project's unmerged `verify` cards with a PR.
+  Rework clears `pr` (#72), and ship reuses an existing PR for the branch only while it
+  is open, so a reworked card ships as a new PR and never inherits the old merged one.
 - **The checklist is the live task list (#3).** The plan's `## Steps` become checklist
   items (new texts only, existing items kept); the develop subagent ticks each as it
   finishes — its one board write — so the board card's `☑ done/total` chip moves while it
@@ -376,8 +378,9 @@ lights it on `deployed: ` from `claude-agent` and darkens it on `deploy skipped:
 `deploy failed: ` (a skip — nothing to deploy, or no phone — is not a failure). The head
 comes from the verdict line (`DEPLOY: OK`, `DEPLOY: SKIPPED`, anything else), so the dot
 says what the comment says, whoever wrote it (#68). A move from
-todo/verify/done back into plan, develop or test is rework and clears both, unless the
-same write sets them. A card deployed or merged by hand stays dark unless someone sets the dot. MCP `update_card` takes both.
+todo/verify/done back into plan, develop or test is rework and clears both, and the
+card's `pr` too (#72: an old merged PR would vouch for code not on the base), unless the
+same write sets them; the history's `edited` event keeps the old PR URL. A card deployed or merged by hand stays dark unless someone sets the dot. MCP `update_card` takes both.
 
 **Hover help.** Every control has a `title`. Panel fields get theirs from `FIELD_TIPS` in
 `field()`, lane headings from `LANE_TIPS`; everything else from one `TIPS` list of
@@ -544,6 +547,7 @@ no longer on the board.
 | 71 | #37 arrows from blocking to blocked cards on the board: an svg overlay in the board's scroll coordinates, redrawn on render and resize, only between cards on screen, faint until a card is hovered; one skipping lanes passes between the cards there | done — 413 checks |
 | 72 | #62 a blocker in `verify` with no open unmerged PR no longer blocks (stripes, pills, arrows, the run's queue, the idle gate); computed, so moving it back to work re-blocks | done — 420 checks |
 | 73 | #64 arrow heads point along the line: every arrow ends in a 10 px straight run into the card edge, with a slim notched amber head, tip on the edge | done — 421 checks |
+| 74 | #72 rework clears a card's `pr` with `merged` and `deployed`, and ship reuses only an open PR, so an old merged PR never vouches for (or unblocks) reworked code | done — 431 checks |
 
 Gate for every task: `uv run pytest -q` — 421 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
