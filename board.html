@@ -107,7 +107,7 @@
   .work, .st { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .work:not(.working) { display: none; }
   .work.working { background: #36b37e; animation: pulse 1.2s infinite; }
-  /* on master, deployed: set by the agent's deploy step, so not clickable */
+  /* on the base branch, deployed: set by the agent, so not clickable */
   .st.merged { background: #0052cc; }
   .st.deployed { background: #6554c0; }
   #panel .head .work.working, #panel .head .st { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: middle; }
@@ -383,9 +383,9 @@ function workDot(c) {
   return d;
 }
 
-// blue when the card is on master, purple when deployed; nothing when not
+// blue when the card is on the base branch, purple when deployed; nothing when not
 function statusDots(c) {
-  return [["merged", "on master: committed and pushed"],
+  return [["merged", "on the base branch: merged and pushed"],
           ["deployed", "deployed to the local test backend or device"]]
     .filter(([f]) => c[f])
     .map(([f, title]) => Object.assign(document.createElement("span"), { className: "st " + f, title }));
@@ -1376,7 +1376,7 @@ const TIPS = [
   [".log .cli summary", "what claude printed while it worked on this card"],
   ["#panel .project input[type=text]:first-of-type", "the project's name, as cards show it"],
   ["#panel .project input[type=text]:nth-of-type(2)", "the folder the agent works in for this project's cards"],
-  ["#panel .project textarea", "put in front of every agent prompt for this project's cards"],
+  ["#panel .project textarea", "board-specific extras for this project's agents, e.g. the deploy target; the repo's CLAUDE.md holds its rules"],
   ["#panel .project .danger", "delete the project: its cards move to No Project, where agents leave them alone"],
   ["#panel .project .primary", "create the project"],
   ["#delProject button[value=cancel]", "keep the project"],
