@@ -26,16 +26,20 @@ def norm(path):
     return path.replace("\\", "/").rstrip("/").lower()
 
 
-def workable(card):
-    """Mirrors run.md's queue: a card a run would take, or a PR it would catch up on.
-    Blocked cards still count (telling needs a get_card each): rare, and the run skips them."""
+def workable(card, base):
+    """Mirrors run.md's queue: a card a run would take, or a PR it would catch up on."""
     if card["lane"] == "verify":
         return bool(card["pr"]) and not card["merged"]
     if card["lane"] not in ("plan", "develop", "test"):
         return False
     if card["questions"] and not card["answers"]:
         return False  # waiting for a person's answers
-    return card["assignee"] in (None, "", "claude-agent")
+    if card["assignee"] not in (None, "", "claude-agent"):
+        return False
+    # blocked by a card not yet done (the blocker may sit in another project)
+    blockers = [l["from_id"] for l in get(base, "/api/cards/%d" % card["id"])["links"]
+                if l["kind"] == "blocks" and l["to_id"] == card["id"]]
+    return all(get(base, "/api/cards/%d" % b)["lane"] == "done" for b in blockers)
 
 
 def idle_line(prompt, cwd, base=BASE):
@@ -48,9 +52,9 @@ def idle_line(prompt, cwd, base=BASE):
         if project is None:
             return None
         cards = get(base, "/api/cards?project=" + urllib.parse.quote(project["name"]))
+        if any(workable(c, base) for c in cards):
+            return None
     except Exception:
-        return None
-    if any(workable(c) for c in cards):
         return None
     return "tickets: nothing to do (%s)" % time.strftime("%Y-%m-%d %H:%M")
 

@@ -61,6 +61,16 @@ def test_cards_a_run_would_skip_do_not_wake_it(server, proj, here):
     assert gate.idle_line(TICK, here, server) is None
 
 
+def test_a_blocked_card_does_not_wake_it_until_its_blocker_is_done(server, proj, here):
+    blocked = card(proj, "develop")
+    blocker = card("Home", "todo")  # a blocker may live in another project
+    core.link_cards(blocker, blocked, "blocks", "person")
+    core.link_cards(blocked, card(proj, "todo"), "blocks", "person")  # it blocks another: no matter
+    assert gate.idle_line(TICK, here, server) is not None
+    core.update_card(blocker, "person", lane="done")
+    assert gate.idle_line(TICK, here, server) is None
+
+
 def test_an_open_pull_request_lets_the_tick_through(server, proj, here):
     card(proj, "verify", pr="https://example.test/pr/1", merged=True)
     assert gate.idle_line(TICK, here, server) is not None

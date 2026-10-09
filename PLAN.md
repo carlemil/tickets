@@ -491,8 +491,9 @@ no longer on the board.
 | 66 | New Card preselects the current tab's project, the first project under All; `localStorage` `lastProject` is gone | done — 389 checks |
 | 67 | A status poll answered after a newer one is dropped, so a slow poll no longer turns a card's work dot off (the idle-dot test flaked on it) | done — 390 checks |
 | 68 | An idle loop tick never reaches the model: `skill-start/idle_gate.py`, a `UserPromptSubmit` hook that `/tickets-start` installs, answers "nothing to do" when the folder's project has no card a run would take (an idle tick cost ~400k cached tokens in a long session) | done — 398 checks |
+| 69 | The idle gate also skips a card blocked by one not yet `done` (any project), as the run does | done — 399 checks |
 
-Gate for every task: `uv run pytest -q` — 398 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 399 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
