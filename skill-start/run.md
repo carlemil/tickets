@@ -69,8 +69,9 @@ a lane, the board's order. Skip, and name in the
 final summary:
 
 - **waiting for answers:** `questions` filled, `answers` empty;
-- **blocked:** `get_card` shows a `blocks` link *to* it from a card not yet finished:
-  not in `done`, and not in `verify` unless its `pr` is set and not `merged`;
+- **blocked:** `blocked_by` is not empty. The server fills it with the cards that have a
+  `blocks` link to this one and are not finished yet; finished is `done`, or `verify`
+  without an open PR (`pr` empty, or `merged`);
 - **assigned to a person:** `assignee` set to anyone but `claude-agent`;
 - **already in flight** in this run (see 3).
 

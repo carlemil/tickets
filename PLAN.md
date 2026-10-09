@@ -127,7 +127,7 @@ the blocked card not `done`. Finished (#62) is `done`, or `verify` with no open 
 PR (`pr` empty or `merged`): a merge project's verify is already merged and deployed, a
 PR project's unmerged code is not on the base yet. It is computed, links are never
 deleted, so a blocker moved back to work blocks again. An archived card that is not
-finished still counts, as in the run and the idle gate (`finished()`). The
+finished still counts. The run and the idle gate read `blocked_by` too, so all three agree. The
 other end may be in any project, so the server works them out (`_blocks`, one query)
 rather than the board, which loads one project. The list stays without `links` and
 `events`. #37 draws its arrows from these.
@@ -219,8 +219,8 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
 - **Project:** the one whose `path` is the session's folder. Its `instructions` rank
   below the card and above the repo's `CLAUDE.md`, which ranks above the skill.
 - **Queue:** the project's cards in `plan`, then `develop`, then `test`, board order
-  within a lane. Skipped: questions without answers, an incoming `blocks` link from a
-  card not in `done`, assigned to a person. `todo` is the backlog: moving a card to
+  within a lane. Skipped: questions without answers, a non-empty `blocked_by` (a
+  blocker not yet finished, #62), assigned to a person. `todo` is the backlog: moving a card to
   `plan` queues it. One run drains the queue unattended, working each card once.
 - **Several at once (#1).** The session dispatches: each card's stage is a background
   subagent, up to 3 cards in flight, plans always side by side, one card at a time from
@@ -540,7 +540,7 @@ no longer on the board.
 | 71 | #37 arrows from blocking to blocked cards on the board: an svg overlay in the board's scroll coordinates, redrawn on render and resize, only between cards on screen, faint until a card is hovered; one skipping lanes passes between the cards there | done — 413 checks |
 | 72 | #62 a blocker in `verify` with no open unmerged PR no longer blocks (stripes, pills, arrows, the run's queue, the idle gate); computed, so moving it back to work re-blocks | done — 420 checks |
 
-Gate for every task: `uv run pytest -q` — 413 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 420 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
