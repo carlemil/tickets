@@ -205,6 +205,39 @@ def test_a_done_blocker_blocks_nothing():
     assert marks(a["id"]) == marks(b["id"]) == ([], [])
 
 
+def test_a_blocker_in_verify_blocks_nothing_and_blocks_again_when_moved_back():
+    a, b = card(), card("Second")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    core.update_card(a["id"], "ann", lane="verify", merged=True)   # a merge project's verify
+    assert marks(a["id"]) == marks(b["id"]) == ([], [])
+    core.update_card(a["id"], "ann", lane="develop")   # rework: the link was never deleted
+    assert marks(b["id"]) == ([a["id"]], [])
+    assert len(core.get_card(b["id"])["links"]) == 1
+
+
+def test_a_verify_blocker_with_an_unmerged_pr_blocks_until_merged():
+    a, b = card(), card("Second")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    core.update_card(a["id"], "ann", lane="verify", pr="https://example.test/pr/1")
+    assert marks(b["id"]) == ([a["id"]], []), "the base branch does not have its code yet"
+    core.update_card(a["id"], "ann", merged=True)
+    assert marks(a["id"]) == marks(b["id"]) == ([], [])
+
+
+def test_a_person_todo_blocker_dragged_to_verify_without_a_pr_blocks_nothing():
+    a, b = card("Ask the bank"), card("Second")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    core.update_card(a["id"], "ann", lane="verify")   # no PR, merged stays false
+    assert marks(b["id"]) == ([], [])
+
+
+def test_a_blocked_card_in_verify_keeps_its_marks():
+    a, b = card(), card("Second")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    core.update_card(b["id"], "ann", lane="verify")
+    assert marks(b["id"]) == ([a["id"]], [])
+
+
 def test_blocking_a_done_card_does_not_count():
     a, b = card(), card("Second")
     core.link_cards(a["id"], b["id"], "blocks", "ann")

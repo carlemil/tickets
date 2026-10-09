@@ -122,8 +122,12 @@ activity(actor PRIMARY KEY, card_id, doing, since)   -- what agents are doing no
 
 Every card `list_cards` and `get_card` return carries two computed lists (#35), sorted
 ids, empty when none: `blocked_by`, the cards with a `blocks` link to it, and `blocking`,
-the cards it has a `blocks` link to. Only live links count: both ends not `done` (an
-archived card that is not done still counts, as in the run and the idle gate). The
+the cards it has a `blocks` link to. Only live links count: the blocker not finished and
+the blocked card not `done`. Finished (#62) is `done`, or `verify` with no open unmerged
+PR (`pr` empty or `merged`): a merge project's verify is already merged and deployed, a
+PR project's unmerged code is not on the base yet. It is computed, links are never
+deleted, so a blocker moved back to work blocks again. An archived card that is not
+finished still counts, as in the run and the idle gate (`finished()`). The
 other end may be in any project, so the server works them out (`_blocks`, one query)
 rather than the board, which loads one project. The list stays without `links` and
 `events`. #37 draws its arrows from these.
@@ -534,6 +538,7 @@ no longer on the board.
 | 69 | The idle gate also skips a card blocked by one not yet `done` (any project), as the run does | done — 399 checks |
 | 70 | #35 blocked cards get a red stripe and "blocked by" pill, blocking cards amber; cards carry computed `blocked_by` / `blocking`; the board's own moves and links update the other end at once | done — 408 checks |
 | 71 | #37 arrows from blocking to blocked cards on the board: an svg overlay in the board's scroll coordinates, redrawn on render and resize, only between cards on screen, faint until a card is hovered; one skipping lanes passes between the cards there | done — 413 checks |
+| 72 | #62 a blocker in `verify` with no open unmerged PR no longer blocks (stripes, pills, arrows, the run's queue, the idle gate); computed, so moving it back to work re-blocks | done — 420 checks |
 
 Gate for every task: `uv run pytest -q` — 413 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

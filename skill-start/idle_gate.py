@@ -26,6 +26,12 @@ def norm(path):
     return path.replace("\\", "/").rstrip("/").lower()
 
 
+def finished(card):
+    """A blocker that no longer blocks (#62): done, or verify with no open unmerged PR."""
+    return card["lane"] == "done" or (
+        card["lane"] == "verify" and not (card["pr"] and not card["merged"]))
+
+
 def workable(card, base):
     """Mirrors run.md's queue: a card a run would take, or a PR it would catch up on."""
     if card["lane"] == "verify":
@@ -36,10 +42,10 @@ def workable(card, base):
         return False  # waiting for a person's answers
     if card["assignee"] not in (None, "", "claude-agent"):
         return False
-    # blocked by a card not yet done (the blocker may sit in another project)
+    # blocked by a card not yet finished (the blocker may sit in another project)
     blockers = [l["from_id"] for l in get(base, "/api/cards/%d" % card["id"])["links"]
                 if l["kind"] == "blocks" and l["to_id"] == card["id"]]
-    return all(get(base, "/api/cards/%d" % b)["lane"] == "done" for b in blockers)
+    return all(finished(get(base, "/api/cards/%d" % b)) for b in blockers)
 
 
 def idle_line(prompt, cwd, base=BASE):

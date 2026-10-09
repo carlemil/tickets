@@ -69,7 +69,8 @@ a lane, the board's order. Skip, and name in the
 final summary:
 
 - **waiting for answers:** `questions` filled, `answers` empty;
-- **blocked:** `get_card` shows a `blocks` link *to* it from a card not in `done`;
+- **blocked:** `get_card` shows a `blocks` link *to* it from a card not yet finished:
+  not in `done`, and not in `verify` unless its `pr` is set and not `merged`;
 - **assigned to a person:** `assignee` set to anyone but `claude-agent`;
 - **already in flight** in this run (see 3).
 
@@ -231,7 +232,7 @@ to enable, a device to plug in — with details indented under it. Ask for it in
 brief. (you) For each bullet whose title is not already a card in the project:
 `create_card(lane="todo", project=…, title=…, description=details + "(blocks #<id>)")`
 and `link_cards(from_id=<new>, to_id=<id>, kind="blocks")`; comment the new ids on the
-card and leave it in its lane. It will be skipped until they are `done`.
+card and leave it in its lane. It will be skipped until they reach `verify` or `done`.
 
 ### Failure
 

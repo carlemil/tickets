@@ -474,6 +474,25 @@ def test_dragging_a_blocker_to_done_unmarks_the_card_it_blocked_at_once(page):
     assert page.locator(f'.card[data-id="{b}"] .pill.blocked-by').count() == 0
 
 
+def test_dragging_a_blocker_to_verify_unmarks_the_card_and_drops_its_arrow(page):
+    """#62: a blocker in verify (no open PR) is finished; back to work, it blocks again."""
+    a, b = (core.create_card(t, actor="ce", project="Home")["id"] for t in "ab")
+    core.link_cards(a, b, "blocks", "ce")
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card.blocked[data-id="{b}"]')
+    assert page.get_attribute(f'.card[data-id="{b}"] .pill.blocked-by', "title") == \
+        "blocked: can't start until these reach verify"
+    assert arrows(page) == [[a, b]]
+    drag(page, a, "verify")
+    page.wait_for_selector(f'.card:not(.blocked)[data-id="{b}"]', timeout=2000)
+    assert page.locator(f'.card[data-id="{b}"] .pill.blocked-by').count() == 0
+    assert page.get_attribute(f'.card[data-id="{a}"]', "class").split() == ["card"]
+    assert arrows(page) == []
+    drag(page, a, "develop")
+    page.wait_for_selector(f'.card.blocked[data-id="{b}"]', timeout=2000)
+    assert arrows(page) == [[a, b]]
+
+
 # ---------- #37: arrows from blocking cards to the cards they block ----------
 
 def arrows(page):
