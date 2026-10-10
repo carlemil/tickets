@@ -100,6 +100,16 @@ continue a finished subagent (no SendMessage): every stage starts from a clean c
 holding only the card, so nothing an earlier stage assumed or got wrong leaks into the
 next, and the test stage reviews work it did not write.
 
+**Model per stage (#83).** Each stage's Agent call sets its model on purpose — the
+`model` parameter, or none — so the tokens go where they pay:
+- plan & develop: **no `model`** — it inherits the session's model. Planning is
+  judgement and a cheaper model must not write the plan; the build in the same context
+  keeps it. (Not pinned to `opus`, so a session on another model is respected.)
+- develop: `model: "sonnet"` — it follows a written plan.
+- test: `model: "sonnet"` — the owner's call: cheaper, though the review then runs on
+  the tier that wrote the code.
+- deploy: `model: "sonnet"` — mechanical: follow the deploy instructions.
+
 **Slots.** At most **3 cards in flight**. Plan & develop and develop stages run side by
 side within that limit, each in its card's own worktree. At most **one card in `test`**
 at a time — from the test stage through ship, land, deploy and clean-up to `verify` —
@@ -147,7 +157,7 @@ On a card's way out: `update_card(assignee="")` unless a person had it before yo
 (you) `git -C <repo> pull --ff-only` first; if it fails, tell the subagent the code may
 be behind. Then set up the card's worktree as under develop below, before spawning; note
 whether `card/<id>` already existed. Not a git repo → no pull, no worktree: the subagent
-plans in the folder.
+plans in the folder. The subagent gets no `model`: it runs on the session's.
 
 **Plan.** The subagent reads code in the worktree, changes nothing yet (beyond resolving
 and committing the base merge's conflicts if you told it to), and writes the
@@ -212,7 +222,7 @@ after posting); plan & develop builds by the subagent rules here.
   subagent to resolve and commit them first. Merge refused (dirty tree) → `merge --abort`
   and tell it the branch is behind.
 
-The subagent implements the card following `plan` and `answers` (later comments win),
+The subagent (`model: "sonnet"`) implements the card following `plan` and `answers` (later comments win),
 works only inside the worktree, runs the project's tests, commits on `card/<id>` — never
 pushes, never switches branch — and replies with a short summary and the test result.
 Its one board write (plan & develop's plan post came before): as it finishes a step it
@@ -226,7 +236,7 @@ nothing else; tell it so in the brief.
 (you) Same worktree steps as develop; a card in test with neither a worktree nor a
 `card/<id>` branch fails ("nothing was built: move it back to develop").
 
-The subagent commits anything uncommitted in the worktree on `card/<id>`, then runs the
+The subagent (`model: "sonnet"`) commits anything uncommitted in the worktree on `card/<id>`, then runs the
 Skill tool with skill `code-review` and args `<base>...card/<id>` (a ref range: committed
 work only, whatever the cwd). It fixes the findings it agrees with on the branch, in the
 worktree, and lists those it rejects in its reply with a one-line reason each. No Skill
@@ -254,7 +264,7 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    `git -C <repo> merge --no-ff card/<id> -m "Merge #<id> <title>"`; a conflict →
    `merge --abort`. Say which happened (or why it was skipped) in the deploy comment.
    Do not push yet.
-3. **Deploy:** the subagent deploys per the project instructions. Local only — the test
+3. **Deploy:** a subagent (`model: "sonnet"`) deploys per the project instructions. Local only — the test
    backend, or an install on a connected phone (check `adb devices`; none → skip the
    phone) — never production, a public server or an app store unless the instructions
    clearly say so. Changed neither backend nor app → deploy nothing. It may merge, push

@@ -306,7 +306,9 @@ background agent that writes the plan, posts it with its checklist and, unless t
 has open questions, moves the card to <code>develop</code> and builds it in the same go,
 so the code is read once. A card already in <code>develop</code>, and every card in
 <code>test</code>, gets a new agent with a clean context, so the test reviews work it did
-not write. Each agent is handed the whole card: its
+not write. The planning agent runs on your session's model, since planning is judgement;
+the agents that build a card already in <code>develop</code>, review it in
+<code>test</code> and deploy it run on the cheaper Sonnet. Each agent is handed the whole card: its
 description, plan, answers, checklist and comments, and the project's rules. Tests,
 the deploy and the merge into the base branch go one card after another. The status bar
 shows the card it started last and how many are in flight. A card that passes its tests
