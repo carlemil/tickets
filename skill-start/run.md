@@ -102,12 +102,14 @@ next, and the test stage reviews work it did not write.
 
 **Model per stage (#83).** Each stage's Agent call sets its model on purpose — the
 `model` parameter, or none — so the tokens go where they pay:
-- plan & develop: **no `model`** — it inherits the session's model. Planning is
-  judgement and a cheaper model must not write the plan; the build in the same context
-  keeps it. (Not pinned to `opus`, so a session on another model is respected.)
+- plan & develop: **no `model`** — it inherits the session's model (unless the user
+  configured a default subagent model). Planning is judgement and a cheaper model must
+  not write the plan; the build in the same context keeps it. (Not pinned to `opus`, so
+  a session on another model is respected.)
 - develop: `model: "sonnet"` — it follows a written plan.
-- test: `model: "sonnet"` — the owner's call: cheaper, though the review then runs on
-  the tier that wrote the code.
+- test: `model: "sonnet"` — the owner's call: cheaper, though the review then runs on a
+  tier no stronger than the one that wrote the code (the same for a develop card,
+  weaker than the session's for a plan & develop card).
 - deploy: `model: "sonnet"` — mechanical: follow the deploy instructions.
 
 **Slots.** At most **3 cards in flight**. Plan & develop and develop stages run side by
@@ -210,7 +212,8 @@ post as above, never build; NONE then ends `STAGE: FAILED` ("no git repo").
 ### develop  (in the card's worktree)
 
 For a card already in `develop` (a person put it there, or a plan & develop run failed
-after posting); plan & develop builds by the subagent rules here.
+after posting); plan & develop builds by the subagent rules here. This develop subagent
+gets `model: "sonnet"` (plan & develop keeps the session's).
 
 (you) The worktree is `<repo-parent>/<repo-name>.worktrees/card-<id>` on branch
 `card/<id>`:
@@ -222,7 +225,7 @@ after posting); plan & develop builds by the subagent rules here.
   subagent to resolve and commit them first. Merge refused (dirty tree) → `merge --abort`
   and tell it the branch is behind.
 
-The subagent (`model: "sonnet"`) implements the card following `plan` and `answers` (later comments win),
+The subagent implements the card following `plan` and `answers` (later comments win),
 works only inside the worktree, runs the project's tests, commits on `card/<id>` — never
 pushes, never switches branch — and replies with a short summary and the test result.
 Its one board write (plan & develop's plan post came before): as it finishes a step it
@@ -236,8 +239,8 @@ nothing else; tell it so in the brief.
 (you) Same worktree steps as develop; a card in test with neither a worktree nor a
 `card/<id>` branch fails ("nothing was built: move it back to develop").
 
-The subagent (`model: "sonnet"`) commits anything uncommitted in the worktree on `card/<id>`, then runs the
-Skill tool with skill `code-review` and args `<base>...card/<id>` (a ref range: committed
+The subagent (`model: "sonnet"`) commits anything uncommitted in the worktree on
+`card/<id>`, then runs the Skill tool with skill `code-review` and args `<base>...card/<id>` (a ref range: committed
 work only, whatever the cwd). It fixes the findings it agrees with on the branch, in the
 worktree, and lists those it rejects in its reply with a one-line reason each. No Skill
 tool, no `code-review`, or an error → it reviews `git -C <tree> diff <base>...HEAD` itself
@@ -264,8 +267,8 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    `git -C <repo> merge --no-ff card/<id> -m "Merge #<id> <title>"`; a conflict →
    `merge --abort`. Say which happened (or why it was skipped) in the deploy comment.
    Do not push yet.
-3. **Deploy:** a subagent (`model: "sonnet"`) deploys per the project instructions. Local only — the test
-   backend, or an install on a connected phone (check `adb devices`; none → skip the
+3. **Deploy:** a subagent (`model: "sonnet"`) deploys per the project instructions.
+   Local only — the test backend, or an install on a connected phone (check `adb devices`; none → skip the
    phone) — never production, a public server or an app store unless the instructions
    clearly say so. Changed neither backend nor app → deploy nothing. It may merge, push
    or restart services only as the instructions say; no other edits or commits. With

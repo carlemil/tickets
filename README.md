@@ -20,7 +20,8 @@ password then, so only on a network you trust. Never host it online.
 - `plan` — the agent writes a plan, and any open questions for you (on the session's
   model; with no questions it goes on to build).
 - `develop` — the agent implements it on a `card/<id>` branch in its own worktree
-  (Sonnet, for a card that arrives here already planned).
+  (Sonnet for a card you put here or a retried build; a card planned without questions
+  is built by the planning agent on the session's model).
 - `test` — the agent reviews the code, runs the project's tests and fixes what fails
   (Sonnet).
 - `verify` — yours: read the comments, look at the branch, try the deployed build. With
