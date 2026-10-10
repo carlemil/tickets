@@ -352,8 +352,13 @@ faint (opacity .3); hovering a card lights its arrows, both ways (`.hot`). No on
 toggle yet: add one if real boards get crowded.
 No dark-theme colours: the board has no dark theme yet.
 
-Once a card has a plan, questions or answers, the sheet shows each in its own box under
-the description: "plan" is a fixed 10 lines and scrolls, "open questions" and "your
+The sheet hides an empty field that only an agent fills at that point and keeps every
+field a person fills in by hand at that point (#96). Plan and open questions each get their own box
+under the description once they hold text; "your answers" shows whenever there are
+questions (or answers) and is hidden otherwise. The checklist shows once it has items;
+empty, it shows only on a new card or a card in todo, since from plan on the agent writes
+it from the plan's steps. The pull request link and session button were already shown
+only when set. "plan" is a fixed 10 lines and scrolls, "open questions" and "your
 answers" grow like the description. A question may list its choices as indented `- `
 bullets under it, one suffixed ` (recommended)` — the AskUserQuestion shape, still plain
 text (#4). Under the questions box each such question gets a row of radios (the
@@ -559,8 +564,9 @@ no longer on the board.
 | 74 | #72 rework clears a card's `pr` with `merged` and `deployed`, and ship reuses only an open PR, so an old merged PR never vouches for (or unblocks) reworked code | done — 431 checks |
 | 75 | #76 docs brought up to date: setup through `/tickets-start` (user-scope MCP, skills, idle gate), the verify step after the agent's land, the blue dot, blocked-by-a-person and a person's move winning; board tooltips no longer say "master" or describe the retired agent prompt | done — 431 checks |
 | 76 | #84 one subagent plans and develops: a card in `plan` gets one plan & develop agent in its worktree that posts plan and checklist itself (a person's move wins) and, with no open questions, moves the card to `develop` and builds in the same context; questions stop it in `plan` and the unused worktree goes; develop-lane cards and test keep fresh agents | done — 431 checks |
+| 77 | #96 the card sheet hides empty fields only an agent fills: plan and open questions until written, your answers until there are questions, an empty checklist outside todo (a new card keeps it); fields a person fills stay | done — 433 checks |
 
-Gate for every task: `uv run pytest -q` — 431 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 433 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
