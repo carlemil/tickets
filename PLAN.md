@@ -353,7 +353,7 @@ toggle yet: add one if real boards get crowded.
 No dark-theme colours: the board has no dark theme yet.
 
 The sheet hides an empty field that only an agent fills at that point and keeps every
-field a person fills in by hand (#96). Plan and open questions each get their own box
+field a person fills in by hand at that point (#96). Plan and open questions each get their own box
 under the description once they hold text; "your answers" shows whenever there are
 questions (or answers) and is hidden otherwise. The checklist shows once it has items;
 empty, it shows only on a new card or a card in todo, since from plan on the agent writes

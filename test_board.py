@@ -1874,6 +1874,13 @@ def test_an_empty_checklist_shows_only_while_a_person_writes_the_card(page):
     page.wait_for_selector("#panel.on")
     page.select_option("#panel select >> nth=2", "develop")
     assert page.locator(item).count() == 1
+    # a draft's lane change does not re-render; queueing a comment does, and the draft,
+    # now in develop with no items, must still keep its checklist
+    page.fill("#panel .say-box", "queued")
+    page.click("#panel button:has-text('comment')")
+    page.wait_for_selector("#panel .log li.comment")
+    assert page.locator("#panel select >> nth=2").input_value() == "develop"
+    assert page.locator(item).count() == 1
     page.click("#panel button:has-text('cancel')")
 
 
