@@ -145,14 +145,15 @@ def test_panel_edits_each_save_on_change(page):
     wait_saved(page, cid, "title", "renamed in the panel")
     type_into(page, "#panel input[placeholder='comma, separated']", "ui, api")
     wait_saved(page, cid, "labels", ["ui", "api"])
-    page.select_option("#panel select >> nth=2", "test")          # lane
-    wait_saved(page, cid, "lane", "test")
+    # in todo first: out of it, an empty checklist is hidden (#96)
     page.fill("#panel input[placeholder='+ checklist item (enter)']", "first item")
     page.press("#panel input[placeholder='+ checklist item (enter)']", "Enter")
     wait_saved(page, cid, "checklist", [{"text": "first item", "done": False}])
     page.check("#panel .chk input[type=checkbox]")
     wait_saved(page, cid, "checklist", [{"text": "first item", "done": True}])
-    page.fill("#panel textarea >> nth=1", "looks good")
+    page.select_option("#panel select >> nth=2", "test")          # lane
+    wait_saved(page, cid, "lane", "test")
+    page.fill("#panel .say-box", "looks good")
     page.click("#panel button:has-text('comment')")
     page.wait_for_selector("#panel .log li.comment")
 
@@ -292,7 +293,7 @@ def test_the_board_writes_as_user_with_no_who_box(page, stale):
     assert page.locator("#who").count() == 0, "the box is gone"
     cid = add_card(page, "mine")
     assert page.locator("#err.on").count() == 0, "no error opening the new-card panel"
-    page.fill("#panel textarea >> nth=1", "hello")
+    page.fill("#panel .say-box", "hello")
     page.click("#panel button:has-text('comment')")
     page.wait_for_selector("#panel .log li.comment")
     assert "User" in page.text_content("#panel .log li.comment")
@@ -770,7 +771,7 @@ def test_a_landed_comment_does_not_reopen_a_dismissed_panel(page):
     page.wait_for_function("() => window.__inflight === 0")
     page.evaluate("""const original = window.fetch;
         window.fetch = (...a) => original(...a).then(r => new Promise(ok => setTimeout(() => ok(r), 500)))""")
-    page.fill("#panel textarea >> nth=1", "sent while closing")
+    page.fill("#panel .say-box", "sent while closing")
     page.click("#panel button:has-text('comment')")
     close_sheet(page)
     assert page.locator("#panel.on").count() == 0, "dismissed"
@@ -787,7 +788,7 @@ def test_a_landed_comment_does_not_hijack_another_open_card(page):
     page.evaluate("""const original = window.fetch;
         window.fetch = (url, o) => original(url, o).then(r => String(url).includes('/comment')
             ? new Promise(ok => setTimeout(() => ok(r), 500)) : r)""")
-    page.fill("#panel textarea >> nth=1", "for the first card")
+    page.fill("#panel .say-box", "for the first card")
     page.click("#panel button:has-text('comment')")
     page.evaluate(f"openCard({other['id']})")
     page.wait_for_function(f"() => open && open.id === {other['id']}")
@@ -1209,6 +1210,49 @@ def test_the_project_is_chosen_right_under_the_title(page):
     assert heads[0] == "project", "first under the header row, which holds the title"
     assert page.locator("#panel select >> nth=0 >> option").all_text_contents() == [
         "Home", "Other"]
+
+
+def sheet_heads(page, cid):
+    page.evaluate(f"openCard({cid})")
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    return page.locator("#panel h3").all_text_contents()
+
+
+def test_the_comments_sit_right_under_the_description(page):
+    """#95: the log with its comments, then the comment box, come straight after the
+    description -- above the plan round, assignee, lane, labels, checklist and links."""
+    cid = core.create_card("plain", actor="ce", project="Home")["id"]
+    core.comment(cid, "claude-agent", "an agent's note")
+    heads = sheet_heads(page, cid)
+    assert heads[:4] == ["project", "description", "activity", "say something"], heads
+    for later in ("assignee", "lane", "labels", "checklist", "links"):
+        assert heads.index(later) > heads.index("say something"), (later, heads)
+    desc = page.locator("#panel textarea.desc").bounding_box()
+    log = page.locator("#panel .log").bounding_box()
+    box = page.locator("#panel .say-box").bounding_box()
+    assert desc["y"] < log["y"] < box["y"], "on screen too: description, log, box"
+    assert page.locator("#panel .log li.comment").count() == 1
+
+
+def test_the_comments_come_before_a_planned_cards_plan(page):
+    cid = core.create_card("planned", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(cid, "claude-agent", plan="## Steps\n1. do it",
+                     questions="1. which?", answers="this one")
+    heads = sheet_heads(page, cid)
+    assert heads[:4] == ["project", "description", "activity", "say something"], heads
+    assert heads[4:7] == ["plan", "open questions", "your answers"], heads
+
+
+def test_a_draft_has_no_comments_under_its_description(page):
+    """#94 over #95: a draft has no comments, so its description runs straight into the
+    next field it shows -- no activity log, no comment box, nothing queued."""
+    page.click("#add")
+    page.wait_for_selector("#panel.on")
+    heads = page.locator("#panel h3").all_text_contents()
+    assert heads[:3] == ["project", "description", "assignee"], heads
+    assert "activity" not in heads and "say something" not in heads, heads
+    assert page.locator("#panel .say-box").count() == 0
+    assert page.evaluate("'comments' in open") is False, "no comment queue on the draft"
 
 
 def test_a_card_created_in_another_project_switches_the_filter_to_it(page):
@@ -1846,6 +1890,65 @@ def test_plan_questions_and_answers_get_their_own_boxes_once_planned(page):
     assert page.locator("#panel textarea.questions").input_value() == "1. red?", "numbered from 1"
     type_into(page, "#panel textarea.answers", "blue")
     wait_saved(page, cid, "answers", "blue")
+
+
+def test_each_planning_box_shows_only_once_it_holds_something(page):
+    """#96: plan and open questions are the agent's, so an empty one is hidden; "your
+    answers" is a person's to fill, so it shows whenever there are questions to answer."""
+    def boxes(fields):
+        cid = core.create_card("p", actor="ce", project="Home", lane="plan")["id"]
+        if fields:
+            core.update_card(cid, "claude-agent", **fields)
+        page.evaluate("load()")
+        page.click(f'.card[data-id="{cid}"]')
+        page.wait_for_function(f"() => open && open.id === {cid}")
+        got = [f for f in ("plan", "questions", "answers")
+               if page.locator(f"#panel textarea.{f}").count()]
+        close_sheet(page)
+        return got
+
+    assert boxes({}) == []
+    assert boxes({"plan": "do it"}) == ["plan"], "no questions: nothing to answer"
+    assert boxes({"questions": "1. red?"}) == ["questions", "answers"], "no plan box"
+    assert boxes({"answers": "blue"}) == ["answers"], "an answer is kept on show"
+    assert boxes({"plan": "p", "questions": "1. q?", "answers": "a"}) == \
+        ["plan", "questions", "answers"]
+
+
+def test_an_empty_checklist_shows_only_while_a_person_writes_the_card(page):
+    """#96: from plan on the agent writes the checklist from the plan, so an empty one is
+    hidden there; in todo and on a new card a person may add items, so it stays."""
+    item = "#panel input[placeholder='+ checklist item (enter)']"
+
+    def shows(lane, checklist=()):
+        cid = core.create_card("c", actor="ce", project="Home", lane=lane,
+                               checklist=list(checklist))["id"]
+        page.evaluate("load()")
+        page.click(f'.card[data-id="{cid}"]')
+        page.wait_for_function(f"() => open && open.id === {cid}")
+        n = page.locator(item).count()
+        close_sheet(page)
+        return n == 1
+
+    assert shows("todo"), "a person writes a todo card"
+    for lane in ("plan", "develop", "test", "verify", "done"):
+        assert not shows(lane), f"empty in {lane}: hidden"
+        assert shows(lane, [{"text": "x", "done": False}]), f"with items in {lane}: shown"
+
+    target = core.create_card("link target", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
+    page.click("#add")                                        # a draft, whatever its lane
+    page.wait_for_selector("#panel.on")
+    page.select_option("#panel select >> nth=2", "develop")
+    assert page.locator(item).count() == 1
+    # a draft's lane change does not re-render; queueing a link does, and the draft,
+    # now in develop with no items, must still keep its checklist
+    page.fill("#panel input[type=number]", str(target))
+    page.click("#panel button:text-is('link')")
+    page.wait_for_selector(f"#panel .links li:has-text('#{target}')")
+    assert page.locator("#panel select >> nth=2").input_value() == "develop"
+    assert page.locator(item).count() == 1
+    page.click("#panel button:has-text('cancel')")
 
 
 def test_an_open_question_s_options_are_radios_that_write_the_answers(page):

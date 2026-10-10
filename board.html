@@ -891,7 +891,7 @@ function renderPanel() {
     const idSpan = Object.assign(document.createElement("span"), { className: "id", textContent: "#" + c.id });
     idSpan.prepend(workDot(c), ...statusDots(c));
     head.append(idSpan, title, arch, ...(fin ? [fin] : []), shut);
-    // project and lane are the fields right below: this line says only who made it, when
+    // project and lane are fields of their own on the sheet: this line says only who made it, when
     const sub = Object.assign(document.createElement("div"), { className: "sub" });
     sub.append(Object.assign(document.createElement("span"),
                  { textContent: "created " + ago(c.created_at),
@@ -946,17 +946,46 @@ function renderPanel() {
   desc.onchange = () => patch({ description: desc.value });
   p.append(field("description", desc));
 
-  // the planning round, each in its own box: shown once the agent has planned
-  if (c.plan || c.questions || c.answers)
-    for (const [f, label] of [["plan", "plan"], ["questions", "open questions"],
-                              ["answers", "your answers"]]) {
-      const box = Object.assign(document.createElement("textarea"),
-        { value: c[f], className: f === "plan" ? f : "desc " + f });
-      box.onchange = () => patch({ [f]: box.value });
-      p.append(field(label, box));
-      if (f === "questions") p.append(...choices(c));
-    }
+  // the comments come right under the description (#95): the log with them, then the box.
+  // A card that does not exist yet has no comments, so a draft shows neither (#94).
+  if (c.id) {
+    p.append(field("activity", renderLog(c.events)));
 
+    const say = Object.assign(document.createElement("textarea"),
+      { className: "say-box", placeholder: "comment… (ctrl+enter to send)" });
+    say.value = typed;
+    const send = Object.assign(document.createElement("button"),
+      { className: "primary", textContent: "comment" });
+    const post = async () => {
+      if (!say.value.trim()) return;
+      try {
+        const card = await api("POST", `/api/cards/${c.id}/comment`, { text: say.value.trim() });
+        replace(card);
+        if (open?.id !== card.id || stale(card)) return;   // closed or switched meanwhile
+        open = card;
+        say.value = "";
+        renderPanel();
+      } catch (e) { showErr(e.message); }
+    };
+    send.onclick = post;
+    say.onkeydown = ev => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) post(); };
+    const cw = document.createElement("div");
+    cw.append(say, send);
+    p.append(field("say something", cw));
+  }
+
+  // the planning round, each in its own box, shown only once it holds something (#96):
+  // the agent writes plan and questions; a person answers, so answers show with questions
+  const shows = { plan: c.plan, questions: c.questions, answers: c.questions || c.answers };
+  for (const [f, label] of [["plan", "plan"], ["questions", "open questions"],
+                            ["answers", "your answers"]]) {
+    if (!shows[f]) continue;
+    const box = Object.assign(document.createElement("textarea"),
+      { value: c[f], className: f === "plan" ? f : "desc " + f });
+    box.onchange = () => patch({ [f]: box.value });
+    p.append(field(label, box));
+    if (f === "questions") p.append(...choices(c));
+  }
 
   const row = document.createElement("div");
   row.className = "row";
@@ -1004,8 +1033,10 @@ function renderPanel() {
       patch({ checklist: [...c.checklist, { text: addItem.value.trim(), done: false }] });
   };
   list.append(addItem);
-  p.append(field("checklist", list));
-  // A new card shows the fields a saved one does, but no comments. Links cannot be written
+  // from plan on the agent writes the checklist from the plan's steps: an empty one shows
+  // only while a person is writing the card (a draft, or todo) (#96)
+  if (c.checklist.length || !c.id || c.lane === "todo") p.append(field("checklist", list));
+  // A new card shows the fields a saved one does, but no comments (#94). Links cannot be written
   // before the card exists, so the draft holds them and "create" sends them after it.
   const links = document.createElement("ul");
   links.className = "links";
@@ -1054,32 +1085,7 @@ function renderPanel() {
             document.createTextNode(" of "), lid, lgo);
   links.append(lk);
   p.append(field("links", links));
-
-  // a card that does not exist yet has no comments: a draft shows no activity or comment box
-  if (!c.id) return title.focus();
-  p.append(field("activity", renderLog(c.events)));
-
-  const box = Object.assign(document.createElement("textarea"),
-    { className: "say-box", placeholder: "comment… (ctrl+enter to send)" });
-  box.value = typed;
-  const send = Object.assign(document.createElement("button"),
-    { className: "primary", textContent: "comment" });
-  const post = async () => {
-    if (!box.value.trim()) return;
-    try {
-      const card = await api("POST", `/api/cards/${c.id}/comment`, { text: box.value.trim() });
-      replace(card);
-      if (open?.id !== card.id || stale(card)) return;   // closed or switched meanwhile
-      open = card;
-      box.value = "";
-      renderPanel();
-    } catch (e) { showErr(e.message); }
-  };
-  send.onclick = post;
-  box.onkeydown = ev => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) post(); };
-  const cw = document.createElement("div");
-  cw.append(box, send);
-  p.append(field("say something", cw));
+  if (!c.id) title.focus();
 }
 
 // ---------- header controls ----------
