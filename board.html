@@ -948,16 +948,18 @@ function renderPanel() {
   desc.onchange = () => patch({ description: desc.value });
   p.append(field("description", desc));
 
-  // the planning round, each in its own box: shown once the agent has planned
-  if (c.plan || c.questions || c.answers)
-    for (const [f, label] of [["plan", "plan"], ["questions", "open questions"],
-                              ["answers", "your answers"]]) {
-      const box = Object.assign(document.createElement("textarea"),
-        { value: c[f], className: f === "plan" ? f : "desc " + f });
-      box.onchange = () => patch({ [f]: box.value });
-      p.append(field(label, box));
-      if (f === "questions") p.append(...choices(c));
-    }
+  // the planning round, each in its own box, shown only once it holds something (#96):
+  // the agent writes plan and questions; a person answers, so answers show with questions
+  const shows = { plan: c.plan, questions: c.questions, answers: c.questions || c.answers };
+  for (const [f, label] of [["plan", "plan"], ["questions", "open questions"],
+                            ["answers", "your answers"]]) {
+    if (!shows[f]) continue;
+    const box = Object.assign(document.createElement("textarea"),
+      { value: c[f], className: f === "plan" ? f : "desc " + f });
+    box.onchange = () => patch({ [f]: box.value });
+    p.append(field(label, box));
+    if (f === "questions") p.append(...choices(c));
+  }
 
 
   const row = document.createElement("div");
@@ -1006,7 +1008,9 @@ function renderPanel() {
       patch({ checklist: [...c.checklist, { text: addItem.value.trim(), done: false }] });
   };
   list.append(addItem);
-  p.append(field("checklist", list));
+  // from plan on the agent writes the checklist from the plan's steps: an empty one shows
+  // only while a person is writing the card (a draft, or todo) (#96)
+  if (c.checklist.length || !c.id || c.lane === "todo") p.append(field("checklist", list));
   // A new card shows everything a saved one does. Links and comments cannot be written
   // before the card exists, so the draft holds them and "create" sends them after it.
   const links = document.createElement("ul");
