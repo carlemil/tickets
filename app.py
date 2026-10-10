@@ -5,6 +5,7 @@ import os
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
@@ -238,15 +239,52 @@ def can_restart():
             and core.settings_path().resolve().parent == RESTART_SCRIPT.resolve().parent)
 
 
+# Never DETACHED_PROCESS: a Windows PowerShell started with no console at all exits 0 at
+# once without running its -File script (#138: the board answered "restarting" and nothing
+# happened). CREATE_NO_WINDOW gives it a console of its own that nobody sees; the script's
+# -Delay branch then Start-Process'es the real restart, which outlives both.
+RESTART_FLAGS = (getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                 | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+RESTART_GRACE = 20   # s: a restart that worked has killed this process well before this
+
+
+def spawn_restart(script, delay=2):
+    """powershell -File <script> -Delay <delay>, hidden, not waited for. The real spawn,
+    which the suite runs only against a harmless stand-in script."""
+    return subprocess.Popen(["powershell", "-NoProfile", "-File", str(script),
+                             "-Delay", str(delay)],
+                            cwd=Path(script).parent, creationflags=RESTART_FLAGS,
+                            close_fds=True, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def restart_backend():
     """restart-backend.ps1 -Delay 2: it returns at once and restarts the backend 2 s later
-    in a detached process, which outlives the one it kills. The suite replaces this."""
-    flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-             | subprocess.CREATE_NO_WINDOW)
-    subprocess.Popen(["powershell", "-NoProfile", "-File", str(RESTART_SCRIPT), "-Delay", "2"],
-                     cwd=RESTART_SCRIPT.parent, creationflags=flags, close_fds=True,
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL)
+    in a process of its own, which outlives the one it kills. The suite replaces this."""
+    spawn_restart(RESTART_SCRIPT, 2)
+
+
+# When this process last asked for a restart (time.monotonic()), or None. A restart that
+# works kills this process, so this process still answering RESTART_GRACE seconds later,
+# with the setting still pending, means the restart did not happen.
+_restart_asked = None
+
+
+def ask_restart():
+    """Start the restart; False when it could not even be started (no powershell)."""
+    global _restart_asked
+    try:
+        restart_backend()
+    except OSError:
+        _restart_asked = time.monotonic() - RESTART_GRACE   # failed already
+        return False
+    _restart_asked = time.monotonic()
+    return True
+
+
+def restart_failed(pending):
+    return (pending and _restart_asked is not None
+            and time.monotonic() - _restart_asked >= RESTART_GRACE)
 
 
 def settings_view(request):
@@ -257,10 +295,11 @@ def settings_view(request):
     bound = bound_host()
     port = request.url.port or 8123
     listening_lan = bound is not None and bound not in LOOPBACK
+    pending = bound is not None and listening_lan != s["lan"]
     return {**s, "bound": bound, "port": port, "listening_lan": listening_lan,
             "urls": [f"http://{a}:{port}/" for a in lan_addresses()],
-            "pending": bound is not None and listening_lan != s["lan"],
-            "can_restart": can_restart()}
+            "pending": pending, "can_restart": can_restart(),
+            "restart_failed": restart_failed(pending)}
 
 
 # settings_view resolves the host name (lan_addresses), which can block for seconds on a
@@ -284,7 +323,8 @@ async def api_update_settings(request):
     view = await run_in_threadpool(settings_view, request)
     view["restarting"] = changed and view["pending"] and view["can_restart"]
     if view["restarting"]:
-        restart_backend()
+        view["restarting"] = ask_restart()
+        view["restart_failed"] = restart_failed(view["pending"])
     return JSONResponse(view)
 
 

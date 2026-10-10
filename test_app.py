@@ -10,9 +10,11 @@ direct function call cannot prove.
 import asyncio
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -778,6 +780,115 @@ def test_lan_addresses_survive_a_machine_with_no_network(monkeypatch):
 def test_the_suite_never_runs_the_real_restart(restarts):
     app.restart_backend()   # the conftest guard stands in for it
     assert restarts == [1]
+
+
+@pytest.mark.skipif(os.name != "nt" or not shutil.which("powershell"),
+                    reason="needs Windows PowerShell")
+def test_the_real_spawn_runs_the_scripts_delay_branch_to_the_end(tmp_path):
+    """#138: the board answered "restarting" and nothing ran. The real spawn (app's Popen,
+    flags and all) runs the real script's param line and -Delay branch, cut out of it; a
+    harmless tail stands in for the kill and start. The -Delay process must return, and the
+    -Sleep process it starts must still run to the end after it has gone."""
+    ps = (Path(app.__file__).parent / "restart-backend.ps1").read_text(encoding="utf-8")
+    head = ps[ps.index("param("):ps.index("Start-Sleep -Seconds $Sleep")]
+    assert "if ($Delay -gt 0)" in head and "Start-Process powershell" in head
+    assert "Stop-Process" not in head and "uvicorn" not in head
+    script = tmp_path / "stand-in.ps1"
+    script.write_text(head + 'Start-Sleep -Seconds $Sleep\n'
+                      '"ran Sleep=$Sleep" | Set-Content -Path "$PSScriptRoot\\ran.txt"\n',
+                      encoding="utf-8")
+    p = app.spawn_restart(script, 1)
+    assert p.wait(60) == 0, "the -Delay branch returns at once"
+    marker = tmp_path / "ran.txt"
+    deadline = time.monotonic() + 60
+    while not marker.exists() and time.monotonic() < deadline:
+        time.sleep(0.2)
+    assert marker.exists(), "the detached -Sleep process never ran"
+    deadline = time.monotonic() + 10   # Set-Content may still hold it for a moment
+    while "ran Sleep=1" not in marker.read_text(encoding="utf-8", errors="replace") \
+            and time.monotonic() < deadline:
+        time.sleep(0.2)
+    assert "ran Sleep=1" in marker.read_text(encoding="utf-8", errors="replace")
+
+
+def test_the_spawn_never_starts_powershell_without_a_console():
+    """A Windows PowerShell with DETACHED_PROCESS (no console at all) exits 0 at once
+    without running its script: the cause of #138."""
+    assert not app.RESTART_FLAGS & getattr(subprocess, "DETACHED_PROCESS", 0x8)
+    if os.name == "nt":
+        assert app.RESTART_FLAGS & subprocess.CREATE_NO_WINDOW
+
+
+REAL_RESTART_BACKEND = app.restart_backend   # taken at import, before the conftest guard
+
+
+def test_restart_backend_spawns_the_board_script_with_delay_2(monkeypatch):
+    calls = []
+    monkeypatch.setattr(app, "spawn_restart", lambda script, delay: calls.append((script, delay)))
+    REAL_RESTART_BACKEND()
+    assert calls == [(app.RESTART_SCRIPT, 2)]
+
+
+def asked_restart(monkeypatch, *, ago):
+    """The restart this process asked for, `ago` seconds back."""
+    monkeypatch.setattr(app, "_restart_asked", app.time.monotonic() - ago)
+
+
+def test_a_restart_is_not_failed_while_it_still_has_time(client, restarts, monkeypatch):
+    monkeypatch.setattr(app, "bound_host", lambda: "127.0.0.1")
+    monkeypatch.setattr(app, "can_restart", lambda: True)
+    r = client.patch("/api/settings", json={"lan": True}).json()
+    assert r["restarting"] is True and r["restart_failed"] is False and restarts == [1]
+    assert client.get("/api/settings").json()["restart_failed"] is False
+    asked_restart(monkeypatch, ago=app.RESTART_GRACE - 2)
+    assert client.get("/api/settings").json()["restart_failed"] is False
+
+
+def test_this_backend_still_answering_after_the_grace_means_the_restart_failed(
+        client, restarts, monkeypatch):
+    monkeypatch.setattr(app, "bound_host", lambda: "127.0.0.1")
+    monkeypatch.setattr(app, "can_restart", lambda: True)
+    client.patch("/api/settings", json={"lan": True})
+    asked_restart(monkeypatch, ago=app.RESTART_GRACE + 1)
+    s = client.get("/api/settings").json()
+    assert s["pending"] is True and s["restart_failed"] is True
+    # a repeat of the same value starts nothing and does not hide the failure
+    r = client.patch("/api/settings", json={"lan": True}).json()
+    assert r["restarting"] is False and r["restart_failed"] is True and restarts == [1]
+    # unticking matches the running bind again: nothing pending, nothing failed
+    assert client.patch("/api/settings", json={"lan": False}).json()["restart_failed"] is False
+    # ticking again is a fresh restart with a fresh clock: the retry
+    r = client.patch("/api/settings", json={"lan": True}).json()
+    assert r["restarting"] is True and r["restart_failed"] is False and restarts == [1, 1]
+
+
+def test_a_failed_restart_is_never_reported_once_nothing_is_pending(
+        client, restarts, monkeypatch):
+    monkeypatch.setattr(app, "bound_host", lambda: "0.0.0.0")   # came up on the LAN after all
+    core.update_settings(lan=True)
+    asked_restart(monkeypatch, ago=600)
+    s = client.get("/api/settings").json()
+    assert s["pending"] is False and s["restart_failed"] is False
+
+
+def test_no_restart_asked_is_never_failed_however_long_pending(client, monkeypatch):
+    monkeypatch.setattr(app, "bound_host", lambda: "127.0.0.1")
+    monkeypatch.setattr(app, "can_restart", lambda: False)   # e.g. a hand-started uvicorn
+    s = client.patch("/api/settings", json={"lan": True}).json()
+    assert s["pending"] is True and s["restarting"] is False and s["restart_failed"] is False
+
+
+def test_a_restart_that_cannot_even_start_answers_failed_not_500(client, monkeypatch):
+    monkeypatch.setattr(app, "bound_host", lambda: "127.0.0.1")
+    monkeypatch.setattr(app, "can_restart", lambda: True)
+
+    def no_powershell():
+        raise FileNotFoundError("powershell")
+    monkeypatch.setattr(app, "restart_backend", no_powershell)
+    r = client.patch("/api/settings", json={"lan": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["restarting"] is False and r.json()["restart_failed"] is True
+    assert core.get_settings() == {"lan": True}, "the setting is still saved"
 
 
 def test_restart_script_reads_the_lan_setting():

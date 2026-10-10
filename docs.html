@@ -163,7 +163,10 @@ virtual adapters (WSL, Hyper-V). Only the backend <code>restart-backend.ps1</cod
 port, uvicorn without <code>--host</code>, not Windows) cannot: the sheet says how to apply
 the change, and it applies the next time you start it with <code>restart-backend.ps1</code>.
 If the board cannot come up on the LAN address, the restart falls back to this computer only
-(see <code>restart-backend.log</code>) rather than leave you without a board. Untick it to go
+(see <code>restart-backend.log</code>) rather than leave you without a board. If the restart
+does not happen at all (the old backend is still answering 20 seconds later), the sheet says
+so instead of "restarting…": run <code>powershell -NoProfile -File restart-backend.ps1</code>
+by hand, or untick and tick again to retry. Untick it to go
 back to this computer only; a device that opened the board over the LAN loses it then, and
 the sheet there says so.</p>
 <ul>
