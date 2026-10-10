@@ -427,7 +427,11 @@ and all grow together with the tallest.
 
 **The work dot.** A board card leads with a green dot that shows and pulses while an
 agent's status entry (`/api/activity`) points at the card, and is hidden otherwise (#65:
-the element stays, so `markWorking` lights it without a re-render). The project pill
+the element stays, so `markWorking` lights it without a re-render). The same poll pulses
+the project tabs (#82): a tab's color dot pulses while an agent works any card in that
+project (matched case-insensitively), and "All" — plus a tab with no color, such as a
+remembered project that is gone — has a grey dot that shows and pulses only while an agent
+works on anything (`markTab`, run by `loadStatus` and on every `renderProj`). The project pill
 shows only under the "All" tab, and a `done` card has no archive button of its own: the
 lane's "archive all" and the sheet's "archive" cover it.
 
@@ -639,8 +643,9 @@ no longer on the board.
 | 80 | #98 "settings…" → "host the board on the LAN": `settings.json` beside the DB, `GET\|PATCH /api/settings`, `restart-backend.ps1` binds `0.0.0.0` when it is on, and a change restarts the backend through that script (`-Delay 2`) and shows the LAN URLs; still no auth, by the owner's call | done — 488 checks |
 | 81 | #97 docs: "A card at a glance" near the top, a screenshot of the real sheet with every field filled and numbered (`docs_card.py` makes it, `/docs/card.png` serves it) and a legend explaining each; tests fail when the sheet and the legend drift apart | done — 490 checks |
 | 82 | #83 a model per stage: `run.md` names it on every Agent call — plan & develop on the session's model, develop, test and deploy on `sonnet` | done — 490 checks |
+| 83 | #82 tabs pulse: a project tab's color dot pulses while an agent works a card in that project; "All" shows a grey pulsing dot while any agent works, and no dot otherwise | done — 495 checks |
 
-Gate for every task: `uv run pytest -q` — 490 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 495 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
