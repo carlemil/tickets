@@ -92,8 +92,8 @@ If this folder's project has no card a run would take, it blocks the tick and pr
 through as usual. A card that is ready, in progress or has an open PR is one a run would
 take. Cards waiting for your answers, assigned to someone else or blocked by an unfinished
 card are not; a blocker is finished once it is in done, or in verify with a merged PR,
-or with no PR in a project that lands by merge. When the board is down, or the folder has no project, the tick also goes
-through, so the run can deal with it. Without the gate, an idle tick in a long session
+or with no PR in a project that lands by merge. When the board is down, or the folder
+has no project, the tick also goes through, so the run can deal with it. Without the gate, an idle tick in a long session
 cost about 400k cached tokens. The gate needs `python` on PATH and uses only the standard
 library.
 

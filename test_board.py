@@ -483,7 +483,7 @@ def test_dragging_a_blocker_to_verify_unmarks_the_card_and_drops_its_arrow(page)
     page.evaluate("load()")
     page.wait_for_selector(f'.card.blocked[data-id="{b}"]')
     assert page.get_attribute(f'.card[data-id="{b}"] .pill.blocked-by', "title") == \
-        "blocked: can't start until these reach verify (with an open PR, or in a PR project: once merged) or done"
+        "blocked: can't start until these reach verify (with an open PR, or in a PR project with none: once merged) or done"
     assert arrows(page) == [[a, b]]
     drag(page, a, "verify")
     page.wait_for_selector(f'.card:not(.blocked)[data-id="{b}"]', timeout=2000)
