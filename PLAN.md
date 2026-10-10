@@ -422,7 +422,7 @@ while the card is in `verify`) and "close". A new
 card's row is "new", the title, "cancel", "close".
 The card number carries the auto dot, which pulses while an agent works the card.
 The line under it says "created <when> by <author>" (the full date on hover; project
-and lane are the fields just below, #65), then, once an agent has taken the
+and lane are fields on the sheet, #65), then, once an agent has taken the
 card, "session <first 8>" (#2): the `session` field holds the Claude Code session id the
 skill writes when it takes a card, and the button copies `claude --resume <id>`, so the
 transcript of the run that worked the card is one paste away.

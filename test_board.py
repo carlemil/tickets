@@ -153,7 +153,7 @@ def test_panel_edits_each_save_on_change(page):
     wait_saved(page, cid, "checklist", [{"text": "first item", "done": True}])
     page.select_option("#panel select >> nth=2", "test")          # lane
     wait_saved(page, cid, "lane", "test")
-    page.fill("#panel textarea >> nth=1", "looks good")
+    page.fill("#panel .say-box", "looks good")
     page.click("#panel button:has-text('comment')")
     page.wait_for_selector("#panel .log li.comment")
 
@@ -293,7 +293,7 @@ def test_the_board_writes_as_user_with_no_who_box(page, stale):
     assert page.locator("#who").count() == 0, "the box is gone"
     cid = add_card(page, "mine")
     assert page.locator("#err.on").count() == 0, "no error opening the new-card panel"
-    page.fill("#panel textarea >> nth=1", "hello")
+    page.fill("#panel .say-box", "hello")
     page.click("#panel button:has-text('comment')")
     page.wait_for_selector("#panel .log li.comment")
     assert "User" in page.text_content("#panel .log li.comment")
@@ -771,7 +771,7 @@ def test_a_landed_comment_does_not_reopen_a_dismissed_panel(page):
     page.wait_for_function("() => window.__inflight === 0")
     page.evaluate("""const original = window.fetch;
         window.fetch = (...a) => original(...a).then(r => new Promise(ok => setTimeout(() => ok(r), 500)))""")
-    page.fill("#panel textarea >> nth=1", "sent while closing")
+    page.fill("#panel .say-box", "sent while closing")
     page.click("#panel button:has-text('comment')")
     close_sheet(page)
     assert page.locator("#panel.on").count() == 0, "dismissed"
@@ -788,7 +788,7 @@ def test_a_landed_comment_does_not_hijack_another_open_card(page):
     page.evaluate("""const original = window.fetch;
         window.fetch = (url, o) => original(url, o).then(r => String(url).includes('/comment')
             ? new Promise(ok => setTimeout(() => ok(r), 500)) : r)""")
-    page.fill("#panel textarea >> nth=1", "for the first card")
+    page.fill("#panel .say-box", "for the first card")
     page.click("#panel button:has-text('comment')")
     page.evaluate(f"openCard({other['id']})")
     page.wait_for_function(f"() => open && open.id === {other['id']}")
