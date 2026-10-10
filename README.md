@@ -8,7 +8,9 @@ shared stays there. Tickets is for the local loop: you hand coding tasks to an a
 your machine and review what comes back.
 
 **Local and single-person only.** One process, bound to `127.0.0.1`, with no auth and no
-accounts — users are just names, nothing is enforced. Never put it on a network.
+accounts — users are just names, nothing is enforced. "settings…" on the board can host it
+on your LAN (`0.0.0.0`, restarted through `restart-backend.ps1`); there is still no
+password then, so only on a network you trust. Never host it online.
 
 ## Lanes
 

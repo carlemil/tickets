@@ -575,3 +575,138 @@ def test_log_config_timestamps_the_access_row():
     line = AccessFormatter(fmt=f["fmt"], datefmt=f["datefmt"]).format(rec)
     assert re.match(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d ", line), line
     assert "/api/activity" in line
+
+
+# ---------- board settings: host on the LAN ----------
+
+def test_settings_get_reports_the_setting_and_an_unknown_bind_in_tests(client):
+    s = client.get("/api/settings").json()
+    assert s["lan"] is False
+    assert s["bound"] is None, "the suite's servers are not started by uvicorn's CLI"
+    assert s["pending"] is False and s["listening_lan"] is False and s["can_restart"] is False
+    assert isinstance(s["urls"], list) and s["port"]
+
+
+def test_settings_patch_saves_accepts_the_boards_actor_and_does_not_restart_unknown(
+        client, restarts):
+    r = client.patch("/api/settings", json={"lan": True, "actor": "User"})
+    assert r.status_code == 200, r.text
+    assert r.json()["lan"] is True and r.json()["restarting"] is False
+    assert core.get_settings() == {"lan": True}
+    assert restarts == [], "a backend that does not know its bind never restarts itself"
+    assert core.list_activity() == [] and core.last_event() == 0   # not card activity
+
+
+@pytest.mark.parametrize("body", [{"lan": "yes"}, {"lan": None}, {"port": 1}, [True], "x"])
+def test_settings_patch_rejects_bad_input_with_400(client, body):
+    r = client.patch("/api/settings", json=body)
+    assert r.status_code == 400 and r.json()["error"]
+    assert core.get_settings() == {"lan": False}
+
+
+def test_turning_lan_on_restarts_a_loopback_backend_onto_every_address(
+        client, restarts, monkeypatch):
+    monkeypatch.setattr(app, "bound_host", lambda: "127.0.0.1")
+    monkeypatch.setattr(app, "can_restart", lambda: True)
+    r = client.patch("/api/settings", json={"lan": True}).json()
+    assert r["pending"] is True and r["restarting"] is True and restarts == [1]
+    # the same value again: still pending, so the restart is asked for again (an earlier
+    # one may have failed), which restart-backend.ps1 survives
+    client.patch("/api/settings", json={"lan": True})
+    assert restarts == [1, 1]
+
+
+def test_turning_lan_off_restarts_a_lan_backend_and_a_matching_setting_does_not(
+        client, restarts, monkeypatch):
+    monkeypatch.setattr(app, "bound_host", lambda: "0.0.0.0")
+    monkeypatch.setattr(app, "can_restart", lambda: True)
+    core.update_settings(lan=True)
+    s = client.get("/api/settings").json()
+    assert s["listening_lan"] is True and s["pending"] is False
+    assert client.patch("/api/settings", json={"lan": True}).json()["restarting"] is False
+    assert restarts == []
+    assert client.patch("/api/settings", json={"lan": False}).json()["restarting"] is True
+    assert restarts == [1]
+
+
+def test_a_pending_change_that_cannot_restart_says_so_and_does_not_try(
+        client, restarts, monkeypatch):
+    monkeypatch.setattr(app, "bound_host", lambda: "127.0.0.1")
+    monkeypatch.setattr(app, "can_restart", lambda: False)   # not Windows, or no script
+    r = client.patch("/api/settings", json={"lan": True}).json()
+    assert r["pending"] is True and r["restarting"] is False and restarts == []
+
+
+def test_settings_urls_are_the_lan_addresses_on_the_requests_port(client, monkeypatch):
+    monkeypatch.setattr(app, "lan_addresses", lambda: ["10.0.0.7", "192.168.1.5"])
+    s = TestClient(app.app, base_url="http://127.0.0.1:8123").get("/api/settings").json()
+    assert s["port"] == 8123
+    assert s["urls"] == ["http://10.0.0.7:8123/", "http://192.168.1.5:8123/"]
+
+
+@pytest.mark.parametrize("argv, host", [
+    (["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8123"], "0.0.0.0"),
+    (["uvicorn", "app:app", "--host=127.0.0.1"], "127.0.0.1"),
+    (["pytest", "-q"], None),
+    (["uvicorn", "app:app", "--host"], None),
+])
+def test_bound_host_reads_uvicorns_command_line(argv, host):
+    assert app.bound_host(argv) == host
+
+
+def test_can_restart_needs_a_known_bind(monkeypatch):
+    monkeypatch.setattr(app.sys, "argv", ["pytest"])
+    assert app.can_restart() is False
+    monkeypatch.setattr(app.sys, "argv", ["uvicorn", "app:app", "--host", "127.0.0.1"])
+    assert app.can_restart() is (app.os.name == "nt" and app.RESTART_SCRIPT.exists())
+
+
+def test_lan_addresses_leave_out_loopback_link_local_and_duplicates(monkeypatch):
+    infos = [(2, 1, 6, "", (a, 0)) for a in
+             ["127.0.0.1", "192.168.1.5", "169.254.3.4", "10.0.0.7", "192.168.1.5"]]
+    monkeypatch.setattr(app.socket, "getaddrinfo", lambda *a, **k: infos)
+
+    class Routed:   # the UDP connect that finds the default route's address
+        def __init__(self, *a): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def connect(self, addr): pass
+        def getsockname(self): return ("172.16.0.9", 5000)
+
+    monkeypatch.setattr(app.socket, "socket", Routed)
+    assert app.lan_addresses() == ["172.16.0.9", "10.0.0.7", "192.168.1.5"], \
+        "the default route's address first, then the rest"
+
+
+def test_a_default_route_address_also_found_by_name_is_listed_once(monkeypatch):
+    monkeypatch.setattr(app.socket, "getaddrinfo",
+                        lambda *a, **k: [(2, 1, 6, "", ("192.168.1.5", 0))])
+
+    class Routed:
+        def __init__(self, *a): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def connect(self, addr): pass
+        def getsockname(self): return ("192.168.1.5", 5000)
+
+    monkeypatch.setattr(app.socket, "socket", Routed)
+    assert app.lan_addresses() == ["192.168.1.5"]
+
+
+def test_lan_addresses_survive_a_machine_with_no_network(monkeypatch):
+    def fail(*a, **k):
+        raise OSError("no network")
+    monkeypatch.setattr(app.socket, "getaddrinfo", fail)
+    monkeypatch.setattr(app.socket, "socket", fail)
+    assert app.lan_addresses() == []
+
+
+def test_the_suite_never_runs_the_real_restart(restarts):
+    app.restart_backend()   # the conftest guard stands in for it
+    assert restarts == [1]
+
+
+def test_restart_script_reads_the_lan_setting():
+    ps = (Path(app.__file__).parent / "restart-backend.ps1").read_text(encoding="utf-8")
+    assert "settings.json" in ps and "'0.0.0.0'" in ps and "--host, $BindHost" in ps
+    assert "--host, 127.0.0.1" not in ps, "the bind is no longer hard-coded"

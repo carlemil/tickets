@@ -1,4 +1,7 @@
-# Restart the Tickets backend (uvicorn on 127.0.0.1:8123, serving this folder).
+# Restart the Tickets backend (uvicorn on 127.0.0.1:8123, serving this folder). With the
+# board's "host the board on the LAN" setting on (settings.json: "lan": true) it listens on
+# 0.0.0.0:8123 instead, which still includes 127.0.0.1. The board runs this itself, with
+# -Delay 2, when that setting changes.
 #   powershell -NoProfile -File restart-backend.ps1            restart now
 #   powershell -NoProfile -File restart-backend.ps1 -Delay 30  return at once; restart 30 s
 #     later in a detached process (the agent's deploy uses this: it reports its result
@@ -32,17 +35,28 @@ function Log($message) {
     "$(Get-Date -Format s) $message" | Add-Content -Path "$PSScriptRoot\restart-backend.log"
 }
 
+# The board's settings (core.settings_path: beside tickets.db). Missing or unreadable means
+# the defaults: this computer only.
+$BindHost = '127.0.0.1'
+$settingsFile = "$PSScriptRoot\settings.json"
+if (Test-Path $settingsFile) {
+    try {
+        $lan = (Get-Content $settingsFile -Raw | ConvertFrom-Json).lan
+        if ($lan -is [bool] -and $lan) { $BindHost = '0.0.0.0' }   # a real true, as core reads it
+    } catch { Log "settings.json unreadable; listening on 127.0.0.1" }
+}
+
 # Success is "the port is served", not "my uvicorn is the one serving it": two restarts that
 # overlap both finish happy as soon as either one's backend is up.
 for ($try = 1; $try -le 3; $try++) {
     Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "uvicorn.*app:app.*$PORT" } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     if (-not (Wait-Port $false 15)) { Log "port $PORT still held 15 s after the kill; starting anyway" }
-    Start-Process -FilePath uv -ArgumentList run, uvicorn, app:app, --host, 127.0.0.1, --port, $PORT, `
+    Start-Process -FilePath uv -ArgumentList run, uvicorn, app:app, --host, $BindHost, --port, $PORT, `
         --log-config, "`"$PSScriptRoot\log-config.json`"" `
         -WorkingDirectory $PSScriptRoot -WindowStyle Minimized
     if (Wait-Port $true 25) {
-        Log "backend up on $PORT (try $try)"
+        Log "backend up on ${BindHost}:$PORT (try $try)"
         return
     }
     Log "backend did not come up on $PORT (try $try)"

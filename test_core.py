@@ -1367,3 +1367,47 @@ def test_the_cards_take_the_projects_own_spelling():
 def test_setup_cards_for_an_unknown_project_is_not_found():
     with pytest.raises(core.NotFound):
         core.setup_cards("nope")
+
+
+# ---------- board settings ----------
+
+def test_settings_default_to_off_with_no_file():
+    assert not core.settings_path().exists()
+    assert core.get_settings() == {"lan": False}
+
+
+def test_settings_round_trip_through_the_file_beside_the_database(db):
+    assert core.update_settings(lan=True) == {"lan": True}
+    assert core.settings_path() == core.Path(db).with_name("settings.json")
+    assert core.get_settings() == {"lan": True}
+    assert core.update_settings(lan=False) == {"lan": False}
+    assert core.get_settings() == {"lan": False}
+
+
+def test_update_settings_with_nothing_writes_the_defaults():
+    assert core.update_settings() == {"lan": False}
+    assert core.settings_path().exists()
+
+
+@pytest.mark.parametrize("bad", ["true", 1, 0, None, "yes"])
+def test_lan_must_be_a_bool(bad):
+    with pytest.raises(ValueError, match="true or false"):
+        core.update_settings(lan=bad)
+    assert not core.settings_path().exists(), "a rejected change writes nothing"
+
+
+def test_an_unknown_setting_is_rejected():
+    with pytest.raises(ValueError, match="unknown setting"):
+        core.update_settings(lan=True, port=9000)
+    assert core.get_settings() == {"lan": False}
+
+
+@pytest.mark.parametrize("text", ["", "not json", "[1, 2]", '{"lan": "yes"}', '{"lan": 1}'])
+def test_an_unreadable_or_odd_settings_file_reads_as_the_defaults(text):
+    core.settings_path().write_text(text, encoding="utf-8")
+    assert core.get_settings() == {"lan": False}
+
+
+def test_a_settings_file_keeps_a_good_value_and_ignores_extra_keys():
+    core.settings_path().write_text('{"lan": true, "old": 1}', encoding="utf-8")
+    assert core.get_settings() == {"lan": True}

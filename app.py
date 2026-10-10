@@ -1,6 +1,10 @@
 """MCP tools and HTTP routes. Both are thin wrappers over core — no SQL lives here."""
 
 import functools
+import os
+import socket
+import subprocess
+import sys
 from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
@@ -154,6 +158,101 @@ async def api_delete_project(request):
 async def api_update_project(request):
     return JSONResponse(core.update_project(request.path_params["name"],
                                             **await request.json()))
+
+
+# ---------- board settings ----------
+# Hosting on the LAN means a different bind address, which only a backend restart can
+# change: uvicorn binds once. The board backend is always started by restart-backend.ps1,
+# which reads settings.json, so the restart is that same script, detached and delayed so
+# this response gets out before the kill.
+RESTART_SCRIPT = Path(__file__).parent / "restart-backend.ps1"
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+def bound_host(argv=None):
+    """The --host this process was started with by uvicorn's command line, or None when it
+    was not started that way (the tests' in-thread server, a script): then it is unknown."""
+    argv = sys.argv if argv is None else argv
+    for i, a in enumerate(argv):
+        if a == "--host" and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith("--host="):
+            return a.split("=", 1)[1]
+    return None
+
+
+def lan_addresses():
+    """This machine's IPv4 addresses another device on the LAN could use, loopback and
+    link-local (169.254.*, no DHCP answer) left out. The one the default route leaves from
+    comes first: virtual adapters (WSL, Hyper-V) add addresses no other device can reach."""
+    primary = None
+    try:   # a UDP connect sends nothing, it only picks the route
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))
+            primary = s.getsockname()[0]
+    except OSError:
+        pass
+    found = set()
+    try:
+        found.update(i[4][0] for i in socket.getaddrinfo(socket.gethostname(), None,
+                                                          socket.AF_INET))
+    except OSError:
+        pass
+    usable = lambda a: a and not a.startswith(("127.", "169.254.", "0."))
+    first = [primary] if usable(primary) else []
+    return first + sorted(a for a in found if usable(a) and a not in first)
+
+
+def can_restart():
+    """Only a backend uvicorn's CLI started (so we know its bind) on Windows, with the
+    restart script beside it, restarts itself."""
+    return bound_host() is not None and os.name == "nt" and RESTART_SCRIPT.exists()
+
+
+def restart_backend():
+    """restart-backend.ps1 -Delay 2: it returns at once and restarts the backend 2 s later
+    in a detached process, which outlives the one it kills. The suite replaces this."""
+    flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+             | subprocess.CREATE_NO_WINDOW)
+    subprocess.Popen(["powershell", "-NoProfile", "-File", str(RESTART_SCRIPT), "-Delay", "2"],
+                     cwd=RESTART_SCRIPT.parent, creationflags=flags, close_fds=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL)
+
+
+def settings_view(request):
+    """The settings plus what the running backend is doing: `bound` is its --host (None if
+    unknown), `listening_lan` whether it answers on the LAN now, `urls` the addresses to open
+    from another device, `pending` the setting differs from what is running."""
+    s = core.get_settings()
+    bound = bound_host()
+    port = request.url.port or 8123
+    listening_lan = bound is not None and bound not in LOOPBACK
+    return {**s, "bound": bound, "port": port, "listening_lan": listening_lan,
+            "urls": [f"http://{a}:{port}/" for a in lan_addresses()],
+            "pending": bound is not None and listening_lan != s["lan"],
+            "can_restart": can_restart()}
+
+
+@route("/api/settings", methods=["GET"])
+async def api_settings(request):
+    return JSONResponse(settings_view(request))
+
+
+# Board settings are not card activity: an `actor` is accepted (the board sends one on
+# every write) but not needed, and nothing is logged.
+@route("/api/settings", methods=["PATCH"])
+async def api_update_settings(request):
+    fields = await request.json()
+    if not isinstance(fields, dict):
+        raise ValueError("send a JSON object of settings")
+    fields.pop("actor", None)
+    core.update_settings(**fields)
+    view = settings_view(request)
+    view["restarting"] = view["pending"] and view["can_restart"]
+    if view["restarting"]:
+        restart_backend()
+    return JSONResponse(view)
 
 
 @tool
