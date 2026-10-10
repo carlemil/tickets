@@ -2125,6 +2125,28 @@ def test_the_header_links_to_the_docs_in_a_new_tab(page):
     assert link.get_attribute("title")
 
 
+def test_the_docs_card_figure_numbers_every_field_the_sheet_shows(page):
+    """docs-card.png is a screenshot (docs_card.py), so it cannot update itself: this is
+    what makes a new, renamed, moved or vanished sheet field fail loudly instead of leaving the
+    docs' figure quietly wrong. Rerun docs_card.py when it fails, then fix the legend."""
+    import docs_card
+
+    page.evaluate("id => openCard(id)", docs_card.build_card())
+    page.wait_for_selector("#panel.on h3")
+    headings = page.eval_on_selector_all(
+        "#panel h3", "hs => hs.filter(h => h.getClientRects().length).map(h => h.textContent)")
+    numbered = [t[3:] for _, t in docs_card.MARKERS if t.startswith("h3:")]
+    # in order too: the badges read top to bottom, so a moved field means a new screenshot
+    assert headings == numbered, "sheet fields vs. docs_card.MARKERS"
+    buttons = page.eval_on_selector_all(
+        "#panel .head button", "bs => bs.filter(b => b.getClientRects().length).map(b => b.textContent)")
+    assert buttons == [t[4:] for _, t in docs_card.MARKERS if t.startswith("btn:")]
+    assert page.evaluate(docs_card.MARK_JS, docs_card.MARKERS) == []   # every badge lands
+    badges = page.locator("#panel .docs-badge")
+    assert badges.count() == len(docs_card.MARKERS)
+    assert badges.nth(len(docs_card.MARKERS) - 1).text_content() == str(len(docs_card.MARKERS))
+
+
 # ---------- the sheet's sticky header row ----------
 
 def head_parts(page):

@@ -17,6 +17,7 @@ import core
 mcp = MCPServer("tickets")
 BOARD = Path(__file__).parent / "board.html"
 DOCS = Path(__file__).parent / "docs.html"
+DOCS_CARD = Path(__file__).parent / "docs-card.png"
 
 
 def route(path, methods):
@@ -68,6 +69,11 @@ async def index(request):
 @route("/docs", methods=["GET"])
 async def docs(request):
     return FileResponse(DOCS)
+
+
+@route("/docs/card.png", methods=["GET"])
+async def docs_card(request):   # the annotated sheet in docs.html, made by docs_card.py
+    return FileResponse(DOCS_CARD, media_type="image/png")
 
 
 @route("/api/cards", methods=["GET"])
