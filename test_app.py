@@ -871,6 +871,16 @@ def test_a_failed_restart_is_never_reported_once_nothing_is_pending(
     assert s["pending"] is False and s["restart_failed"] is False
 
 
+def test_an_old_ask_does_not_blame_a_later_mismatch(client, restarts, monkeypatch):
+    monkeypatch.setattr(app, "bound_host", lambda: "0.0.0.0")
+    core.update_settings(lan=True)
+    asked_restart(monkeypatch, ago=600)
+    assert client.get("/api/settings").json()["restart_failed"] is False   # applied: forgotten
+    core.update_settings(lan=False)   # a hand edit makes it pending again, nobody asked
+    s = client.get("/api/settings").json()
+    assert s["pending"] is True and s["restart_failed"] is False
+
+
 def test_no_restart_asked_is_never_failed_however_long_pending(client, monkeypatch):
     monkeypatch.setattr(app, "bound_host", lambda: "127.0.0.1")
     monkeypatch.setattr(app, "can_restart", lambda: False)   # e.g. a hand-started uvicorn

@@ -283,7 +283,11 @@ def ask_restart():
 
 
 def restart_failed(pending):
-    return (pending and _restart_asked is not None
+    global _restart_asked
+    if not pending:
+        _restart_asked = None   # applied or unticked: an old ask must not blame a later mismatch
+        return False
+    return (_restart_asked is not None
             and time.monotonic() - _restart_asked >= RESTART_GRACE)
 
 
