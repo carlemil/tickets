@@ -27,6 +27,11 @@
   .note { border-left: 3px solid var(--warn); padding: 4px 12px; background: #fff4f2; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: middle; }
   dt { font-weight: 600; } dd { margin: 0 0 .5em 1.2em; }
+  .card-fig { margin: 12px 0; }
+  .card-fig img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line);
+                  border-radius: 4px; }
+  .card-fields li { margin-bottom: .3em; }
+  .card-fields li::marker { color: #de350b; font-weight: 700; }   /* the badges' red */
 </style>
 </head>
 <body>
@@ -46,6 +51,57 @@
   <li><a href="#limits">Limits</a></li>
 </ol>
 </nav>
+
+<!-- docs-card.png is a screenshot of the real sheet, made by docs_card.py; the numbers
+     below follow its MARKERS, and a test fails when the sheet shows a field not listed -->
+<h2 id="card">A card at a glance</h2>
+<p>Click a card on the board and its sheet opens. Here is one with every field filled in;
+a new card, or one the agent has not planned yet, shows fewer. <a href="#board">The
+board</a> has the details.</p>
+<figure class="card-fig">
+  <img src="/docs/card.png" width="720" alt="A card's sheet, every field numbered">
+</figure>
+<ol id="card-fields" class="card-fields">
+  <li data-field="signals"><b>Number and dots</b>: the card's number, led by its signals:
+    green while an agent works on it, blue once it is merged into the base branch, purple
+    once it is deployed (see <a href="#signals">signals</a>).</li>
+  <li data-field="title"><b>Title</b>: what needs doing, in a line.</li>
+  <li data-field="archive"><b>archive</b>: takes the card off the board. Nothing is ever
+    deleted; "show archived" brings it back.</li>
+  <li data-field="move to done"><b>move to done</b>: only in <code>verify</code>: you have
+    checked the result, and one click ends the card.</li>
+  <li data-field="close"><b>close</b>: closes the sheet. Every field saves as you leave it,
+    so there is no save button.</li>
+  <li data-field="origin"><b>Who and when</b>: who created the card and when; once an agent
+    has worked it, "session" (click to copy <code>claude --resume &lt;id&gt;</code>), and
+    a "pull request" link when it landed by one.</li>
+  <li data-field="project"><b>project</b>: the repo the card belongs to, and so the folder
+    the agent works in.</li>
+  <li data-field="description"><b>description</b>: your request: what you want and why. The
+    agent never writes over it.</li>
+  <li data-field="plan"><b>plan</b>: the agent's plan, written in <code>plan</code>. Its
+    steps become the checklist.</li>
+  <li data-field="open questions"><b>open questions</b>: what the agent needs you to decide
+    before it builds. A question with options gets a row of radio buttons below it, the
+    agent's pick marked "recommended".</li>
+  <li data-field="your answers"><b>your answers</b>: your replies to the questions; a radio
+    click writes one here. The next run replans with them.</li>
+  <li data-field="assignee"><b>assignee</b>: who has the card: you, or an agent while it
+    works. A card assigned to a person is never taken by an agent.</li>
+  <li data-field="lane"><b>lane</b>: the stage it is in, the same as dragging it to another
+    column.</li>
+  <li data-field="labels"><b>labels</b>: free tags, comma separated.</li>
+  <li data-field="checklist"><b>checklist</b>: steps to tick off. The agent ticks its plan's
+    steps as it finishes them, and the board card shows done/total.</li>
+  <li data-field="links"><b>links</b>: this card's parent, and the cards it blocks. A
+    blocked card waits until its blockers reach <code>verify</code> or
+    <code>done</code>.</li>
+  <li data-field="activity"><b>activity</b>: everything that happened to the card and who did
+    it, with the comments. Older lines fold away behind "show N earlier"; an agent's comment
+    has a "claude's output" box with its whole run.</li>
+  <li data-field="say something"><b>say something</b>: a comment, logged with your name;
+    ctrl+enter sends it.</li>
+</ol>
 
 <h2 id="what">1. What Tickets is (and isn't)</h2>
 <p>Tickets is a personal lane board. You drive it in the browser, and Claude drives it over
@@ -157,7 +213,7 @@ again.</p>
     card is archived from its sheet.</li>
 </ul>
 
-<h3>Signals</h3>
+<h3 id="signals">Signals</h3>
 <p>A card leads with up to three dots, on the board and in its sheet. Each shows only while
 it is lit; a card with none of them has no dot.</p>
 <ul>

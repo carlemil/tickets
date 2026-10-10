@@ -23,6 +23,8 @@ core.py        schema + every operation (the only file that touches SQL)
 app.py         MCPServer: MCP tools + HTTP routes, both thin wrappers over core
 board.html     the board, vanilla JS
 docs.html      the user docs: what Tickets is, the board, the agent, the workflow
+docs_card.py   makes docs-card.png: the real card sheet, every field filled and numbered
+docs-card.png  that screenshot, shown near the top of docs.html (served at /docs/card.png)
 conftest.py    fixtures: temp DB, TestClient, uvicorn thread, Chrome page
 test_core.py   core operations, rejections and no-ops
 test_app.py    status codes, the actor rule, both error mappings, ToolError, the MCP wire
@@ -163,7 +165,7 @@ name is a `ValueError`.
 
 ## HTTP routes (`app.py`)
 
-`GET /` → board.html · `GET /docs` → docs.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
+`GET /` → board.html · `GET /docs` → docs.html · `GET /docs/card.png` → docs-card.png · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
 `POST /api/cards` · `POST /api/cards/{id}/comment` · `POST|DELETE /api/links` ·
 `GET|POST /api/users` · `GET|POST /api/activity` · `GET /api/version` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}`. Every
 write body carries `actor` — except `POST /api/users` (`{"name"}` → 201), the one write
@@ -301,6 +303,21 @@ itself, since stopping starts no work.
 **Docs.** `docs.html` is the user's manual, written by hand from this file and
 `skill-start/run.md`: a change to how the board or the agent behaves updates it too.
 `test_docs_page_is_served_and_covers_the_essentials` checks the lanes and key terms.
+
+**The annotated card (#97).** Right after the contents, "A card at a glance" shows
+`docs-card.png` with a numbered legend. The image is a screenshot of the real sheet, never
+a drawing: `uv run python docs_card.py` fills a card with every field (verify lane, all
+three dots, session, pull request, plan, questions with options, answers, checklist,
+labels, parent and blocks links, comments with claude's output) on a throwaway database,
+serves the board from its own process on a free port (never 8123), opens the card in
+Chrome, draws a red badge per entry of `docs_card.MARKERS` and saves the shot. The legend's
+`data-field`s follow `MARKERS` in order. A screenshot cannot update itself, so two tests
+keep it honest: the browser one opens the same card and fails when the sheet shows a field
+heading `MARKERS` does not name or a badge no longer finds its target; the HTTP one checks
+the PNG is served and the legend matches `MARKERS`. A change to how the sheet looks (#94,
+#95's comments moved under the description, #96's hidden empty fields) still needs the
+script run again by hand: the card it builds has every field filled, so #96's hiding never
+drops one from the figure.
 
 ## Board (`board.html`)
 
@@ -559,8 +576,9 @@ no longer on the board.
 | 74 | #72 rework clears a card's `pr` with `merged` and `deployed`, and ship reuses only an open PR, so an old merged PR never vouches for (or unblocks) reworked code | done — 431 checks |
 | 75 | #76 docs brought up to date: setup through `/tickets-start` (user-scope MCP, skills, idle gate), the verify step after the agent's land, the blue dot, blocked-by-a-person and a person's move winning; board tooltips no longer say "master" or describe the retired agent prompt | done — 431 checks |
 | 76 | #84 one subagent plans and develops: a card in `plan` gets one plan & develop agent in its worktree that posts plan and checklist itself (a person's move wins) and, with no open questions, moves the card to `develop` and builds in the same context; questions stop it in `plan` and the unused worktree goes; develop-lane cards and test keep fresh agents | done — 431 checks |
+| 77 | #97 docs: "A card at a glance" near the top, a screenshot of the real sheet with every field filled and numbered (`docs_card.py` makes it, `/docs/card.png` serves it) and a legend explaining each; tests fail when the sheet and the legend drift apart | done — 433 checks |
 
-Gate for every task: `uv run pytest -q` — 431 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 433 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

@@ -54,6 +54,23 @@ def test_docs_page_is_served_and_covers_the_essentials(client):
         assert text not in r.text, text
 
 
+def test_the_docs_show_the_annotated_card_with_one_legend_entry_per_badge(client):
+    import re
+
+    import docs_card
+
+    r = client.get("/docs/card.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
+    html = client.get("/docs").text
+    assert '<img src="/docs/card.png"' in html
+    # the figure sits near the top: before the first numbered section
+    assert html.index('id="card-fields"') < html.index('id="what"')
+    legend = html.split('id="card-fields"', 1)[1].split("</ol>", 1)[0]
+    assert re.findall(r'data-field="([^"]+)"', legend) == [k for k, _ in docs_card.MARKERS]
+    assert 'id="signals"' in html   # the legend links there
+
+
 def test_create_card_returns_201_and_the_full_card(client):
     r = client.post("/api/cards", json={"title": "from http", "actor": "ann", "project": "Home"})
     assert r.status_code == 201, r.text
