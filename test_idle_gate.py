@@ -89,6 +89,18 @@ def test_a_verify_blocker_with_an_unmerged_pr_keeps_the_gate_idle(server, proj, 
     assert gate.idle_line(TICK, here, server) is None
 
 
+def test_a_pr_project_blocker_in_verify_without_a_pr_keeps_the_gate_idle(server, proj, here):
+    """#87: rework cleared its pr and a person dragged it back; it is not shipped."""
+    core.create_project("Shop", land="pr")
+    blocked = card(proj, "develop")
+    blocker = card("Shop", "develop")
+    core.link_cards(blocker, blocked, "blocks", "person")
+    core.update_card(blocker, "person", lane="verify")
+    assert gate.idle_line(TICK, here, server) is not None
+    core.update_card(blocker, "person", pr="https://example.test/pr/3", merged=True)
+    assert gate.idle_line(TICK, here, server) is None
+
+
 def test_an_open_pull_request_lets_the_tick_through(server, proj, here):
     card(proj, "verify", pr="https://example.test/pr/1", merged=True)
     assert gate.idle_line(TICK, here, server) is not None

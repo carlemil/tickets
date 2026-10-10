@@ -259,7 +259,11 @@ again.</p>
 it is lit; a card with none of them has no dot.</p>
 <ul>
   <li><span class="dot" style="background:#36b37e"></span> <b>green dot</b>: it pulses while
-    an agent is working on the card.</li>
+    an agent is working on the card. The project tabs above the board say the same per
+    project: a tab's color dot pulses while an agent works on any card in that project, so
+    you see it even under another tab, and the "All" tab shows a
+    <span class="dot" style="background:#97a0af"></span> grey dot that pulses while an agent
+    is working on anything.</li>
   <li><span class="dot" style="background:#0052cc"></span> <b>blue dot</b>:
     the card's branch is merged into the project's base branch: lit by the agent after the
     land and deploy once git shows the branch merged, or, for a pull request, by the next
@@ -270,7 +274,10 @@ it is lit; a card with none of them has no dot.</p>
   <li><span style="display:inline-block;width:4px;height:12px;background:#bf2600;vertical-align:middle"></span>
     <b>red stripe</b> down a card's left edge, with a "blocked by #12" pill: the card is
     blocked, it can't start until those cards reach verify (a blocker with an open pull
-    request: once it is merged) or done. Moving a blocker back out of verify blocks
+    request: once it is merged) or done. In a project that lands by pull request, a
+    blocker in verify counts only once its pull request is merged: one dragged back to
+    verify by hand without a new one (rework clears the old one) still blocks, and so does
+    a person's task card there, so move that to done. Moving a blocker back out of verify blocks
     again: the link is never removed.
     <span style="display:inline-block;width:4px;height:12px;background:#ff991f;vertical-align:middle"></span>
     <b>amber stripe</b>, with a "blocks #37" pill: other cards wait for this one. A card that
@@ -306,7 +313,10 @@ background agent that writes the plan, posts it with its checklist and, unless t
 has open questions, moves the card to <code>develop</code> and builds it in the same go,
 so the code is read once. A card already in <code>develop</code>, and every card in
 <code>test</code>, gets a new agent with a clean context, so the test reviews work it did
-not write. Each agent is handed the whole card: its
+not write. The planning agent runs on your session's model, since planning is judgement,
+and so does the build it goes on to; the agents that build a card already in
+<code>develop</code>, review it in <code>test</code> and deploy it run on the cheaper
+Sonnet. Each agent is handed the whole card: its
 description, plan, answers, checklist and comments, and the project's rules. Tests,
 the deploy and the merge into the base branch go one card after another. The status bar
 shows the card it started last and how many are in flight. A card that passes its tests

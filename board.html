@@ -42,6 +42,11 @@
   #proj button[aria-selected=true] { color: var(--ink); font-weight: 600;
                                      border-bottom-color: var(--accent); }
   #proj .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  /* #82: a tab's dot pulses while an agent works a card in it. "All" and a project with no
+     color get a neutral dot that shows only while lit; markTab lights it in place */
+  #proj .dot.idle { background: #97a0af; }
+  #proj .dot.idle:not(.working) { display: none; }
+  #proj .dot.working { animation: pulse 1.2s infinite; }
 
   #err {   /* fixed above everything, the open editor included */
     display: none; padding: 8px 16px; background: #ffebe6; color: var(--warn);
@@ -426,7 +431,7 @@ function cardNode(c) {
   n.classList.toggle("blocked", by.length > 0);
   n.classList.toggle("blocking", blocks.length > 0);
   if (by.length) meta.append(Object.assign(document.createElement("span"),
-    { className: "pill blocked-by", title: "blocked: can't start until these reach verify (with an open PR: until it is merged) or done",
+    { className: "pill blocked-by", title: "blocked: can't start until these reach verify (with an open PR, or in a PR project with none: once merged) or done",
       textContent: "blocked by " + by.map(i => "#" + i).join(" ") }));
   if (blocks.length) meta.append(Object.assign(document.createElement("span"),
     { className: "pill blocks", title: "blocking: these cards wait for this one",
@@ -1108,8 +1113,10 @@ function renderProj() {
     b.setAttribute("role", "tab");
     b.setAttribute("aria-selected", n === proj());
     const color = n && projectColor(n);
-    if (color) b.prepend(Object.assign(document.createElement("span"),
-      { className: "dot", style: "background:" + color }));
+    const dot = Object.assign(document.createElement("span"), { className: color ? "dot" : "dot idle" });
+    if (color) dot.style.background = color;
+    b.prepend(dot);
+    markTab(b);
     b.onclick = () => { localStorage.setItem("project", n); load(); };
     return b;
   }));
@@ -1387,6 +1394,17 @@ async function loadBoard(call) {
 // ---------- status bar: what agents are doing right now ----------
 let busy = null;   // card ids agents were working on at the last poll
 let working = new Set();   // the same ids, for the pulsing dots
+let workingProjects = new Set();   // their projects, lowercased, for the pulsing tab dots
+
+// A tab's dot pulses while an agent works a card in its project; "All" while any agent works.
+function markTab(b) {
+  const dot = b.querySelector(".dot");
+  if (!dot) return;
+  const lit = b.value ? workingProjects.has(b.value.toLowerCase()) : working.size > 0;
+  dot.classList.toggle("working", lit);
+  if (lit) dot.title = b.value ? "an agent is working on a card in this project" : "an agent is working on a card";
+  else dot.removeAttribute("title");
+}
 let version = null;   // the newest event id at the last poll: every card write bumps it
 let recheck = false;   // the open card may be behind: refresh the sheet when it is safe to
 
@@ -1417,6 +1435,8 @@ async function loadStatus() {
   // set before any reload, so the rebuilt cards pulse too; the open editor is updated in place
   working = new Set(jobs.map(j => j.card_id));
   for (const d of document.querySelectorAll(".work[data-id]")) markWorking(d);
+  workingProjects = new Set(jobs.map(j => (j.project || "").toLowerCase()));
+  for (const b of document.querySelectorAll("#proj button")) markTab(b);
   // a dot lit or put out can wrap a card's meta row and move the cards under it
   if (jobs.map(j => j.card_id).join() !== busy) drawLinks();
   // An agent finishing moves its card, and anyone's write bumps the version (a card the
