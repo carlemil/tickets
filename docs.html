@@ -100,10 +100,14 @@ Changing it needs a backend restart, and the board does that itself: it runs
 <code>restart-backend.ps1</code>, the sheet shows "restarting…" for a few seconds, then
 lists the address(es) to open from the other device, such as
 <code>http://192.168.1.20:8123/</code>; the first one is the likeliest, the others are often
-virtual adapters (WSL, Hyper-V). A board started some other way (a plain
-<code>uvicorn</code> command) cannot restart itself: the sheet says so, and the setting
-applies the next time you start it with <code>restart-backend.ps1</code>. Untick it to go
-back to this computer only; a device that opened the board over the LAN loses it then.</p>
+virtual adapters (WSL, Hyper-V). Only the backend <code>restart-backend.ps1</code> runs
+(port 8123, this folder, Windows) restarts itself; one started some other way (another
+port, uvicorn without <code>--host</code>, not Windows) cannot: the sheet says how to apply
+the change, and it applies the next time you start it with <code>restart-backend.ps1</code>.
+If the board cannot come up on the LAN address, the restart falls back to this computer only
+(see <code>restart-backend.log</code>) rather than leave you without a board. Untick it to go
+back to this computer only; a device that opened the board over the LAN loses it then, and
+the sheet there says so.</p>
 <ul>
   <li><b>There is no password.</b> Anyone on the same network can read and change every
     card. Use it at home or on a network you trust, never on public Wi-Fi.</li>

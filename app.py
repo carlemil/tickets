@@ -9,6 +9,7 @@ from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
 
 import core
@@ -169,16 +170,33 @@ RESTART_SCRIPT = Path(__file__).parent / "restart-backend.ps1"
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 
 
+RESTART_PORT = 8123   # the port restart-backend.ps1 kills and starts ($PORT there)
+
+
+def _cli_option(name, argv):
+    argv = sys.argv if argv is None else argv
+    for i, a in enumerate(argv):
+        if a == name and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith(name + "="):
+            return a.split("=", 1)[1]
+    return None
+
+
 def bound_host(argv=None):
     """The --host this process was started with by uvicorn's command line, or None when it
     was not started that way (the tests' in-thread server, a script): then it is unknown."""
-    argv = sys.argv if argv is None else argv
-    for i, a in enumerate(argv):
-        if a == "--host" and i + 1 < len(argv):
-            return argv[i + 1]
-        if a.startswith("--host="):
-            return a.split("=", 1)[1]
-    return None
+    return _cli_option("--host", argv)
+
+
+def bound_port(argv=None):
+    """The --port from uvicorn's command line: uvicorn's 8000 when it is left out, None when
+    it is not a number."""
+    p = _cli_option("--port", argv)
+    try:
+        return int(p) if p is not None else 8000
+    except ValueError:
+        return None
 
 
 def lan_addresses():
@@ -204,9 +222,14 @@ def lan_addresses():
 
 
 def can_restart():
-    """Only a backend uvicorn's CLI started (so we know its bind) on Windows, with the
-    restart script beside it, restarts itself."""
-    return bound_host() is not None and os.name == "nt" and RESTART_SCRIPT.exists()
+    """Only the backend restart-backend.ps1 manages restarts itself: started by uvicorn's CLI
+    (so we know its bind) on the script's port, on Windows, with the script beside it, and
+    with its settings.json the one the script reads. Anything else (a worktree's trial
+    server on another port, a DB_PATH elsewhere) would have the script kill and replace the
+    live board, or bind from a file this backend never wrote."""
+    return (bound_host() is not None and bound_port() == RESTART_PORT and os.name == "nt"
+            and RESTART_SCRIPT.exists()
+            and core.settings_path().resolve().parent == RESTART_SCRIPT.resolve().parent)
 
 
 def restart_backend():
@@ -234,22 +257,26 @@ def settings_view(request):
             "can_restart": can_restart()}
 
 
+# settings_view resolves the host name (lan_addresses), which can block for seconds on a
+# machine with broken DNS: off the event loop, so the board's polls and MCP calls go on.
 @route("/api/settings", methods=["GET"])
 async def api_settings(request):
-    return JSONResponse(settings_view(request))
+    return JSONResponse(await run_in_threadpool(settings_view, request))
 
 
 # Board settings are not card activity: an `actor` is accepted (the board sends one on
-# every write) but not needed, and nothing is logged.
+# every write) but not needed, and nothing is logged. A restart is started only by a PATCH
+# that changes the setting: a repeat (a second tab, a retry) never stacks restarts.
 @route("/api/settings", methods=["PATCH"])
 async def api_update_settings(request):
     fields = await request.json()
     if not isinstance(fields, dict):
         raise ValueError("send a JSON object of settings")
     fields.pop("actor", None)
-    core.update_settings(**fields)
-    view = settings_view(request)
-    view["restarting"] = view["pending"] and view["can_restart"]
+    before = core.get_settings()
+    changed = core.update_settings(**fields) != before
+    view = await run_in_threadpool(settings_view, request)
+    view["restarting"] = changed and view["pending"] and view["can_restart"]
     if view["restarting"]:
         restart_backend()
     return JSONResponse(view)

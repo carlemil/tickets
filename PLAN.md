@@ -68,11 +68,20 @@ registration, the skills and the idle gate need no change. `/mcp` stays this-mac
 anyway: the MCP SDK's DNS-rebinding check accepts only a `127.0.0.1`/`localhost` Host, so a
 LAN device reaches the board and its HTTP API, not the tools. uvicorn binds once, so a
 change needs a restart: `PATCH /api/settings` runs `restart-backend.ps1 -Delay 2` itself,
-detached (it outlives the backend it kills), when the setting no longer matches the running
-bind and the backend can restart itself — it knows its bind (`--host` on uvicorn's command
-line, `app.bound_host()`), it is Windows and the script is there. Otherwise the sheet says
-the change applies at the next restart. The suite's conftest replaces `app.restart_backend`
-for every test: the real one would kill the live board on 8123.
+detached (it outlives the backend it kills), when the PATCH changed the setting, it no
+longer matches the running bind and the backend can restart itself (`app.can_restart()`):
+it knows its bind (`--host` on uvicorn's command line, `app.bound_host()`), it runs on the
+script's port 8123 (`app.bound_port()`; a worktree's trial server on 8124 would otherwise
+have the script kill and replace the live board), it is Windows, the script is there, and
+its `settings.json` is the one beside the script (a `DB_PATH` elsewhere would restart onto
+a file it never wrote). A PATCH that changes nothing never restarts, so two tabs or a retry
+cannot stack restarts; to retry a failed one, untick and tick again. Otherwise the sheet
+says how to apply the change by hand. If the LAN bind does not come up in two tries, the
+script's third try falls back to `127.0.0.1` (logged), so a failed LAN restart still leaves
+a board on this computer, with the setting shown as pending. The suite's conftest replaces
+`app.restart_backend` for every test: the real one would kill the live board on 8123;
+`test_restart_script_binds_the_lan_only_for_a_real_true` runs only the script's bind
+choice, cut out into a temp folder.
 
 ### Why no FastAPI
 
@@ -192,7 +201,8 @@ an `actor` the board sends). `/api/settings` answers the settings plus the runni
 backend's `bound` host (`null` if unknown), `port`, `listening_lan`, `pending` (setting
 and bind disagree), `can_restart`, and `urls`: `http://<ipv4>:<port>/` per LAN address,
 the default route's first (virtual WSL/Hyper-V adapters add ones no other device reaches);
-the PATCH adds `restarting`. `POST /api/projects` also opens a setup card per
+the PATCH adds `restarting`. `settings_view` resolves the host name, so both routes run it
+in a thread, off the event loop. `POST /api/projects` also opens a setup card per
 missing piece of the new project's configuration.
 
 ## MCP tools (`app.py`)
@@ -498,7 +508,10 @@ warning that there is no password, and what the backend is doing — listening o
 for a restart. When the PATCH says `restarting`, the checkbox is disabled and the sheet
 polls `/api/settings` every second until an answer is no longer `pending` (the old
 backend answers for ~2 s, then nothing, then the new one), and gives up with an error
-after a minute.
+after a minute. A board opened over the LAN that turns the setting off does not poll (it
+cannot reach the backend once it is back on `127.0.0.1`): the sheet says this device loses
+the board and gives the `127.0.0.1` URL to open on the host. With the LAN URLs it points at
+the docs for the Windows firewall in case another device gets no answer.
 
 **Lost clicks.** A field saves on `change`, which fires on the mousedown that leaves it;
 the save's response re-rendered the panel before mouseup, replacing the button under the
@@ -602,9 +615,9 @@ no longer on the board.
 | 77 | #96 the card sheet hides empty fields only an agent fills: plan and open questions until written, your answers until there are questions, an empty checklist outside todo (a new card keeps it); fields a person fills stay | done — 433 checks |
 | 78 | #95 card sheet: the activity log and comment box sit right under the description, above the plan round, assignee/lane, labels, checklist and links (saved cards and drafts alike) | done — 436 checks |
 | 79 | #94 the new-card sheet has no comments section: no activity log or comment box on a draft (the comments #95 put under the description show on saved cards only), and no comment queue | done — 436 checks |
-| 80 | #98 "settings…" → "host the board on the LAN": `settings.json` beside the DB, `GET\|PATCH /api/settings`, `restart-backend.ps1` binds `0.0.0.0` when it is on, and a change restarts the backend through that script (`-Delay 2`) and shows the LAN URLs; still no auth, by the owner's call | done — 474 checks |
+| 80 | #98 "settings…" → "host the board on the LAN": `settings.json` beside the DB, `GET\|PATCH /api/settings`, `restart-backend.ps1` binds `0.0.0.0` when it is on, and a change restarts the backend through that script (`-Delay 2`) and shows the LAN URLs; still no auth, by the owner's call | done — 488 checks |
 
-Gate for every task: `uv run pytest -q` — 474 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 488 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

@@ -45,10 +45,17 @@ if (Test-Path $settingsFile) {
         if ($lan -is [bool] -and $lan) { $BindHost = '0.0.0.0' }   # a real true, as core reads it
     } catch { Log "settings.json unreadable; listening on 127.0.0.1" }
 }
+# (end of the bind choice: test_app runs the lines from "The board's settings" to here alone)
 
 # Success is "the port is served", not "my uvicorn is the one serving it": two restarts that
 # overlap both finish happy as soon as either one's backend is up.
+# A LAN bind that will not come up twice falls back to 127.0.0.1 for the last try: a board on
+# this computer only beats no board (the sheet then shows the setting as still pending).
 for ($try = 1; $try -le 3; $try++) {
+    if ($try -eq 3 -and $BindHost -ne '127.0.0.1') {
+        Log "no backend on ${BindHost}:$PORT after two tries; falling back to 127.0.0.1"
+        $BindHost = '127.0.0.1'
+    }
     Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "uvicorn.*app:app.*$PORT" } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     if (-not (Wait-Port $false 15)) { Log "port $PORT still held 15 s after the kill; starting anyway" }

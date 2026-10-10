@@ -1252,6 +1252,8 @@ $("#projects").onclick = () => { open = PROJECTS; renderPanel(); };
 // answering either way, so a board opened here survives the restart.
 let settings = null;      // GET /api/settings, as of the last answer
 let restarting = false;   // the server said it is restarting onto the new address
+let leftLan = false;      // this LAN device turned LAN hosting off: it is about to lose the board
+const LOCAL_PAGE = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
 
 async function openSettings() {
   try { settings = await api("GET", "/api/settings"); } catch (e) { return showErr(e.message); }
@@ -1261,12 +1263,18 @@ async function openSettings() {
 
 function lanState(s) {
   const say = text => Object.assign(document.createElement("p"), { className: "state sub", textContent: text });
+  if (leftLan)
+    return [say("the backend is going back to this computer only, so this device loses the board: " +
+                "open it on that computer at http://127.0.0.1:" + s.port + "/")];
   if (restarting) return [say("restarting the backend on the new address…")];
   if (s.bound === null)
-    return [say("the backend was not started by restart-backend.ps1, so it cannot restart " +
-                "itself: the change applies the next time it is started with restart-backend.ps1")];
+    return [say("this backend was not started from uvicorn's command line, so it does not know " +
+                "its address and cannot restart itself: the change applies the next time it is " +
+                "started with restart-backend.ps1")];
   if (s.pending)
-    return [say("restart the backend to apply it: powershell -NoProfile -File restart-backend.ps1")];
+    return [say("restart the backend to apply it: powershell -NoProfile -File restart-backend.ps1 " +
+                "(not on Windows: start uvicorn with --host " +
+                (s.lan ? "0.0.0.0" : "127.0.0.1") + ")")];
   if (!s.listening_lan) return [say(`listening on ${s.bound} only: this computer`)];
   const list = document.createElement("ul");
   for (const u of s.urls) {
@@ -1275,7 +1283,8 @@ function lanState(s) {
     list.append(li);
   }
   return s.urls.length
-    ? [say(`listening on every address (${s.bound}): open the board from another device at`), list]
+    ? [say(`listening on every address (${s.bound}): open the board from another device at`), list,
+       say("no answer there? Windows firewall may be blocking it: see the docs, On your LAN")]
     : [say(`listening on every address (${s.bound}), but this computer has no LAN address right now`)];
 }
 
@@ -1288,14 +1297,17 @@ function renderSettings(p, dismiss) {
   const w = document.createElement("div");
   w.className = "setting";
   const box = Object.assign(document.createElement("input"),
-    { type: "checkbox", id: "lan", checked: settings.lan, disabled: restarting });
+    { type: "checkbox", id: "lan", checked: settings.lan, disabled: restarting || leftLan });
   const label = Object.assign(document.createElement("label"), { className: "chk" });
   label.append(box, Object.assign(document.createElement("span"),
     { textContent: "host the board on the LAN" }));
   box.onchange = async () => {
     try {
       settings = await api("PATCH", "/api/settings", { lan: box.checked });
-      if (settings.restarting) waitForRestart();
+      // a device that reached the board over the LAN cannot follow it back to 127.0.0.1:
+      // polling would only end in a false "did not come back"
+      if (settings.restarting && !settings.lan && !LOCAL_PAGE) leftLan = true;
+      else if (settings.restarting) waitForRestart();
     } catch (e) { showErr(e.message); }
     if (open === SETTINGS) renderPanel();
   };
