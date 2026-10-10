@@ -279,6 +279,9 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   ship (commit, push `card/<id>`), land (merge into the base when the repo is on it and
   clean), deploy (local unless the instructions say production; the comment head lights
   the purple dot), `merged=True` from git, remove the worktree, move to `verify`.
+  Each stage sets its model (#83): plan & develop gets no `model` (the session's, which
+  also builds the card it planned: planning is judgement); develop, test (the owner's
+  answer) and deploy get `sonnet`.
 - **Landing by pull request (#6).** A project's `land` is `merge` (the default, above) or
   `pr`: then ship also opens a PR with `gh` and stores its URL in the card's `pr`, the
   local merge is skipped (the deploy never merges either), and the merged dot waits for
@@ -639,7 +642,8 @@ no longer on the board.
 | 79 | #94 the new-card sheet has no comments section: no activity log or comment box on a draft (the comments #95 put under the description show on saved cards only), and no comment queue | done — 436 checks |
 | 80 | #98 "settings…" → "host the board on the LAN": `settings.json` beside the DB, `GET\|PATCH /api/settings`, `restart-backend.ps1` binds `0.0.0.0` when it is on, and a change restarts the backend through that script (`-Delay 2`) and shows the LAN URLs; still no auth, by the owner's call | done — 488 checks |
 | 81 | #97 docs: "A card at a glance" near the top, a screenshot of the real sheet with every field filled and numbered (`docs_card.py` makes it, `/docs/card.png` serves it) and a legend explaining each; tests fail when the sheet and the legend drift apart | done — 490 checks |
-| 82 | #82 tabs pulse: a project tab's color dot pulses while an agent works a card in that project; "All" shows a grey pulsing dot while any agent works, and no dot otherwise | done — 495 checks |
+| 82 | #83 a model per stage: `run.md` names it on every Agent call — plan & develop on the session's model, develop, test and deploy on `sonnet` | done — 490 checks |
+| 83 | #82 tabs pulse: a project tab's color dot pulses while an agent works a card in that project; "All" shows a grey pulsing dot while any agent works, and no dot otherwise | done — 495 checks |
 
 Gate for every task: `uv run pytest -q` — 495 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
