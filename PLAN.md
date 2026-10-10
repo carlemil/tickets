@@ -430,15 +430,15 @@ The activity log leaves out bookkeeping (#65, `bookkeeping()`): edits of `merged
 and anyone assigning or unassigning themselves; "show N earlier" counts what it shows.
 
 "New Card" opens the same panel on an unsaved draft (title focused, project from the
-filter). It shows everything a saved card does — links, activity, comment box. Nothing
+filter). It shows the fields a saved card does, links included, but no activity log and
+no comment box: a card that does not exist yet has no comments (#94). Nothing
 is written until the draft is closed with "close" (or Enter in the title), which
-`POST`s the fields all at once (one `created` event), then the links and comments queued
-on the draft (links are checked to exist as they are added), plus any text left in the
-comment box, and hides the sheet. A draft with nothing typed just closes. A draft with
+`POST`s the fields all at once (one `created` event), then the links queued on the
+draft (checked to exist as they are added), and hides the sheet. A draft with nothing typed just closes. A draft with
 content but no title stays open and says "a card needs a title". If the `POST` fails
 the sheet stays with everything in it and the next "close" retries; a double click makes one
 card. "cancel" discards the draft. The draft re-renders only for checklist edits and
-queued links and comments.
+queued links.
 
 **Deleting a project.** Each project in the settings has "delete project…", which opens a
 native `<dialog>`: it counts the cards (archived too) that will move, says they go to
@@ -559,6 +559,7 @@ no longer on the board.
 | 74 | #72 rework clears a card's `pr` with `merged` and `deployed`, and ship reuses only an open PR, so an old merged PR never vouches for (or unblocks) reworked code | done — 431 checks |
 | 75 | #76 docs brought up to date: setup through `/tickets-start` (user-scope MCP, skills, idle gate), the verify step after the agent's land, the blue dot, blocked-by-a-person and a person's move winning; board tooltips no longer say "master" or describe the retired agent prompt | done — 431 checks |
 | 76 | #84 one subagent plans and develops: a card in `plan` gets one plan & develop agent in its worktree that posts plan and checklist itself (a person's move wins) and, with no open questions, moves the card to `develop` and builds in the same context; questions stop it in `plan` and the unused worktree goes; develop-lane cards and test keep fresh agents | done — 431 checks |
+| 77 | #94 the new-card sheet has no comments section: no activity log or comment box on a draft, and no comment queue | done — 431 checks |
 
 Gate for every task: `uv run pytest -q` — 431 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
