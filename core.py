@@ -501,16 +501,21 @@ def create_card(
 
 def _blocks(db):
     """{id: (blocked_by, blocking)} over live `blocks` links: the blocker not finished
-    (#62: finished = done, or verify with no open unmerged PR) and the blocked card not
-    done, any project, archived or not. Computed, never deleted: a blocker moved back
-    from verify blocks again, and rework clears its `pr` with `merged` (#72), so a
-    reworked PR card blocks until its new PR merges. The board marks cards with these
-    and #37 draws arrows."""
+    and the blocked card not done, any project, archived or not. Finished (#62, #87) is
+    done, or verify with `merged` set, or verify with no PR in a project that lands by
+    merge (its verify is merged already; a person's todo blocker dragged there counts
+    too). In a `pr` project an empty `pr` is not enough: rework clears it (#72), so a
+    card dragged back to verify by hand without a ship would unblock early. Computed,
+    never deleted: a blocker moved back from verify blocks again. A card whose project
+    row is missing counts as merge, the column default. The board marks cards with
+    these and #37 draws arrows."""
     out = {}
     for f, t in db.execute(
         "SELECT l.from_id, l.to_id FROM links l JOIN cards a ON a.id=l.from_id"
-        " JOIN cards b ON b.id=l.to_id WHERE l.kind='blocks' AND a.lane!='done'"
-        " AND NOT (a.lane='verify' AND (COALESCE(a.pr,'')='' OR a.merged=1))"
+        " JOIN cards b ON b.id=l.to_id LEFT JOIN projects p ON p.name=a.project"
+        " WHERE l.kind='blocks' AND a.lane!='done'"
+        " AND NOT (a.lane='verify' AND (a.merged=1"
+        " OR (COALESCE(a.pr,'')='' AND COALESCE(p.land,'merge')='merge')))"
         " AND b.lane!='done' ORDER BY l.from_id, l.to_id"
     ):
         out.setdefault(t, ([], []))[0].append(f)

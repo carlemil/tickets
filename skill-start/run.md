@@ -72,7 +72,8 @@ final summary:
 - **waiting for answers:** `questions` filled, `answers` empty;
 - **blocked:** `blocked_by` is not empty. The server fills it with the cards that have a
   `blocks` link to this one and are not finished yet; finished is `done`, or `verify`
-  without an open PR (`pr` empty, or `merged`);
+  with `merged` set, or `verify` with `pr` empty in a project that lands by merge (in a
+  `pr` project an empty `pr` is not shipped);
 - **assigned to a person:** `assignee` set to anyone but `claude-agent`;
 - **already in flight** in this run (see 3).
 
@@ -282,7 +283,8 @@ to enable, a device to plug in — with details indented under it. Ask for it in
 brief. (you) For each bullet whose title is not already a card in the project:
 `create_card(lane="todo", project=…, title=…, description=details + "(blocks #<id>)")`
 and `link_cards(from_id=<new>, to_id=<id>, kind="blocks")`; comment the new ids on the
-card and leave it in its lane. It will be skipped until they reach `verify` or `done`.
+card and leave it in its lane. It will be skipped until they reach `verify` or `done`
+(in a `pr` project: `done`, since a card there with no PR is not finished in `verify`).
 
 ### Failure
 
