@@ -184,6 +184,11 @@
   button.danger { background: var(--warn); color: #fff; border-color: var(--warn); }
   #delProject { max-width: 440px; border: 1px solid var(--line); border-radius: 6px;
                 box-shadow: 0 8px 24px rgba(9,30,66,.25); }
+  /* the board settings sheet */
+  #panel .setting { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  #panel .setting .warn { color: var(--warn); font-size: 12px; margin: 0; }
+  #panel .setting .state { margin: 0; }
+  #panel .setting ul { margin: 0; padding-left: 20px; }
   #delProject h3 { margin: 0 0 8px; }
   #delProject .row { display: flex; gap: 8px; justify-content: flex-end; }
 </style>
@@ -194,6 +199,7 @@
   <h1>Tickets</h1>
   <nav id="proj" role="tablist" aria-label="project"></nav>
   <button id="projects">projects…</button>
+  <button id="settings">settings…</button>
   <label class="f"><input type="checkbox" id="showArch"> show archived</label>
   <a id="docs" href="/docs" target="_blank">docs</a>
   <span class="spacer"></span>
@@ -223,6 +229,7 @@ let cards = [];      // current board (filtered)
 let users = [];
 let projects = [];   // configured projects: {name, path, instructions}
 const PROJECTS = "projects";   // `open` holds this while the panel shows project settings
+const SETTINGS = "settings";   // ... and this while it shows the board settings
 let open = null;     // full card (with events/links) shown in the panel
 const selected = new Set();   // card ids picked with ctrl/shift-click, moved together
 let anchor = null;            // the card a shift-click selects from
@@ -783,7 +790,7 @@ for (const ev of ["pointerup", "pointercancel", "dragend"])
 
 let shown = null;    // which card the sheet currently holds, so a re-render can keep the comment box
 let logOpen = false;   // the activity log's older half, expanded -- survives a re-render
-const cardKey = c => c === PROJECTS ? "projects" : c?.id ?? "draft";
+const cardKey = c => typeof c === "string" ? c : c?.id ?? "draft";   // PROJECTS, SETTINGS
 
 function hidePanel() { open = shown = null; $("#panel").classList.remove("on"); }
 
@@ -797,28 +804,28 @@ function closePanel() {
   const c = open;
   if (!c) return true;
   document.activeElement?.blur();   // a draft's change lands synchronously, a card's PATCHes
-  if (c === PROJECTS) { hidePanel(); return true; }
-  const typed = $("#panel .say-box").value.trim();
+  if (c === PROJECTS || c === SETTINGS) { hidePanel(); return true; }
   if (c.id) {
+    const typed = ($("#panel .say-box")?.value || "").trim();
     hidePanel();
     if (typed) api("POST", `/api/cards/${c.id}/comment`, { text: typed })
       .then(replace, e => showErr(e.message));
     return true;
   }
   if (!c.title.trim()) {
-    if (!c.description.trim() && !c.labels.length && !c.checklist.length && !c.links.length
-        && !c.comments.length && !typed) { hidePanel(); return true; }   // nothing to keep
+    if (!c.description.trim() && !c.labels.length && !c.checklist.length
+        && !c.links.length) { hidePanel(); return true; }   // nothing to keep
     showErr("a card needs a title — give it one, or cancel to throw it away");
     $("#panel input[type=text]").focus();
     return false;
   }
-  if (!c.creating) createDraft(c, typed);   // a second click must not make two cards
+  if (!c.creating) createDraft(c);   // a second click must not make two cards
   return true;
 }
 
-async function createDraft(c, typed) {
+async function createDraft(c) {
   c.creating = true;
-  const { events, links, comments, creating, ...fields } = c;
+  const { events, links, creating, ...fields } = c;
   let card;
   try {
     card = await api("POST", "/api/cards", { ...fields, title: c.title.trim() });
@@ -829,8 +836,6 @@ async function createDraft(c, typed) {
   try {   // the card exists now, so a failure below is reported, not retried as a create
     for (const l of links)
       await api("POST", "/api/links", { from_id: card.id, to_id: l.to_id, kind: l.kind });
-    for (const text of [...comments, ...(typed ? [typed] : [])])
-      await api("POST", `/api/cards/${card.id}/comment`, { text });
   } catch (e) { showErr(`#${card.id} was created, but: ${e.message}`); }
   $("#showArch").checked = false;   // a new card is active: show the board it landed on
   if (proj() && proj().toLowerCase() !== card.project.toLowerCase())
@@ -860,6 +865,7 @@ function renderPanel() {
   const c = open;
   const dismiss = hidePanel;
   if (c === PROJECTS) return renderProjects(p, dismiss);
+  if (c === SETTINGS) return renderSettings(p, dismiss);
 
   // closing saves: a card's pending edit and comment land, a draft is created
   const shut = Object.assign(document.createElement("button"),
@@ -893,7 +899,7 @@ function renderPanel() {
     const idSpan = Object.assign(document.createElement("span"), { className: "id", textContent: "#" + c.id });
     idSpan.prepend(workDot(c), ...statusDots(c));
     head.append(idSpan, title, arch, ...(fin ? [fin] : []), shut);
-    // project and lane are the fields right below: this line says only who made it, when
+    // project and lane are fields of their own on the sheet: this line says only who made it, when
     const sub = Object.assign(document.createElement("div"), { className: "sub" });
     sub.append(Object.assign(document.createElement("span"),
                  { textContent: "created " + ago(c.created_at),
@@ -948,17 +954,46 @@ function renderPanel() {
   desc.onchange = () => patch({ description: desc.value });
   p.append(field("description", desc));
 
-  // the planning round, each in its own box: shown once the agent has planned
-  if (c.plan || c.questions || c.answers)
-    for (const [f, label] of [["plan", "plan"], ["questions", "open questions"],
-                              ["answers", "your answers"]]) {
-      const box = Object.assign(document.createElement("textarea"),
-        { value: c[f], className: f === "plan" ? f : "desc " + f });
-      box.onchange = () => patch({ [f]: box.value });
-      p.append(field(label, box));
-      if (f === "questions") p.append(...choices(c));
-    }
+  // the comments come right under the description (#95): the log with them, then the box.
+  // A card that does not exist yet has no comments, so a draft shows neither (#94).
+  if (c.id) {
+    p.append(field("activity", renderLog(c.events)));
 
+    const say = Object.assign(document.createElement("textarea"),
+      { className: "say-box", placeholder: "comment… (ctrl+enter to send)" });
+    say.value = typed;
+    const send = Object.assign(document.createElement("button"),
+      { className: "primary", textContent: "comment" });
+    const post = async () => {
+      if (!say.value.trim()) return;
+      try {
+        const card = await api("POST", `/api/cards/${c.id}/comment`, { text: say.value.trim() });
+        replace(card);
+        if (open?.id !== card.id || stale(card)) return;   // closed or switched meanwhile
+        open = card;
+        say.value = "";
+        renderPanel();
+      } catch (e) { showErr(e.message); }
+    };
+    send.onclick = post;
+    say.onkeydown = ev => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) post(); };
+    const cw = document.createElement("div");
+    cw.append(say, send);
+    p.append(field("say something", cw));
+  }
+
+  // the planning round, each in its own box, shown only once it holds something (#96):
+  // the agent writes plan and questions; a person answers, so answers show with questions
+  const shows = { plan: c.plan, questions: c.questions, answers: c.questions || c.answers };
+  for (const [f, label] of [["plan", "plan"], ["questions", "open questions"],
+                            ["answers", "your answers"]]) {
+    if (!shows[f]) continue;
+    const box = Object.assign(document.createElement("textarea"),
+      { value: c[f], className: f === "plan" ? f : "desc " + f });
+    box.onchange = () => patch({ [f]: box.value });
+    p.append(field(label, box));
+    if (f === "questions") p.append(...choices(c));
+  }
 
   const row = document.createElement("div");
   row.className = "row";
@@ -1006,9 +1041,11 @@ function renderPanel() {
       patch({ checklist: [...c.checklist, { text: addItem.value.trim(), done: false }] });
   };
   list.append(addItem);
-  p.append(field("checklist", list));
-  // A new card shows everything a saved one does. Links and comments cannot be written
-  // before the card exists, so the draft holds them and "create" sends them after it.
+  // from plan on the agent writes the checklist from the plan's steps: an empty one shows
+  // only while a person is writing the card (a draft, or todo) (#96)
+  if (c.checklist.length || !c.id || c.lane === "todo") p.append(field("checklist", list));
+  // Links cannot be written before the card exists, so a draft holds them and "create"
+  // sends them after it.
   const links = document.createElement("ul");
   links.className = "links";
   for (const l of c.links) {
@@ -1056,33 +1093,6 @@ function renderPanel() {
             document.createTextNode(" of "), lid, lgo);
   links.append(lk);
   p.append(field("links", links));
-
-  // a draft's queued comments show as they will read once posted
-  p.append(field("activity", renderLog(c.id ? c.events : c.comments.map(text =>
-    ({ actor: USER, kind: "comment", detail: { text }, at: new Date().toISOString() })))));
-
-  const box = Object.assign(document.createElement("textarea"),
-    { className: "say-box", placeholder: "comment… (ctrl+enter to send)" });
-  box.value = typed;
-  const send = Object.assign(document.createElement("button"),
-    { className: "primary", textContent: "comment" });
-  const post = async () => {
-    if (!box.value.trim()) return;
-    if (!c.id) { c.comments.push(box.value.trim()); box.value = ""; return renderPanel(); }
-    try {
-      const card = await api("POST", `/api/cards/${c.id}/comment`, { text: box.value.trim() });
-      replace(card);
-      if (open?.id !== card.id || stale(card)) return;   // closed or switched meanwhile
-      open = card;
-      box.value = "";
-      renderPanel();
-    } catch (e) { showErr(e.message); }
-  };
-  send.onclick = post;
-  box.onkeydown = ev => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) post(); };
-  const cw = document.createElement("div");
-  cw.append(box, send);
-  p.append(field("say something", cw));
   if (!c.id) title.focus();
 }
 
@@ -1235,6 +1245,101 @@ async function confirmDelete(name) {
 
 $("#projects").onclick = () => { open = PROJECTS; renderPanel(); };
 
+// ---------- board settings ----------
+// One so far: host the board on the LAN. The bind address changes only with a backend
+// restart, which the server starts itself when it can (restart-backend.ps1 -Delay 2); the
+// sheet then waits for the backend to come back on the new address. 127.0.0.1 keeps
+// answering either way, so a board opened here survives the restart.
+let settings = null;      // GET /api/settings, as of the last answer
+let restarting = false;   // the server said it is restarting onto the new address
+let leftLan = false;      // this LAN device turned LAN hosting off: it is about to lose the board
+const LOCAL_PAGE = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+
+async function openSettings() {
+  try { settings = await api("GET", "/api/settings"); } catch (e) { return showErr(e.message); }
+  open = SETTINGS;
+  renderPanel();
+}
+
+function lanState(s) {
+  const say = text => Object.assign(document.createElement("p"), { className: "state sub", textContent: text });
+  if (leftLan)
+    return [say("the backend is going back to this computer only, so this device loses the board: " +
+                "open it on that computer at http://127.0.0.1:" + s.port + "/")];
+  if (restarting) return [say("restarting the backend on the new address…")];
+  if (s.bound === null)
+    return [say("this backend was not started from uvicorn's command line, so it does not know " +
+                "its address and cannot restart itself: the change applies the next time it is " +
+                "started with restart-backend.ps1")];
+  if (s.pending)
+    return [say("restart the backend to apply it: powershell -NoProfile -File restart-backend.ps1 " +
+                "(not on Windows: start uvicorn with --host " +
+                (s.lan ? "0.0.0.0" : "127.0.0.1") + ")")];
+  if (!s.listening_lan) return [say(`listening on ${s.bound} only: this computer`)];
+  const list = document.createElement("ul");
+  for (const u of s.urls) {
+    const li = document.createElement("li");
+    li.append(Object.assign(document.createElement("a"), { href: u, textContent: u, target: "_blank" }));
+    list.append(li);
+  }
+  return s.urls.length
+    ? [say(`listening on every address (${s.bound}): open the board from another device at`), list,
+       say("no answer there? Windows firewall may be blocking it: see the docs, On your LAN")]
+    : [say(`listening on every address (${s.bound}), but this computer has no LAN address right now`)];
+}
+
+function renderSettings(p, dismiss) {
+  const done = Object.assign(document.createElement("button"),
+    { className: "close primary shut", textContent: "done" });
+  done.onclick = dismiss;
+  p.append(done, Object.assign(document.createElement("div"),
+    { className: "sub", textContent: "settings · for the whole board" }));
+  const w = document.createElement("div");
+  w.className = "setting";
+  const box = Object.assign(document.createElement("input"),
+    { type: "checkbox", id: "lan", checked: settings.lan, disabled: restarting || leftLan });
+  const label = Object.assign(document.createElement("label"), { className: "chk" });
+  label.append(box, Object.assign(document.createElement("span"),
+    { textContent: "host the board on the LAN" }));
+  box.onchange = async () => {
+    try {
+      settings = await api("PATCH", "/api/settings", { lan: box.checked });
+      // a device that reached the board over the LAN cannot follow it back to 127.0.0.1:
+      // polling would only end in a false "did not come back"
+      if (settings.restarting && !settings.lan && !LOCAL_PAGE) leftLan = true;
+      else if (settings.restarting) waitForRestart();
+    } catch (e) { showErr(e.message); }
+    if (open === SETTINGS) renderPanel();
+  };
+  w.append(Object.assign(document.createElement("h3"), { textContent: "network" }), label,
+    Object.assign(document.createElement("p"), { className: "warn",
+      textContent: "On, other devices on your network can open the board at this computer's " +
+        "address. There is no password: anyone on the network can read and change every " +
+        "card. Agents on this computer keep using 127.0.0.1." }),
+    ...lanState(settings));
+  p.append(w);
+}
+
+// The old backend answers for about 2 s more, then nothing does, then the new one does.
+// Done when an answer no longer says the setting is pending; give up after a minute.
+async function waitForRestart() {
+  restarting = true;
+  const end = Date.now() + 60000;
+  while (Date.now() < end) {
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const s = await api("GET", "/api/settings");
+      if (!s.pending) { settings = s; break; }
+    } catch { /* down mid-restart */ }
+  }
+  if (settings.pending)
+    showErr("the backend did not come back on the new address: see restart-backend.log");
+  restarting = false;
+  if (open === SETTINGS) renderPanel();
+}
+
+$("#settings").onclick = openSettings;
+
 $("#showArch").onchange = () => load();
 
 // Opens the panel on an unsaved card; nothing is written until its "create" button.
@@ -1250,7 +1355,7 @@ $("#add").onclick = () => {
   const home = find(proj());
   open = { title: "", description: "", lane: "todo", assignee: null,
            labels: [], checklist: [], project: (home || projects[0]).name,
-           events: [], links: [], comments: [] };
+           events: [], links: [] };
   renderPanel();
 };
 
@@ -1361,6 +1466,8 @@ const TIPS = [
   ['#proj [value=""]', "show every project's cards"],
   ["#proj button", "show only this project's cards"],
   ["#projects", "set up projects: name, folder the agent works in, agent instructions, color"],
+  ["#settings", "board settings: host the board on the LAN"],
+  ["#panel label:has(#lan)", "let other devices on your network open the board; the backend restarts onto the new address"],
   ["label:has(#showArch)", "show archived cards instead of the ones on the board"],
   ["#add", "create a new card"],
   ["#docs", "how the board and the agent work, and how to use them"],

@@ -4,8 +4,10 @@ A personal lane board that sits next to JIRA, not in place of it. A human drives
 browser and an AI agent drives it over MCP, sharing one SQLite file. Cards record who did
 what.
 
-**No auth.** Users are identities (a name), not accounts — nothing is enforced. Bind to
-`127.0.0.1` only. Do not expose this to a network without adding auth first.
+**No auth.** Users are identities (a name), not accounts — nothing is enforced. It binds
+to `127.0.0.1` by default. The board's "host the board on the LAN" setting (#98) binds
+`0.0.0.0` instead, still without auth — the owner's call: anyone on that network can then
+read and change the board. A password or token may come later.
 
 ## Lanes
 
@@ -57,6 +59,31 @@ answer after, and retries up to three times. Success is "8123 is served", not "m
 serves it", so two restarts that overlap both finish happy as soon as either backend is
 up. A detached restart has nowhere to report, so each run appends what it did to
 `restart-backend.log`.
+
+**Hosting on the LAN (#98).** One board setting, `lan` (off by default), in
+`settings.json` beside the database (`core.settings_path()`: it follows `DB_PATH`, so each
+test gets its own; gitignored). A file rather than a table so `restart-backend.ps1` can read
+it with `ConvertFrom-Json` before any Python runs: `"lan": true` (a real JSON bool, as
+`core.get_settings` reads it) → `--host 0.0.0.0`, anything else, a missing or unreadable
+file included → `127.0.0.1`. `0.0.0.0` still answers on `127.0.0.1:8123`, so the MCP
+registration, the skills and the idle gate need no change. `/mcp` stays this-machine-only
+anyway: the MCP SDK's DNS-rebinding check accepts only a `127.0.0.1`/`localhost` Host, so a
+LAN device reaches the board and its HTTP API, not the tools. uvicorn binds once, so a
+change needs a restart: `PATCH /api/settings` runs `restart-backend.ps1 -Delay 2` itself,
+detached (it outlives the backend it kills), when the PATCH changed the setting, it no
+longer matches the running bind and the backend can restart itself (`app.can_restart()`):
+it knows its bind (`--host` on uvicorn's command line, `app.bound_host()`), it runs on the
+script's port 8123 (`app.bound_port()`; a worktree's trial server on 8124 would otherwise
+have the script kill and replace the live board), it is Windows, the script is there, and
+its `settings.json` is the one beside the script (a `DB_PATH` elsewhere would restart onto
+a file it never wrote). A PATCH that changes nothing never restarts, so two tabs or a retry
+cannot stack restarts; to retry a failed one, untick and tick again. Otherwise the sheet
+says how to apply the change by hand. If the LAN bind does not come up in two tries, the
+script's third try falls back to `127.0.0.1` (logged), so a failed LAN restart still leaves
+a board on this computer, with the setting shown as pending. The suite's conftest replaces
+`app.restart_backend` for every test: the real one would kill the live board on 8123;
+`test_restart_script_binds_the_lan_only_for_a_real_true` runs only the script's bind
+choice, cut out into a temp folder.
 
 ### Why no FastAPI
 
@@ -167,10 +194,17 @@ name is a `ValueError`.
 
 `GET /` → board.html · `GET /docs` → docs.html · `GET /docs/card.png` → docs-card.png · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
 `POST /api/cards` · `POST /api/cards/{id}/comment` · `POST|DELETE /api/links` ·
-`GET|POST /api/users` · `GET|POST /api/activity` · `GET /api/version` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}`. Every
+`GET|POST /api/users` · `GET|POST /api/activity` · `GET /api/version` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}` ·
+`GET|PATCH /api/settings`. Every
 write body carries `actor` — except `POST /api/users` (`{"name"}` → 201), the one write
-that predates having an actor, and the project writes, which are configuration rather
-than card activity and log no event. `POST /api/projects` also opens a setup card per
+that predates having an actor, and the project and settings writes, which are
+configuration rather than card activity and log no event (`PATCH /api/settings` ignores
+an `actor` the board sends). `/api/settings` answers the settings plus the running
+backend's `bound` host (`null` if unknown), `port`, `listening_lan`, `pending` (setting
+and bind disagree), `can_restart`, and `urls`: `http://<ipv4>:<port>/` per LAN address,
+the default route's first (virtual WSL/Hyper-V adapters add ones no other device reaches);
+the PATCH adds `restarting`. `settings_view` resolves the host name, so both routes run it
+in a thread, off the event loop. `POST /api/projects` also opens a setup card per
 missing piece of the new project's configuration.
 
 ## MCP tools (`app.py`)
@@ -322,8 +356,10 @@ drops one from the figure.
 ## Board (`board.html`)
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
-`drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: description,
-labels, checklist, links, activity log, comment box. The board writes as `User`, a fixed
+`drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: project,
+description, then right under it the activity log and comment box (#95; a saved card
+only, a draft has neither, #94), then the plan
+round, assignee and lane, labels, checklist, links. The board writes as `User`, a fixed
 name, and agents write under their own names. Project tabs (#63:
 "All" first, then one per project with its color dot; the pick is persisted) filter the
 board — an agent and a human both scope to one project. Crowded, the strip scrolls
@@ -369,8 +405,13 @@ faint (opacity .3); hovering a card lights its arrows, both ways (`.hot`). No on
 toggle yet: add one if real boards get crowded.
 No dark-theme colours: the board has no dark theme yet.
 
-Once a card has a plan, questions or answers, the sheet shows each in its own box under
-the description: "plan" is a fixed 10 lines and scrolls, "open questions" and "your
+The sheet hides an empty field that only an agent fills at that point and keeps every
+field a person fills in by hand at that point (#96). Plan and open questions each get their own box
+under the comment box (under the description on a draft) once they hold text; "your answers" shows whenever there are
+questions (or answers) and is hidden otherwise. The checklist shows once it has items;
+empty, it shows only on a new card or a card in todo, since from plan on the agent writes
+it from the plan's steps. The pull request link and session button were already shown
+only when set. "plan" is a fixed 10 lines and scrolls, "open questions" and "your
 answers" grow like the description. A question may list its choices as indented `- `
 bullets under it, one suffixed ` (recommended)` — the AskUserQuestion shape, still plain
 text (#4). Under the questions box each such question gets a row of radios (the
@@ -433,7 +474,7 @@ while the card is in `verify`) and "close". A new
 card's row is "new", the title, "cancel", "close".
 The card number carries the auto dot, which pulses while an agent works the card.
 The line under it says "created <when> by <author>" (the full date on hover; project
-and lane are the fields just below, #65), then, once an agent has taken the
+and lane are fields on the sheet, #65), then, once an agent has taken the
 card, "session <first 8>" (#2): the `session` field holds the Claude Code session id the
 skill writes when it takes a card, and the button copies `claude --resume <id>`, so the
 transcript of the run that worked the card is one paste away.
@@ -447,15 +488,15 @@ The activity log leaves out bookkeeping (#65, `bookkeeping()`): edits of `merged
 and anyone assigning or unassigning themselves; "show N earlier" counts what it shows.
 
 "New Card" opens the same panel on an unsaved draft (title focused, project from the
-filter). It shows everything a saved card does — links, activity, comment box. Nothing
+filter). It shows the fields a saved card does, links included, but no activity log and
+no comment box: a card that does not exist yet has no comments (#94). Nothing
 is written until the draft is closed with "close" (or Enter in the title), which
-`POST`s the fields all at once (one `created` event), then the links and comments queued
-on the draft (links are checked to exist as they are added), plus any text left in the
-comment box, and hides the sheet. A draft with nothing typed just closes. A draft with
+`POST`s the fields all at once (one `created` event), then the links queued on the
+draft (checked to exist as they are added), and hides the sheet. A draft with nothing typed just closes. A draft with
 content but no title stays open and says "a card needs a title". If the `POST` fails
 the sheet stays with everything in it and the next "close" retries; a double click makes one
 card. "cancel" discards the draft. The draft re-renders only for checklist edits and
-queued links and comments.
+queued links.
 
 **Deleting a project.** Each project in the settings has "delete project…", which opens a
 native `<dialog>`: it counts the cards (archived too) that will move, says they go to
@@ -476,6 +517,18 @@ first project in tab order. With no projects at all, "New Card"
 says "create a project first" and opens the project settings with the name field
 focused. Creating a card in a project the filter hides switches the filter to it, so a
 new card is always on screen. Renaming the filtered project carries the filter with it.
+
+"settings…" in the header opens the panel on the board settings (#98), a sheet of its own
+like the project settings: a "host the board on the LAN" checkbox that saves on change, a
+warning that there is no password, and what the backend is doing — listening on
+`127.0.0.1` only, or on every address with the LAN URLs as links, or that the change waits
+for a restart. When the PATCH says `restarting`, the checkbox is disabled and the sheet
+polls `/api/settings` every second until an answer is no longer `pending` (the old
+backend answers for ~2 s, then nothing, then the new one), and gives up with an error
+after a minute. A board opened over the LAN that turns the setting off does not poll (it
+cannot reach the backend once it is back on `127.0.0.1`): the sheet says this device loses
+the board and gives the `127.0.0.1` URL to open on the host. With the LAN URLs it points at
+the docs for the Windows firewall in case another device gets no answer.
 
 **Lost clicks.** A field saves on `change`, which fires on the mousedown that leaves it;
 the save's response re-rendered the panel before mouseup, replacing the button under the
@@ -576,9 +629,13 @@ no longer on the board.
 | 74 | #72 rework clears a card's `pr` with `merged` and `deployed`, and ship reuses only an open PR, so an old merged PR never vouches for (or unblocks) reworked code | done — 431 checks |
 | 75 | #76 docs brought up to date: setup through `/tickets-start` (user-scope MCP, skills, idle gate), the verify step after the agent's land, the blue dot, blocked-by-a-person and a person's move winning; board tooltips no longer say "master" or describe the retired agent prompt | done — 431 checks |
 | 76 | #84 one subagent plans and develops: a card in `plan` gets one plan & develop agent in its worktree that posts plan and checklist itself (a person's move wins) and, with no open questions, moves the card to `develop` and builds in the same context; questions stop it in `plan` and the unused worktree goes; develop-lane cards and test keep fresh agents | done — 431 checks |
-| 77 | #97 docs: "A card at a glance" near the top, a screenshot of the real sheet with every field filled and numbered (`docs_card.py` makes it, `/docs/card.png` serves it) and a legend explaining each; tests fail when the sheet and the legend drift apart | done — 433 checks |
+| 77 | #96 the card sheet hides empty fields only an agent fills: plan and open questions until written, your answers until there are questions, an empty checklist outside todo (a new card keeps it); fields a person fills stay | done — 433 checks |
+| 78 | #95 card sheet: the activity log and comment box sit right under the description, above the plan round, assignee/lane, labels, checklist and links (saved cards and drafts alike) | done — 436 checks |
+| 79 | #94 the new-card sheet has no comments section: no activity log or comment box on a draft (the comments #95 put under the description show on saved cards only), and no comment queue | done — 436 checks |
+| 80 | #98 "settings…" → "host the board on the LAN": `settings.json` beside the DB, `GET\|PATCH /api/settings`, `restart-backend.ps1` binds `0.0.0.0` when it is on, and a change restarts the backend through that script (`-Delay 2`) and shows the LAN URLs; still no auth, by the owner's call | done — 488 checks |
+| 81 | #97 docs: "A card at a glance" near the top, a screenshot of the real sheet with every field filled and numbered (`docs_card.py` makes it, `/docs/card.png` serves it) and a legend explaining each; tests fail when the sheet and the legend drift apart | done — NNN checks |
 
-Gate for every task: `uv run pytest -q` — 433 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — NNN checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
@@ -609,7 +666,8 @@ system, and it works across both surfaces.
 ## Deliberately skipped
 
 Auth · live refresh over WebSocket (the board polls `/api/version` instead) · attachments · search.
-Auth comes first, and before anything binds off loopback.
+The LAN setting (#98) binds off loopback without auth, by the owner's decision; auth may
+follow.
 
 ## Event detail shapes
 

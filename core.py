@@ -669,3 +669,41 @@ def unlink_cards(from_id, to_id, kind, actor):
         if gone:
             _event(db, from_id, actor, "unlinked", {"to": to_id, "kind": kind})
     return get_card(from_id)
+
+
+# ---------- board settings ----------
+# Kept in a JSON file beside the database rather than in it, so restart-backend.ps1 can
+# read them with ConvertFrom-Json before any Python runs. Like project config, a change is
+# not card activity: no actor, no event.
+SETTINGS_DEFAULTS = {"lan": False}   # lan: listen on every address (0.0.0.0), not 127.0.0.1
+
+
+def settings_path():
+    """settings.json in the database's folder, so a redirected DB_PATH (tests, an alt board)
+    takes its settings along."""
+    return Path(DB_PATH).with_name("settings.json")
+
+
+def get_settings():
+    """The board settings, defaults filled in. A missing or unreadable file is the defaults."""
+    try:
+        stored = json.loads(settings_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        stored = {}
+    if not isinstance(stored, dict):
+        stored = {}
+    return {k: stored.get(k, v) if type(stored.get(k, v)) is type(v) else v
+            for k, v in SETTINGS_DEFAULTS.items()}
+
+
+def update_settings(**fields):
+    """Change board settings; pass only what changes. `lan` must be a bool."""
+    unknown = set(fields) - set(SETTINGS_DEFAULTS)
+    if unknown:
+        raise ValueError(f"unknown setting(s): {', '.join(sorted(unknown))}")
+    for k, v in fields.items():
+        if type(v) is not type(SETTINGS_DEFAULTS[k]):
+            raise ValueError(f"{k} must be true or false, not {v!r}")
+    settings = {**get_settings(), **fields}
+    settings_path().write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    return settings
