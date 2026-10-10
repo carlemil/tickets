@@ -55,8 +55,8 @@ what.</p>
 planning with others and anything shared stays there. Tickets is for the local loop: you
 hand coding tasks to an agent on your machine and review what comes back.</p>
 <p class="note"><b>Local and single-person only.</b> It is one process, bound to
-<code>127.0.0.1</code>. It has no auth, no accounts and no sync: the person at the board is logged as
-"User"; agents log under their own names. Never put it on a network, never host it online and never share it with a group.</p>
+<code>127.0.0.1</code> unless you <a href="#lan">host it on your LAN</a>. It has no auth, no accounts and no sync: the person at the board is logged as
+"User"; agents log under their own names. Never host it online and never share it with a group.</p>
 
 <h2 id="run">2. Run it</h2>
 <p>You need Python 3.12 or newer, <code>uv</code>, <code>git</code> and the Claude Code CLI
@@ -92,6 +92,37 @@ default project, and a card needs one.</p>
 runtime setting: <code>restart-backend.ps1</code>, the <code>claude mcp add</code> URL, the
 skills and <code>skill-start/idle_gate.py</code> all name it, so change them to match.</p>
 
+<h3 id="lan">On your LAN</h3>
+<p>To open the board from another device on your network (a laptop, a phone), click
+<b>settings…</b> in the header and tick <b>host the board on the LAN</b>. The backend then
+listens on every address (<code>0.0.0.0</code>) instead of <code>127.0.0.1</code> only.
+Changing it needs a backend restart, and the board does that itself: it runs
+<code>restart-backend.ps1</code>, the sheet shows "restarting…" for a few seconds, then
+lists the address(es) to open from the other device, such as
+<code>http://192.168.1.20:8123/</code>; the first one is the likeliest, the others are often
+virtual adapters (WSL, Hyper-V). Only the backend <code>restart-backend.ps1</code> runs
+(port 8123, this folder, Windows) restarts itself; one started some other way (another
+port, uvicorn without <code>--host</code>, not Windows) cannot: the sheet says how to apply
+the change, and it applies the next time you start it with <code>restart-backend.ps1</code>.
+If the board cannot come up on the LAN address, the restart falls back to this computer only
+(see <code>restart-backend.log</code>) rather than leave you without a board. Untick it to go
+back to this computer only; a device that opened the board over the LAN loses it then, and
+the sheet there says so.</p>
+<ul>
+  <li><b>There is no password.</b> Anyone on the same network can read and change every
+    card. Use it at home or on a network you trust, never on public Wi-Fi.</li>
+  <li>The setting lives in <code>settings.json</code> beside <code>tickets.db</code>, which
+    <code>restart-backend.ps1</code> reads on every start, logon start included.</li>
+  <li>This computer keeps using <code>http://127.0.0.1:8123</code>, so the agents, the MCP
+    registration and the skills need no change. The MCP endpoint (<code>/mcp</code>) still
+    answers only this computer; other devices get the board, not the agent tools.</li>
+  <li><b>Windows firewall.</b> The first time the board listens on the LAN, Windows may ask
+    whether to allow Python on networks: allow it on <b>private</b> networks. If you missed the
+    prompt, or your network is marked public, other devices cannot connect; set the network
+    to private, or add an inbound rule for TCP 8123 from an administrator PowerShell:
+<pre>New-NetFirewallRule -DisplayName "Tickets board" -Direction Inbound -Protocol TCP -LocalPort 8123 -Action Allow -Profile Private</pre></li>
+</ul>
+
 <h2 id="board">3. The board</h2>
 <h3>Lanes</h3>
 <p><code>todo → plan → develop → test → verify → done</code></p>
@@ -122,6 +153,9 @@ again.</p>
     counts for these cards just like the instructions, which then only need what is
     specific to the board, such as the deploy target. "merge into the base branch" or "open a
     pull request" picks how a card that passed its tests lands.</li>
+  <li><b>settings…</b>: settings for the whole board. For now one: <b>host the board on the
+    LAN</b>, so other devices on your network can open it (see <a href="#lan">On your
+    LAN</a>).</li>
   <li><b>show archived</b>: shows the archived cards instead.</li>
   <li><b>docs</b>: opens this manual in a new tab.</li>
   <li><b>New Card</b>: opens a draft. Nothing is saved until you close it. The draft
@@ -284,7 +318,8 @@ The card stays in its lane, marked blocked, and runs skip it until those cards r
 
 <h2 id="limits">7. Limits</h2>
 <ul>
-  <li>No auth, no multiple users, no remote access.</li>
+  <li>No auth and no multiple users. No remote access beyond your own LAN, and that one
+    without a password.</li>
   <li>No live push: the board checks every few seconds and refreshes itself when anything changes.</li>
   <li>No search and no attachments.</li>
   <li>Cards are never deleted, only archived.</li>

@@ -11,6 +11,8 @@ import asyncio
 import json
 import logging
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -575,3 +577,222 @@ def test_log_config_timestamps_the_access_row():
     line = AccessFormatter(fmt=f["fmt"], datefmt=f["datefmt"]).format(rec)
     assert re.match(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d ", line), line
     assert "/api/activity" in line
+
+
+# ---------- board settings: host on the LAN ----------
+
+def test_settings_get_reports_the_setting_and_an_unknown_bind_in_tests(client):
+    s = client.get("/api/settings").json()
+    assert s["lan"] is False
+    assert s["bound"] is None, "the suite's servers are not started by uvicorn's CLI"
+    assert s["pending"] is False and s["listening_lan"] is False and s["can_restart"] is False
+    assert isinstance(s["urls"], list) and s["port"]
+
+
+def test_settings_patch_saves_accepts_the_boards_actor_and_does_not_restart_unknown(
+        client, restarts):
+    r = client.patch("/api/settings", json={"lan": True, "actor": "User"})
+    assert r.status_code == 200, r.text
+    assert r.json()["lan"] is True and r.json()["restarting"] is False
+    assert core.get_settings() == {"lan": True}
+    assert restarts == [], "a backend that does not know its bind never restarts itself"
+    assert core.list_activity() == [] and core.last_event() == 0   # not card activity
+
+
+@pytest.mark.parametrize("body", [{"lan": "yes"}, {"lan": None}, {"port": 1}, [True], "x"])
+def test_settings_patch_rejects_bad_input_with_400(client, body):
+    r = client.patch("/api/settings", json=body)
+    assert r.status_code == 400 and r.json()["error"]
+    assert core.get_settings() == {"lan": False}
+
+
+def test_turning_lan_on_restarts_a_loopback_backend_onto_every_address(
+        client, restarts, monkeypatch):
+    monkeypatch.setattr(app, "bound_host", lambda: "127.0.0.1")
+    monkeypatch.setattr(app, "can_restart", lambda: True)
+    r = client.patch("/api/settings", json={"lan": True}).json()
+    assert r["pending"] is True and r["restarting"] is True and restarts == [1]
+    # the same value again (a second tab, an agent): still pending, but no second restart
+    r = client.patch("/api/settings", json={"lan": True}).json()
+    assert r["pending"] is True and r["restarting"] is False and restarts == [1]
+    r = client.patch("/api/settings", json={"actor": "User"}).json()
+    assert r["restarting"] is False and restarts == [1], "a PATCH that changes nothing"
+    # off and on again is two changes: the way to retry a restart that failed
+    client.patch("/api/settings", json={"lan": False})
+    assert restarts == [1], "off again matches the running 127.0.0.1: nothing to restart"
+    client.patch("/api/settings", json={"lan": True})
+    assert restarts == [1, 1]
+
+
+def test_turning_lan_off_restarts_a_lan_backend_and_a_matching_setting_does_not(
+        client, restarts, monkeypatch):
+    monkeypatch.setattr(app, "bound_host", lambda: "0.0.0.0")
+    monkeypatch.setattr(app, "can_restart", lambda: True)
+    core.update_settings(lan=True)
+    s = client.get("/api/settings").json()
+    assert s["listening_lan"] is True and s["pending"] is False
+    assert client.patch("/api/settings", json={"lan": True}).json()["restarting"] is False
+    assert restarts == []
+    assert client.patch("/api/settings", json={"lan": False}).json()["restarting"] is True
+    assert restarts == [1]
+
+
+def test_a_pending_change_that_cannot_restart_says_so_and_does_not_try(
+        client, restarts, monkeypatch):
+    monkeypatch.setattr(app, "bound_host", lambda: "127.0.0.1")
+    monkeypatch.setattr(app, "can_restart", lambda: False)   # not Windows, or no script
+    r = client.patch("/api/settings", json={"lan": True}).json()
+    assert r["pending"] is True and r["restarting"] is False and restarts == []
+
+
+def test_settings_urls_are_the_lan_addresses_on_the_requests_port(client, monkeypatch):
+    monkeypatch.setattr(app, "lan_addresses", lambda: ["10.0.0.7", "192.168.1.5"])
+    s = TestClient(app.app, base_url="http://127.0.0.1:8123").get("/api/settings").json()
+    assert s["port"] == 8123
+    assert s["urls"] == ["http://10.0.0.7:8123/", "http://192.168.1.5:8123/"]
+
+
+@pytest.mark.parametrize("argv, host", [
+    (["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8123"], "0.0.0.0"),
+    (["uvicorn", "app:app", "--host=127.0.0.1"], "127.0.0.1"),
+    (["pytest", "-q"], None),
+    (["uvicorn", "app:app", "--host"], None),
+])
+def test_bound_host_reads_uvicorns_command_line(argv, host):
+    assert app.bound_host(argv) == host
+
+
+@pytest.mark.parametrize("argv, port", [
+    (["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8123"], 8123),
+    (["uvicorn", "app:app", "--port=8124"], 8124),
+    (["uvicorn", "app:app", "--host", "127.0.0.1"], 8000),   # uvicorn's default
+    (["uvicorn", "app:app", "--port", "x"], None),
+])
+def test_bound_port_reads_uvicorns_command_line(argv, port):
+    assert app.bound_port(argv) == port
+
+
+def live_like(monkeypatch, *, port="8123"):
+    """This process made to look like the board restart-backend.ps1 runs: uvicorn's CLI on
+    Windows, with its settings.json beside the script."""
+    monkeypatch.setattr(app.sys, "argv", ["uvicorn", "app:app", "--host", "127.0.0.1",
+                                          "--port", port])
+    monkeypatch.setattr(app.os, "name", "nt")
+    monkeypatch.setattr(core, "DB_PATH", str(app.RESTART_SCRIPT.parent / "tickets.db"))
+
+
+def test_can_restart_only_the_backend_the_script_manages(monkeypatch):
+    live_like(monkeypatch)
+    assert app.can_restart() is True
+    monkeypatch.setattr(app.sys, "argv", ["pytest"])
+    assert app.can_restart() is False, "an unknown bind never restarts"
+
+
+def test_a_trial_server_on_another_port_never_restarts_the_live_board(monkeypatch):
+    """restart-backend.ps1 kills whatever serves 8123: run from a worktree's 8124 server it
+    would replace the live board with the worktree's code."""
+    live_like(monkeypatch, port="8124")
+    assert app.can_restart() is False
+
+
+def test_a_database_elsewhere_never_restarts(monkeypatch, tmp_path):
+    """The script reads settings.json beside itself: a backend writing its settings anywhere
+    else would restart onto the old address."""
+    live_like(monkeypatch)
+    monkeypatch.setattr(core, "DB_PATH", str(tmp_path / "t.db"))
+    assert app.can_restart() is False
+
+
+def test_mcp_stays_on_this_computer_while_the_board_answers_the_lan(db):
+    """With the LAN setting on, the backend binds 0.0.0.0. /mcp still refuses a request
+    addressed to a LAN IP (the SDK's DNS-rebinding guard), while the board's API answers."""
+    headers = {"Accept": "application/json, text/event-stream",
+               "Content-Type": "application/json"}
+    with TestClient(app.mcp.streamable_http_app(), base_url="http://192.168.1.5:8123") as c:
+        r = c.post("/mcp", headers=headers, json={
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                       "clientInfo": {"name": "test", "version": "1"}}})
+        assert r.status_code == 421, r.text
+        assert c.get("/api/cards").status_code == 200
+        assert c.get("/").status_code == 200, "the board page itself"
+
+
+def test_lan_addresses_leave_out_loopback_link_local_and_duplicates(monkeypatch):
+    infos = [(2, 1, 6, "", (a, 0)) for a in
+             ["127.0.0.1", "192.168.1.5", "169.254.3.4", "10.0.0.7", "192.168.1.5"]]
+    monkeypatch.setattr(app.socket, "getaddrinfo", lambda *a, **k: infos)
+
+    class Routed:   # the UDP connect that finds the default route's address
+        def __init__(self, *a): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def connect(self, addr): pass
+        def getsockname(self): return ("172.16.0.9", 5000)
+
+    monkeypatch.setattr(app.socket, "socket", Routed)
+    assert app.lan_addresses() == ["172.16.0.9", "10.0.0.7", "192.168.1.5"], \
+        "the default route's address first, then the rest"
+
+
+def test_a_default_route_address_also_found_by_name_is_listed_once(monkeypatch):
+    monkeypatch.setattr(app.socket, "getaddrinfo",
+                        lambda *a, **k: [(2, 1, 6, "", ("192.168.1.5", 0))])
+
+    class Routed:
+        def __init__(self, *a): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def connect(self, addr): pass
+        def getsockname(self): return ("192.168.1.5", 5000)
+
+    monkeypatch.setattr(app.socket, "socket", Routed)
+    assert app.lan_addresses() == ["192.168.1.5"]
+
+
+def test_lan_addresses_survive_a_machine_with_no_network(monkeypatch):
+    def fail(*a, **k):
+        raise OSError("no network")
+    monkeypatch.setattr(app.socket, "getaddrinfo", fail)
+    monkeypatch.setattr(app.socket, "socket", fail)
+    assert app.lan_addresses() == []
+
+
+def test_the_suite_never_runs_the_real_restart(restarts):
+    app.restart_backend()   # the conftest guard stands in for it
+    assert restarts == [1]
+
+
+def test_restart_script_reads_the_lan_setting():
+    ps = (Path(app.__file__).parent / "restart-backend.ps1").read_text(encoding="utf-8")
+    assert "settings.json" in ps and "'0.0.0.0'" in ps and "--host, $BindHost" in ps
+    assert "--host, 127.0.0.1" not in ps, "the bind is no longer hard-coded"
+    assert "falling back to 127.0.0.1" in ps, "a LAN bind that fails still leaves a board"
+
+
+@pytest.mark.skipif(not shutil.which("powershell"), reason="needs Windows PowerShell")
+@pytest.mark.parametrize("text, host", [
+    (None, "127.0.0.1"),                       # no file: off by default
+    ('{"lan": true}', "0.0.0.0"),
+    ('{"lan": false}', "127.0.0.1"),
+    ('{"lan": "true"}', "127.0.0.1"),          # only a real JSON true, as core reads it
+    ('{"lan": 1}', "127.0.0.1"),
+    ("not json {", "127.0.0.1"),               # broken: logged, stays on this computer
+    ("", "127.0.0.1"),
+])
+def test_restart_script_binds_the_lan_only_for_a_real_true(tmp_path, text, host):
+    """Runs only the script's bind choice, cut out of it into a temp folder, so the kill and
+    start that follow it can never run here. $PSScriptRoot is then that temp folder."""
+    ps = (Path(app.__file__).parent / "restart-backend.ps1").read_text(encoding="utf-8")
+    start = ps.index("# The board's settings")
+    end = ps.index("# (end of the bind choice")
+    chunk = ps[start:end]
+    assert "Stop-Process" not in chunk and "Start-Process" not in chunk
+    (tmp_path / "choose.ps1").write_text(
+        'function Log($m) { "LOG $m" }\n' + chunk + "\n\"HOST=$BindHost\"\n", encoding="utf-8")
+    if text is not None:
+        (tmp_path / "settings.json").write_text(text, encoding="utf-8")
+    out = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                          str(tmp_path / "choose.ps1")], capture_output=True, text=True,
+                         timeout=60).stdout
+    assert f"HOST={host}" in out, out

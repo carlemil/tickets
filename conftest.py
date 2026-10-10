@@ -23,6 +23,17 @@ def db(tmp_path):
     return core.DB_PATH
 
 
+@pytest.fixture(autouse=True)
+def restarts(monkeypatch):
+    """No test may run restart-backend.ps1: it kills whatever serves 8123, the live board.
+    Records each restart the server asked for instead."""
+    import app
+
+    calls = []
+    monkeypatch.setattr(app, "restart_backend", lambda: calls.append(1))
+    return calls
+
+
 def pytest_configure(config):
     config.addinivalue_line("markers", "no_home: start with no projects configured")
 

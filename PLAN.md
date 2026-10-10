@@ -4,8 +4,10 @@ A personal lane board that sits next to JIRA, not in place of it. A human drives
 browser and an AI agent drives it over MCP, sharing one SQLite file. Cards record who did
 what.
 
-**No auth.** Users are identities (a name), not accounts — nothing is enforced. Bind to
-`127.0.0.1` only. Do not expose this to a network without adding auth first.
+**No auth.** Users are identities (a name), not accounts — nothing is enforced. It binds
+to `127.0.0.1` by default. The board's "host the board on the LAN" setting (#98) binds
+`0.0.0.0` instead, still without auth — the owner's call: anyone on that network can then
+read and change the board. A password or token may come later.
 
 ## Lanes
 
@@ -55,6 +57,31 @@ answer after, and retries up to three times. Success is "8123 is served", not "m
 serves it", so two restarts that overlap both finish happy as soon as either backend is
 up. A detached restart has nowhere to report, so each run appends what it did to
 `restart-backend.log`.
+
+**Hosting on the LAN (#98).** One board setting, `lan` (off by default), in
+`settings.json` beside the database (`core.settings_path()`: it follows `DB_PATH`, so each
+test gets its own; gitignored). A file rather than a table so `restart-backend.ps1` can read
+it with `ConvertFrom-Json` before any Python runs: `"lan": true` (a real JSON bool, as
+`core.get_settings` reads it) → `--host 0.0.0.0`, anything else, a missing or unreadable
+file included → `127.0.0.1`. `0.0.0.0` still answers on `127.0.0.1:8123`, so the MCP
+registration, the skills and the idle gate need no change. `/mcp` stays this-machine-only
+anyway: the MCP SDK's DNS-rebinding check accepts only a `127.0.0.1`/`localhost` Host, so a
+LAN device reaches the board and its HTTP API, not the tools. uvicorn binds once, so a
+change needs a restart: `PATCH /api/settings` runs `restart-backend.ps1 -Delay 2` itself,
+detached (it outlives the backend it kills), when the PATCH changed the setting, it no
+longer matches the running bind and the backend can restart itself (`app.can_restart()`):
+it knows its bind (`--host` on uvicorn's command line, `app.bound_host()`), it runs on the
+script's port 8123 (`app.bound_port()`; a worktree's trial server on 8124 would otherwise
+have the script kill and replace the live board), it is Windows, the script is there, and
+its `settings.json` is the one beside the script (a `DB_PATH` elsewhere would restart onto
+a file it never wrote). A PATCH that changes nothing never restarts, so two tabs or a retry
+cannot stack restarts; to retry a failed one, untick and tick again. Otherwise the sheet
+says how to apply the change by hand. If the LAN bind does not come up in two tries, the
+script's third try falls back to `127.0.0.1` (logged), so a failed LAN restart still leaves
+a board on this computer, with the setting shown as pending. The suite's conftest replaces
+`app.restart_backend` for every test: the real one would kill the live board on 8123;
+`test_restart_script_binds_the_lan_only_for_a_real_true` runs only the script's bind
+choice, cut out into a temp folder.
 
 ### Why no FastAPI
 
@@ -165,10 +192,17 @@ name is a `ValueError`.
 
 `GET /` → board.html · `GET /docs` → docs.html · `GET /api/cards` · `GET|PATCH /api/cards/{id}` ·
 `POST /api/cards` · `POST /api/cards/{id}/comment` · `POST|DELETE /api/links` ·
-`GET|POST /api/users` · `GET|POST /api/activity` · `GET /api/version` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}`. Every
+`GET|POST /api/users` · `GET|POST /api/activity` · `GET /api/version` · `GET|POST /api/projects` · `PATCH|DELETE /api/projects/{name}` ·
+`GET|PATCH /api/settings`. Every
 write body carries `actor` — except `POST /api/users` (`{"name"}` → 201), the one write
-that predates having an actor, and the project writes, which are configuration rather
-than card activity and log no event. `POST /api/projects` also opens a setup card per
+that predates having an actor, and the project and settings writes, which are
+configuration rather than card activity and log no event (`PATCH /api/settings` ignores
+an `actor` the board sends). `/api/settings` answers the settings plus the running
+backend's `bound` host (`null` if unknown), `port`, `listening_lan`, `pending` (setting
+and bind disagree), `can_restart`, and `urls`: `http://<ipv4>:<port>/` per LAN address,
+the default route's first (virtual WSL/Hyper-V adapters add ones no other device reaches);
+the PATCH adds `restarting`. `settings_view` resolves the host name, so both routes run it
+in a thread, off the event loop. `POST /api/projects` also opens a setup card per
 missing piece of the new project's configuration.
 
 ## MCP tools (`app.py`)
@@ -467,6 +501,18 @@ says "create a project first" and opens the project settings with the name field
 focused. Creating a card in a project the filter hides switches the filter to it, so a
 new card is always on screen. Renaming the filtered project carries the filter with it.
 
+"settings…" in the header opens the panel on the board settings (#98), a sheet of its own
+like the project settings: a "host the board on the LAN" checkbox that saves on change, a
+warning that there is no password, and what the backend is doing — listening on
+`127.0.0.1` only, or on every address with the LAN URLs as links, or that the change waits
+for a restart. When the PATCH says `restarting`, the checkbox is disabled and the sheet
+polls `/api/settings` every second until an answer is no longer `pending` (the old
+backend answers for ~2 s, then nothing, then the new one), and gives up with an error
+after a minute. A board opened over the LAN that turns the setting off does not poll (it
+cannot reach the backend once it is back on `127.0.0.1`): the sheet says this device loses
+the board and gives the `127.0.0.1` URL to open on the host. With the LAN URLs it points at
+the docs for the Windows firewall in case another device gets no answer.
+
 **Lost clicks.** A field saves on `change`, which fires on the mousedown that leaves it;
 the save's response re-rendered the panel before mouseup, replacing the button under the
 pointer, and the browser dropped the click — typing a title and clicking the header's
@@ -569,8 +615,9 @@ no longer on the board.
 | 77 | #96 the card sheet hides empty fields only an agent fills: plan and open questions until written, your answers until there are questions, an empty checklist outside todo (a new card keeps it); fields a person fills stay | done — 433 checks |
 | 78 | #95 card sheet: the activity log and comment box sit right under the description, above the plan round, assignee/lane, labels, checklist and links (saved cards and drafts alike) | done — 436 checks |
 | 79 | #94 the new-card sheet has no comments section: no activity log or comment box on a draft (the comments #95 put under the description show on saved cards only), and no comment queue | done — 436 checks |
+| 80 | #98 "settings…" → "host the board on the LAN": `settings.json` beside the DB, `GET\|PATCH /api/settings`, `restart-backend.ps1` binds `0.0.0.0` when it is on, and a change restarts the backend through that script (`-Delay 2`) and shows the LAN URLs; still no auth, by the owner's call | done — 488 checks |
 
-Gate for every task: `uv run pytest -q` — 436 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 488 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
@@ -601,7 +648,8 @@ system, and it works across both surfaces.
 ## Deliberately skipped
 
 Auth · live refresh over WebSocket (the board polls `/api/version` instead) · attachments · search.
-Auth comes first, and before anything binds off loopback.
+The LAN setting (#98) binds off loopback without auth, by the owner's decision; auth may
+follow.
 
 ## Event detail shapes
 

@@ -2572,3 +2572,64 @@ def test_the_sheet_catches_up_on_the_poll_after_the_comment_box_loses_focus(page
     page.wait_for_function("""() => document.querySelector('#panel input[type=text]')
         .value === 'renamed by the agent'""")
     assert page.input_value(box) == "half a comment", "the comment box survives the re-render"
+
+
+# ---------- board settings: host on the LAN ----------
+
+def test_the_lan_toggle_saves_and_says_when_it_applies(page):
+    page.click("#settings")
+    page.wait_for_selector("#panel #lan")
+    assert not page.is_checked("#lan")
+    page.check("#lan")
+    page.wait_for_function("() => window.__inflight === 0 && settings.lan === true")
+    assert core.get_settings() == {"lan": True}
+    assert page.is_checked("#lan"), "the re-rendered sheet shows what was saved"
+    # the suite's server was not started by restart-backend.ps1, so it cannot restart itself
+    assert "next time it is started with restart-backend.ps1" in page.inner_text("#panel")
+    assert "no password" in page.inner_text("#panel .warn")
+    page.click("#panel .shut")
+    page.wait_for_function("() => !open")
+    page.click("#settings")   # reopened, it reads the saved value back
+    page.wait_for_selector("#panel #lan:checked")
+    page.uncheck("#lan")
+    page.wait_for_function("() => window.__inflight === 0 && settings.lan === false")
+    assert core.get_settings() == {"lan": False}
+    click_outside(page)
+    page.wait_for_function("() => !open")
+
+
+def fake_settings(**kw):
+    return {"lan": False, "bound": "127.0.0.1", "port": 8123, "listening_lan": False,
+            "urls": [], "pending": False, "can_restart": True, **kw}
+
+
+def test_turning_it_on_waits_out_the_restart_then_shows_the_lan_url(page):
+    """The server's answers are faked: the real restart would kill the live board."""
+    after_patch = []   # GETs answered since the toggle
+
+    def handle(route):
+        if route.request.method == "PATCH":
+            after_patch.append("patch")
+            return route.fulfill(json=fake_settings(lan=True, pending=True, restarting=True))
+        if not after_patch:   # opening the sheet: a backend on 127.0.0.1, setting off
+            return route.fulfill(json=fake_settings())
+        after_patch.append("get")
+        if len(after_patch) == 2:   # the old backend, still bound to 127.0.0.1
+            return route.fulfill(json=fake_settings(lan=True, pending=True))
+        if len(after_patch) == 3:
+            return route.abort()   # nothing serving mid-restart
+        return route.fulfill(json=fake_settings(   # the new backend, on every address
+            lan=True, bound="0.0.0.0", listening_lan=True, urls=["http://192.168.1.5:8123/"]))
+
+    page.route("**/api/settings", handle)
+    page.click("#settings")
+    page.wait_for_selector("#panel #lan")
+    assert "listening on 127.0.0.1 only" in page.inner_text("#panel")
+    page.check("#lan")
+    page.wait_for_selector("#panel #lan:disabled")
+    assert "restarting the backend" in page.inner_text("#panel")
+    page.wait_for_selector('#panel a[href="http://192.168.1.5:8123/"]', timeout=10000)
+    assert page.is_enabled("#lan") and page.is_checked("#lan")
+    assert "open the board from another device" in page.inner_text("#panel")
+    assert not page.is_visible("#err")
+    page.unroute("**/api/settings")
