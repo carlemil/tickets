@@ -448,7 +448,10 @@ newest `events.id`: when it moved, the board reloads once — not under a drag o
 pointer, and then the value is not recorded, so the next poll retries. The open sheet
 re-renders only when the fetched card is newer (the `stale()` rule) and never while one of
 its text fields has focus; that waits for a later poll. Writes that log no event (a
-pos-only reorder, project renames) do not trigger it.
+pos-only reorder, project renames) do not trigger it. Board loads are numbered (#88): an
+answer that arrives after a newer load started is dropped and its caller waits for the
+newest load, so a slow reload (a poll's, say) can no longer put an older board back over a
+newer one.
 
 **On master, deployed (#41).** After the auto dot come two more, on the board card and in
 the sheet header: blue when `merged` (the card's branch is on the base branch, locally or
@@ -653,8 +656,9 @@ no longer on the board.
 | 82 | #83 a model per stage: `run.md` names it on every Agent call — plan & develop on the session's model, develop, test and deploy on `sonnet` | done — 490 checks |
 | 83 | #82 tabs pulse: a project tab's color dot pulses while an agent works a card in that project; "All" shows a grey pulsing dot while any agent works, and no dot otherwise | done — 495 checks |
 | 84 | #87 an empty `pr` makes a verify blocker finished only when its project lands by `merge`: in a `pr` project a card reworked (pr cleared, #72) and dragged straight back to verify by hand, or a person's task card there, keeps blocking until its PR merges or it is `done` (core `_blocks`, so the board, the run and the idle gate agree) | done — 505 checks |
+| 85 | #88 flaky tests: a board load answered after a newer one is dropped (the idle-dot flake, a real board race), and the drag, failed-create and add-project tests wait for the board's own requests before reading the database or typing on | done — 506 checks |
 
-Gate for every task: `uv run pytest -q` — 505 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 506 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
@@ -665,6 +669,13 @@ The suite shares one process on purpose: `core.DB_PATH` is re-read on every conn
 the temp database reaches the in-thread uvicorn server the browser talks to. That is what
 lets `test_e2e.py` drag a card in Chrome and then call an MCP tool on the same card — and
 it is why this suite must not be run under `pytest-xdist`.
+
+A browser test waits on a condition, never a sleep (#88). The board draws first and writes
+after (a drop moves the card, then PATCHes; a link on a new card is checked, then shown),
+so a test that reads the database or types on after a board action first waits for the
+board's own requests: `window.__inflight === 0` (the page fixture counts `api()` calls),
+or the state the action ends in. A full run is slower than a lone file, which is when
+such a missing wait shows.
 
 ## End-to-end result (task 4)
 

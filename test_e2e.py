@@ -16,6 +16,7 @@ def test_a_human_and_an_agent_share_one_attributed_card(page):
     page.click("#panel .shut")   # closes the sheet
     drag(page, cid, "develop")
     page.wait_for_selector(f'.lane[data-lane="develop"] .card[data-id="{cid}"]')
+    page.wait_for_function("() => window.__inflight === 0")   # drawn first, PATCHed after (#88)
     assert core.get_card(cid)["lane"] == "develop"
 
     # --- the agent, through the MCP tools, on the same card ---

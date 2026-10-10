@@ -1366,15 +1366,27 @@ $("#add").onclick = () => {
   renderPanel();
 };
 
-async function load() {
+// Loads can be answered out of order (a poll's reload and a write's, say): an answer that
+// arrives after a newer load started is older than what that load will show, so it is
+// dropped, and its caller waits for the newest load instead -- whoever renders after
+// `await load()` still sees the fresh board (#88).
+let loads = 0, loading = null;
+function load() { return loading = loadBoard(++loads); }
+async function loadBoard(call) {
+  let got;
   try {
     const q = new URLSearchParams();
     if (proj()) q.set("project", proj());
     if ($("#showArch").checked) q.set("archived", "1");
-    [cards, users, projects] = await Promise.all([
+    got = await Promise.all([
       api("GET", "/api/cards?" + q), api("GET", "/api/users"), api("GET", "/api/projects"),
     ]);
-  } catch (e) { return showErr("could not load the board: " + e.message); }
+  } catch (e) {
+    if (call !== loads) return loading;
+    return showErr("could not load the board: " + e.message);
+  }
+  if (call !== loads) return loading;
+  [cards, users, projects] = got;
   renderProj();
   renderBoard();
 }
