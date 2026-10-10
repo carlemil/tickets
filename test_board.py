@@ -2815,3 +2815,44 @@ def test_turning_it_on_waits_out_the_restart_then_shows_the_lan_url(page):
     assert "open the board from another device" in page.inner_text("#panel")
     assert not page.is_visible("#err")
     page.unroute("**/api/settings")
+
+
+def test_a_restart_that_never_happens_shows_on_the_sheet_at_once(page):
+    """#138: the server said restarting, then the old backend kept answering. Once it says
+    the restart failed, the sheet stops waiting (not after its minute) and says so."""
+    after_patch = []
+
+    def handle(route):
+        if route.request.method == "PATCH":
+            after_patch.append("patch")
+            return route.fulfill(json=fake_settings(lan=True, pending=True, restarting=True))
+        if not after_patch:
+            return route.fulfill(json=fake_settings())
+        after_patch.append("get")
+        return route.fulfill(json=fake_settings(lan=True, pending=True,
+                                                restart_failed=len(after_patch) >= 3))
+
+    page.route("**/api/settings", handle)
+    page.click("#settings")
+    page.wait_for_selector("#panel #lan")
+    page.check("#lan")
+    page.wait_for_selector("#panel #lan:disabled")
+    page.wait_for_selector("#panel #lan:enabled", timeout=10000)
+    text = page.inner_text("#panel")
+    assert "tried to restart itself onto the new address and did not" in text
+    assert "restart-backend.log" in text and "untick and tick again" in text
+    assert "restarting the backend" not in text
+    assert page.is_checked("#lan"), "the setting stays saved"
+    assert "did not come back" in page.inner_text("#err"), "the toast says it too"
+    page.unroute("**/api/settings")
+
+
+def test_a_failed_restart_shows_when_the_sheet_is_opened_later(page):
+    page.route("**/api/settings", lambda route: route.fulfill(
+        json=fake_settings(lan=True, pending=True, restart_failed=True)))
+    page.click("#settings")
+    page.wait_for_selector("#panel #lan:checked")
+    text = page.inner_text("#panel")
+    assert "tried to restart itself onto the new address and did not" in text
+    assert "restart the backend to apply it" not in text
+    page.unroute("**/api/settings")

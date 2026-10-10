@@ -26,11 +26,13 @@ def db(tmp_path):
 @pytest.fixture(autouse=True)
 def restarts(monkeypatch):
     """No test may run restart-backend.ps1: it kills whatever serves 8123, the live board.
-    Records each restart the server asked for instead."""
+    Records each restart the server asked for instead. (app.spawn_restart, the real spawn,
+    is left for the test that runs it against a harmless stand-in script.)"""
     import app
 
     calls = []
     monkeypatch.setattr(app, "restart_backend", lambda: calls.append(1))
+    monkeypatch.setattr(app, "_restart_asked", None)   # no restart asked by an earlier test
     return calls
 
 

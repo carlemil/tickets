@@ -1278,6 +1278,10 @@ function lanState(s) {
     return [say("this backend was not started from uvicorn's command line, so it does not know " +
                 "its address and cannot restart itself: the change applies the next time it is " +
                 "started with restart-backend.ps1")];
+  if (s.pending && s.restart_failed)
+    return [say("the backend tried to restart itself onto the new address and did not (see " +
+                "restart-backend.log): run powershell -NoProfile -File restart-backend.ps1, or " +
+                "untick and tick again to retry")];
   if (s.pending)
     return [say("restart the backend to apply it: powershell -NoProfile -File restart-backend.ps1 " +
                 "(not on Windows: start uvicorn with --host " +
@@ -1328,7 +1332,9 @@ function renderSettings(p, dismiss) {
 }
 
 // The old backend answers for about 2 s more, then nothing does, then the new one does.
-// Done when an answer no longer says the setting is pending; give up after a minute.
+// Done when an answer no longer says the setting is pending, or says the restart failed
+// (the old backend still answering well after it should have gone); give up after a minute.
+// The last answer stays, so the sheet then says which.
 async function waitForRestart() {
   restarting = true;
   const end = Date.now() + 60000;
@@ -1336,7 +1342,8 @@ async function waitForRestart() {
     await new Promise(r => setTimeout(r, 1000));
     try {
       const s = await api("GET", "/api/settings");
-      if (!s.pending) { settings = s; break; }
+      settings = s;
+      if (!s.pending || s.restart_failed) break;
     } catch { /* down mid-restart */ }
   }
   if (settings.pending)

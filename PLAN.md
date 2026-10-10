@@ -70,7 +70,8 @@ registration, the skills and the idle gate need no change. `/mcp` stays this-mac
 anyway: the MCP SDK's DNS-rebinding check accepts only a `127.0.0.1`/`localhost` Host, so a
 LAN device reaches the board and its HTTP API, not the tools. uvicorn binds once, so a
 change needs a restart: `PATCH /api/settings` runs `restart-backend.ps1 -Delay 2` itself,
-detached (it outlives the backend it kills), when the PATCH changed the setting, it no
+hidden and not waited for (its -Delay branch Start-Process'es the real restart, which
+outlives the backend it kills), when the PATCH changed the setting, it no
 longer matches the running bind and the backend can restart itself (`app.can_restart()`):
 it knows its bind (`--host` on uvicorn's command line, `app.bound_host()`), it runs on the
 script's port 8123 (`app.bound_port()`; a worktree's trial server on 8124 would otherwise
@@ -84,6 +85,22 @@ a board on this computer, with the setting shown as pending. The suite's conftes
 `app.restart_backend` for every test: the real one would kill the live board on 8123;
 `test_restart_script_binds_the_lan_only_for_a_real_true` runs only the script's bind
 choice, cut out into a temp folder.
+
+**No `DETACHED_PROCESS` (#138).** The spawn used to pass it, and a Windows PowerShell
+started with no console at all exits 0 at once without running its `-File` script: the
+PATCH answered `restarting`, nothing ran, `restart-backend.log` got no line, the setting
+stayed pending. It never depended on how the backend was started; the suite could not see
+it because the guard replaces `restart_backend`. `app.spawn_restart(script, delay)` is now
+the real Popen with `CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP` (a console of its own
+nobody sees), `restart_backend()` its one-line caller the guard replaces, and
+`test_the_real_spawn_runs_the_scripts_delay_branch_to_the_end` runs the real spawn against
+a stand-in made of the script's own param line and -Delay branch plus a harmless tail: it
+failed with the old flags. Proven by hand too, on a throwaway copy on port 8197. A restart
+that still does not happen shows: the backend remembers when it asked
+(`app.ask_restart`), and `restart_failed` is true while the setting is pending and this
+same process still answers `RESTART_GRACE` (20 s) after asking, since a restart that worked
+has killed it by then; a Popen that cannot start (no powershell) answers
+`restarting: false, restart_failed: true` rather than a 500.
 
 ### Why no FastAPI
 
@@ -209,7 +226,8 @@ that predates having an actor, and the project and settings writes, which are
 configuration rather than card activity and log no event (`PATCH /api/settings` ignores
 an `actor` the board sends). `/api/settings` answers the settings plus the running
 backend's `bound` host (`null` if unknown), `port`, `listening_lan`, `pending` (setting
-and bind disagree), `can_restart`, and `urls`: `http://<ipv4>:<port>/` per LAN address,
+and bind disagree), `can_restart`, `restart_failed` (#138: a restart this backend asked
+for 20 s ago or more has not happened), and `urls`: `http://<ipv4>:<port>/` per LAN address,
 the default route's first (virtual WSL/Hyper-V adapters add ones no other device reaches);
 the PATCH adds `restarting`. `settings_view` resolves the host name, so both routes run it
 in a thread, off the event loop. `POST /api/projects` also opens a setup card per
@@ -543,8 +561,10 @@ warning that there is no password, and what the backend is doing — listening o
 `127.0.0.1` only, or on every address with the LAN URLs as links, or that the change waits
 for a restart. When the PATCH says `restarting`, the checkbox is disabled and the sheet
 polls `/api/settings` every second until an answer is no longer `pending` (the old
-backend answers for ~2 s, then nothing, then the new one), and gives up with an error
-after a minute. A board opened over the LAN that turns the setting off does not poll (it
+backend answers for ~2 s, then nothing, then the new one) or says `restart_failed`, and
+gives up with an error after a minute; it keeps the last answer, so a failed restart then
+shows on the sheet ("tried to restart itself … and did not", with the log, the command and
+"untick and tick again"), as it does when the sheet is opened later (#138). A board opened over the LAN that turns the setting off does not poll (it
 cannot reach the backend once it is back on `127.0.0.1`): the sheet says this device loses
 the board and gives the `127.0.0.1` URL to open on the host. With the LAN URLs it points at
 the docs for the Windows firewall in case another device gets no answer.
@@ -657,8 +677,9 @@ no longer on the board.
 | 83 | #82 tabs pulse: a project tab's color dot pulses while an agent works a card in that project; "All" shows a grey pulsing dot while any agent works, and no dot otherwise | done — 495 checks |
 | 84 | #87 an empty `pr` makes a verify blocker finished only when its project lands by `merge`: in a `pr` project a card reworked (pr cleared, #72) and dragged straight back to verify by hand, or a person's task card there, keeps blocking until its PR merges or it is `done` (core `_blocks`, so the board, the run and the idle gate agree) | done — 505 checks |
 | 85 | #88 flaky tests: a board load answered after a newer one is dropped (the idle-dot flake, a real board race), and the drag, failed-create and add-project tests wait for the board's own requests before reading the database or typing on | done — 506 checks |
+| 86 | #138 the board's self-restart works: the spawn drops `DETACHED_PROCESS` (Windows PowerShell with no console exits without running its script), a test runs the real spawn against a stand-in of the script's -Delay branch, and a restart that does not happen shows on the settings sheet (`restart_failed`) | done — 517 checks |
 
-Gate for every task: `uv run pytest -q` — 506 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 517 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
