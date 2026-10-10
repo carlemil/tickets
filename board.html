@@ -798,27 +798,27 @@ function closePanel() {
   if (!c) return true;
   document.activeElement?.blur();   // a draft's change lands synchronously, a card's PATCHes
   if (c === PROJECTS) { hidePanel(); return true; }
-  const typed = $("#panel .say-box").value.trim();
   if (c.id) {
+    const typed = ($("#panel .say-box")?.value || "").trim();
     hidePanel();
     if (typed) api("POST", `/api/cards/${c.id}/comment`, { text: typed })
       .then(replace, e => showErr(e.message));
     return true;
   }
   if (!c.title.trim()) {
-    if (!c.description.trim() && !c.labels.length && !c.checklist.length && !c.links.length
-        && !c.comments.length && !typed) { hidePanel(); return true; }   // nothing to keep
+    if (!c.description.trim() && !c.labels.length && !c.checklist.length
+        && !c.links.length) { hidePanel(); return true; }   // nothing to keep
     showErr("a card needs a title — give it one, or cancel to throw it away");
     $("#panel input[type=text]").focus();
     return false;
   }
-  if (!c.creating) createDraft(c, typed);   // a second click must not make two cards
+  if (!c.creating) createDraft(c);   // a second click must not make two cards
   return true;
 }
 
-async function createDraft(c, typed) {
+async function createDraft(c) {
   c.creating = true;
-  const { events, links, comments, creating, ...fields } = c;
+  const { events, links, creating, ...fields } = c;
   let card;
   try {
     card = await api("POST", "/api/cards", { ...fields, title: c.title.trim() });
@@ -829,8 +829,6 @@ async function createDraft(c, typed) {
   try {   // the card exists now, so a failure below is reported, not retried as a create
     for (const l of links)
       await api("POST", "/api/links", { from_id: card.id, to_id: l.to_id, kind: l.kind });
-    for (const text of [...comments, ...(typed ? [typed] : [])])
-      await api("POST", `/api/cards/${card.id}/comment`, { text });
   } catch (e) { showErr(`#${card.id} was created, but: ${e.message}`); }
   $("#showArch").checked = false;   // a new card is active: show the board it landed on
   if (proj() && proj().toLowerCase() !== card.project.toLowerCase())
@@ -949,32 +947,32 @@ function renderPanel() {
   p.append(field("description", desc));
 
   // the comments come right under the description (#95): the log with them, then the box.
-  // A draft's queued comments show as they will read once posted.
-  p.append(field("activity", renderLog(c.id ? c.events : c.comments.map(text =>
-    ({ actor: USER, kind: "comment", detail: { text }, at: new Date().toISOString() })))));
+  // A card that does not exist yet has no comments, so a draft shows neither (#94).
+  if (c.id) {
+    p.append(field("activity", renderLog(c.events)));
 
-  const say = Object.assign(document.createElement("textarea"),
-    { className: "say-box", placeholder: "comment… (ctrl+enter to send)" });
-  say.value = typed;
-  const send = Object.assign(document.createElement("button"),
-    { className: "primary", textContent: "comment" });
-  const post = async () => {
-    if (!say.value.trim()) return;
-    if (!c.id) { c.comments.push(say.value.trim()); say.value = ""; return renderPanel(); }
-    try {
-      const card = await api("POST", `/api/cards/${c.id}/comment`, { text: say.value.trim() });
-      replace(card);
-      if (open?.id !== card.id || stale(card)) return;   // closed or switched meanwhile
-      open = card;
-      say.value = "";
-      renderPanel();
-    } catch (e) { showErr(e.message); }
-  };
-  send.onclick = post;
-  say.onkeydown = ev => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) post(); };
-  const cw = document.createElement("div");
-  cw.append(say, send);
-  p.append(field("say something", cw));
+    const say = Object.assign(document.createElement("textarea"),
+      { className: "say-box", placeholder: "comment… (ctrl+enter to send)" });
+    say.value = typed;
+    const send = Object.assign(document.createElement("button"),
+      { className: "primary", textContent: "comment" });
+    const post = async () => {
+      if (!say.value.trim()) return;
+      try {
+        const card = await api("POST", `/api/cards/${c.id}/comment`, { text: say.value.trim() });
+        replace(card);
+        if (open?.id !== card.id || stale(card)) return;   // closed or switched meanwhile
+        open = card;
+        say.value = "";
+        renderPanel();
+      } catch (e) { showErr(e.message); }
+    };
+    send.onclick = post;
+    say.onkeydown = ev => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) post(); };
+    const cw = document.createElement("div");
+    cw.append(say, send);
+    p.append(field("say something", cw));
+  }
 
   // the planning round, each in its own box, shown only once it holds something (#96):
   // the agent writes plan and questions; a person answers, so answers show with questions
@@ -1038,8 +1036,8 @@ function renderPanel() {
   // from plan on the agent writes the checklist from the plan's steps: an empty one shows
   // only while a person is writing the card (a draft, or todo) (#96)
   if (c.checklist.length || !c.id || c.lane === "todo") p.append(field("checklist", list));
-  // A new card shows everything a saved one does. Links and comments cannot be written
-  // before the card exists, so the draft holds them and "create" sends them after it.
+  // Links cannot be written before the card exists, so a draft holds them and "create"
+  // sends them after it.
   const links = document.createElement("ul");
   links.className = "links";
   for (const l of c.links) {
@@ -1254,7 +1252,7 @@ $("#add").onclick = () => {
   const home = find(proj());
   open = { title: "", description: "", lane: "todo", assignee: null,
            labels: [], checklist: [], project: (home || projects[0]).name,
-           events: [], links: [], comments: [] };
+           events: [], links: [] };
   renderPanel();
 };
 

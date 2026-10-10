@@ -306,7 +306,8 @@ itself, since stopping starts no work.
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
 `drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: project,
-description, then right under it the activity log and comment box (#95), then the plan
+description, then right under it the activity log and comment box (#95; a saved card
+only, a draft has neither, #94), then the plan
 round, assignee and lane, labels, checklist, links. The board writes as `User`, a fixed
 name, and agents write under their own names. Project tabs (#63:
 "All" first, then one per project with its color dot; the pick is persisted) filter the
@@ -355,7 +356,7 @@ No dark-theme colours: the board has no dark theme yet.
 
 The sheet hides an empty field that only an agent fills at that point and keeps every
 field a person fills in by hand at that point (#96). Plan and open questions each get their own box
-under the comment box once they hold text; "your answers" shows whenever there are
+under the comment box (under the description on a draft) once they hold text; "your answers" shows whenever there are
 questions (or answers) and is hidden otherwise. The checklist shows once it has items;
 empty, it shows only on a new card or a card in todo, since from plan on the agent writes
 it from the plan's steps. The pull request link and session button were already shown
@@ -436,15 +437,15 @@ The activity log leaves out bookkeeping (#65, `bookkeeping()`): edits of `merged
 and anyone assigning or unassigning themselves; "show N earlier" counts what it shows.
 
 "New Card" opens the same panel on an unsaved draft (title focused, project from the
-filter). It shows everything a saved card does — links, activity, comment box. Nothing
+filter). It shows the fields a saved card does, links included, but no activity log and
+no comment box: a card that does not exist yet has no comments (#94). Nothing
 is written until the draft is closed with "close" (or Enter in the title), which
-`POST`s the fields all at once (one `created` event), then the links and comments queued
-on the draft (links are checked to exist as they are added), plus any text left in the
-comment box, and hides the sheet. A draft with nothing typed just closes. A draft with
+`POST`s the fields all at once (one `created` event), then the links queued on the
+draft (checked to exist as they are added), and hides the sheet. A draft with nothing typed just closes. A draft with
 content but no title stays open and says "a card needs a title". If the `POST` fails
 the sheet stays with everything in it and the next "close" retries; a double click makes one
 card. "cancel" discards the draft. The draft re-renders only for checklist edits and
-queued links and comments.
+queued links.
 
 **Deleting a project.** Each project in the settings has "delete project…", which opens a
 native `<dialog>`: it counts the cards (archived too) that will move, says they go to
@@ -567,6 +568,7 @@ no longer on the board.
 | 76 | #84 one subagent plans and develops: a card in `plan` gets one plan & develop agent in its worktree that posts plan and checklist itself (a person's move wins) and, with no open questions, moves the card to `develop` and builds in the same context; questions stop it in `plan` and the unused worktree goes; develop-lane cards and test keep fresh agents | done — 431 checks |
 | 77 | #96 the card sheet hides empty fields only an agent fills: plan and open questions until written, your answers until there are questions, an empty checklist outside todo (a new card keeps it); fields a person fills stay | done — 433 checks |
 | 78 | #95 card sheet: the activity log and comment box sit right under the description, above the plan round, assignee/lane, labels, checklist and links (saved cards and drafts alike) | done — 436 checks |
+| 79 | #94 the new-card sheet has no comments section: no activity log or comment box on a draft (the comments #95 put under the description show on saved cards only), and no comment queue | done — 436 checks |
 
 Gate for every task: `uv run pytest -q` — 436 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

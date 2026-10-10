@@ -825,8 +825,9 @@ def test_add_opens_an_empty_panel_and_writes_nothing(page):
     for gone in ("create", "archive"):
         assert page.locator(f"#panel button:text-is('{gone}')").count() == 0, gone
     heads = page.locator("#panel h3").all_text_contents()
-    for shown in ("links", "activity", "say something"):   # all a saved card shows
-        assert shown in heads, (shown, heads)
+    assert "links" in heads, heads
+    for gone in ("activity", "say something"):   # a card that does not exist has no comments
+        assert gone not in heads, (gone, heads)
     assert core.list_cards() == [], "nothing is written until create"
 
 
@@ -1242,17 +1243,16 @@ def test_the_comments_come_before_a_planned_cards_plan(page):
     assert heads[4:7] == ["plan", "open questions", "your answers"], heads
 
 
-def test_a_draft_shows_the_comments_under_the_description_and_queues_them_there(page):
+def test_a_draft_has_no_comments_under_its_description(page):
+    """#94 over #95: a draft has no comments, so its description runs straight into the
+    next field it shows -- no activity log, no comment box, nothing queued."""
     page.click("#add")
     page.wait_for_selector("#panel.on")
     heads = page.locator("#panel h3").all_text_contents()
-    assert heads[:4] == ["project", "description", "activity", "say something"], heads
-    page.fill("#panel input[type=text] >> nth=0", "draft with a note")
-    page.fill("#panel .say-box", "queued note")
-    page.click("#panel button:text-is('comment')")
-    page.wait_for_selector("#panel .log li.comment")
-    assert page.input_value("#panel .say-box") == "", "the box empties once queued"
-    assert core.list_cards() == [], "still nothing written"
+    assert heads[:3] == ["project", "description", "assignee"], heads
+    assert "activity" not in heads and "say something" not in heads, heads
+    assert page.locator("#panel .say-box").count() == 0
+    assert page.evaluate("'comments' in open") is False, "no comment queue on the draft"
 
 
 def test_a_card_created_in_another_project_switches_the_filter_to_it(page):
@@ -1280,9 +1280,9 @@ def test_all_projects_stays_all_projects_after_a_create(page):
     assert page.eval_on_selector("#proj [aria-selected=true]", "b => b.value") == ""
 
 
-# ---------- the new-card sheet shows everything ----------
+# ---------- the new-card sheet: everything but comments ----------
 
-def test_links_and_comments_on_a_new_card_are_sent_on_create(page):
+def test_links_on_a_new_card_are_sent_on_create(page):
     other = core.create_card("other", actor="ce", project="Home")["id"]
     page.evaluate("load()")
     page.click("#add")
@@ -1291,19 +1291,41 @@ def test_links_and_comments_on_a_new_card_are_sent_on_create(page):
     page.select_option("#panel .links select", "blocks")
     page.click("#panel button:text-is('link')")
     page.wait_for_selector(f"#panel .links li:has-text('blocks → #{other}')")
-    page.fill("#panel .say-box", "queued first")
-    page.click("#panel button:text-is('comment')")
-    page.wait_for_selector("#panel .log .say:text-is('queued first')")
-    assert page.input_value("#panel .say-box") == ""
-    page.fill("#panel .say-box", "typed, never sent")        # left in the box
     assert [c["id"] for c in core.list_cards()] == [other], "still a draft"
     close_sheet(page)
     cid = created(page)
     c = core.get_card(cid)
     assert [(l["from_id"], l["to_id"], l["kind"]) for l in c["links"]] == [(cid, other, "blocks")]
-    assert [e["detail"]["text"] for e in c["events"] if e["kind"] == "comment"] == [
-        "queued first", "typed, never sent"]
+    assert not [e for e in c["events"] if e["kind"] == "comment"]
     assert all(e["actor"] == "User" for e in c["events"])
+
+
+def test_a_new_card_has_no_comments_section_until_it_exists(page):
+    """A card that does not exist yet has no comments: the draft shows neither the
+    activity log nor the comment box, and a re-render (a checklist item) keeps it that
+    way. Once created, opening the card shows both."""
+    page.click("#add")
+    page.wait_for_selector("#panel.on")
+    assert page.locator("#panel .say-box").count() == 0
+    assert page.locator("#panel .log").count() == 0
+    assert page.locator("#panel button:text-is('comment')").count() == 0
+    heads = page.locator("#panel h3").all_text_contents()
+    assert "activity" not in heads and "say something" not in heads, heads
+    assert "links" in heads, "the rest of the sheet is still there"
+    assert page.evaluate("document.activeElement.placeholder") == "what needs doing?"
+    item = "#panel input[placeholder='+ checklist item (enter)']"
+    page.fill(item, "step one")
+    page.press(item, "Enter")
+    page.wait_for_selector("#panel .chk:has-text('step one')")
+    assert page.locator("#panel .say-box").count() == 0, "a re-render keeps it hidden"
+    page.fill("#panel input[type=text] >> nth=0", "now it exists")
+    close_sheet(page)
+    cid = created(page)
+    assert [e["kind"] for e in core.get_card(cid)["events"]] == ["created"]
+    page.evaluate(f"openCard({cid})")
+    page.wait_for_selector("#panel .say-box")
+    assert page.locator("#panel .log").count() == 1
+    assert page.locator("#panel button:text-is('comment')").count() == 1
 
 
 def test_a_new_card_refuses_a_link_to_a_missing_card_right_away(page):
@@ -1345,13 +1367,13 @@ def test_a_failed_create_keeps_the_sheet_and_everything_in_it(page):
     page.fill("#panel input[type=text] >> nth=0", "doomed")
     page.fill("#panel input[type=number]", str(other))
     page.click("#panel button:text-is('link')")
-    page.fill("#panel .say-box", "keep me")
+    page.fill("#panel textarea >> nth=0", "keep me")
     core.update_project("Home", name="Moved")           # the draft's project is now gone
     close_sheet(page)
     page.wait_for_selector("#err.on")
     assert "unknown project" in page.text_content("#err")
     assert page.locator("#panel.on").count() == 1
-    assert page.input_value("#panel .say-box") == "keep me"
+    assert page.input_value("#panel textarea >> nth=0") == "keep me"
     assert page.evaluate("open.links.length") == 1
     assert [c["id"] for c in core.list_cards()] == [other], "nothing was created"
 
@@ -1413,7 +1435,6 @@ def test_an_empty_draft_just_closes(page):
 
 @pytest.mark.parametrize("fill", [
     ("#panel textarea >> nth=0", "a description"),
-    ("#panel .say-box", "a comment"),
     ("#panel input[placeholder='comma, separated']", "ui"),
 ])
 def test_a_draft_with_content_but_no_title_stays_open(page, fill):
@@ -1914,15 +1935,17 @@ def test_an_empty_checklist_shows_only_while_a_person_writes_the_card(page):
         assert not shows(lane), f"empty in {lane}: hidden"
         assert shows(lane, [{"text": "x", "done": False}]), f"with items in {lane}: shown"
 
+    target = core.create_card("link target", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
     page.click("#add")                                        # a draft, whatever its lane
     page.wait_for_selector("#panel.on")
     page.select_option("#panel select >> nth=2", "develop")
     assert page.locator(item).count() == 1
-    # a draft's lane change does not re-render; queueing a comment does, and the draft,
+    # a draft's lane change does not re-render; queueing a link does, and the draft,
     # now in develop with no items, must still keep its checklist
-    page.fill("#panel .say-box", "queued")
-    page.click("#panel button:has-text('comment')")
-    page.wait_for_selector("#panel .log li.comment")
+    page.fill("#panel input[type=number]", str(target))
+    page.click("#panel button:text-is('link')")
+    page.wait_for_selector(f"#panel .links li:has-text('#{target}')")
     assert page.locator("#panel select >> nth=2").input_value() == "develop"
     assert page.locator(item).count() == 1
     page.click("#panel button:has-text('cancel')")
