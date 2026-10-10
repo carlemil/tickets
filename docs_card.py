@@ -144,8 +144,12 @@ def main():
             port = s.getsockname()[1]
         srv = uvicorn.Server(uvicorn.Config(app.app, host="127.0.0.1", port=port,
                                             log_level="warning"))
-        threading.Thread(target=srv.run, daemon=True).start()
+        thread = threading.Thread(target=srv.run, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 15
         while not srv.started:
+            if not thread.is_alive() or time.monotonic() > deadline:
+                raise SystemExit(f"the board did not start on port {port}")
             time.sleep(0.01)
         try:
             with sync_playwright() as p:
@@ -165,6 +169,7 @@ def main():
                 browser.close()
         finally:
             srv.should_exit = True
+            thread.join(10)   # the database closes before its temp folder goes
     print(f"wrote {OUT}")
 
 

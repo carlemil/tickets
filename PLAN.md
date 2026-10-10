@@ -634,9 +634,9 @@ no longer on the board.
 | 78 | #95 card sheet: the activity log and comment box sit right under the description, above the plan round, assignee/lane, labels, checklist and links (saved cards and drafts alike) | done — 436 checks |
 | 79 | #94 the new-card sheet has no comments section: no activity log or comment box on a draft (the comments #95 put under the description show on saved cards only), and no comment queue | done — 436 checks |
 | 80 | #98 "settings…" → "host the board on the LAN": `settings.json` beside the DB, `GET\|PATCH /api/settings`, `restart-backend.ps1` binds `0.0.0.0` when it is on, and a change restarts the backend through that script (`-Delay 2`) and shows the LAN URLs; still no auth, by the owner's call | done — 488 checks |
-| 81 | #97 docs: "A card at a glance" near the top, a screenshot of the real sheet with every field filled and numbered (`docs_card.py` makes it, `/docs/card.png` serves it) and a legend explaining each; tests fail when the sheet and the legend drift apart | done — NNN checks |
+| 81 | #97 docs: "A card at a glance" near the top, a screenshot of the real sheet with every field filled and numbered (`docs_card.py` makes it, `/docs/card.png` serves it) and a legend explaining each; tests fail when the sheet and the legend drift apart | done — 490 checks |
 
-Gate for every task: `uv run pytest -q` — NNN checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 490 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

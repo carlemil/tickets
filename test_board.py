@@ -2138,6 +2138,9 @@ def test_the_docs_card_figure_numbers_every_field_the_sheet_shows(page):
     numbered = [t[3:] for _, t in docs_card.MARKERS if t.startswith("h3:")]
     # in order too: the badges read top to bottom, so a moved field means a new screenshot
     assert headings == numbered, "sheet fields vs. docs_card.MARKERS"
+    buttons = page.eval_on_selector_all(
+        "#panel .head button", "bs => bs.filter(b => b.getClientRects().length).map(b => b.textContent)")
+    assert buttons == [t[4:] for _, t in docs_card.MARKERS if t.startswith("btn:")]
     assert page.evaluate(docs_card.MARK_JS, docs_card.MARKERS) == []   # every badge lands
     badges = page.locator("#panel .docs-badge")
     assert badges.count() == len(docs_card.MARKERS)
