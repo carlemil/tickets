@@ -193,7 +193,8 @@ def test_all_is_the_first_tab_and_shows_every_project(page):
     page.wait_for_function("() => document.querySelectorAll('.card').length === 2")
     assert page.get_attribute("#proj", "role") == "tablist"
     assert tabs(page) == [["All", True], ["Home", False], ["Other", False], ["Third", False]]
-    assert page.locator("#proj .dot").count() == 3, "each project tab shows its color"
+    assert page.locator("#proj .dot:visible").count() == 3, "each project tab shows its color"
+    assert not page.locator('#proj [value=""] .dot').is_visible(), "All has no dot while idle"
     page.focus("#proj button >> nth=0")
     assert page.evaluate("document.activeElement.textContent") == "All", "a tab takes focus"
 
@@ -1774,6 +1775,111 @@ def test_work_on_a_card_off_the_board_pulses_nothing(page):
     page.locator("#status .job").wait_for()
     assert page.locator(".work.working").count() == 0
     assert errors == []
+
+
+# ---------- #82: a project tab's dot pulses while an agent works a card in it ----------
+
+def tab_dot(value):
+    return f'#proj button[value="{value}"] .dot'
+
+
+def lit_tabs(page):
+    """The values of the tabs whose dot pulses, in order."""
+    return page.evaluate("""() => [...document.querySelectorAll('#proj button')]
+        .filter(b => b.querySelector('.dot.working')).map(b => b.value)""")
+
+
+def test_a_project_tab_pulses_while_an_agent_works_one_of_its_cards(page):
+    core.create_project("Other")
+    busy = core.create_card("busy", actor="ce", project="Other")["id"]
+    core.create_card("idle", actor="ce", project="Home")
+    page.evaluate("load()")
+    page.wait_for_function("() => document.querySelectorAll('.card').length === 2")
+    assert lit_tabs(page) == [], "nothing pulses while no agent works"
+    color = page.evaluate(f"getComputedStyle(document.querySelector('{tab_dot('Other')}')).backgroundColor")
+    core.set_activity("claude-agent", busy, "planning")
+    page.evaluate("loadStatus()")
+    page.wait_for_selector(tab_dot("Other") + ".working")
+    assert lit_tabs(page) == ["", "Other"], "its tab and All; not Home"
+    assert page.get_attribute(tab_dot("Other"), "title") == "an agent is working on a card in this project"
+    assert page.get_attribute(tab_dot(""), "title") == "an agent is working on a card"
+    assert page.get_attribute(tab_dot("Home"), "title") is None
+    assert page.evaluate(f"getComputedStyle(document.querySelector('{tab_dot('Other')}')).animationName") == "pulse"
+    assert page.evaluate(f"getComputedStyle(document.querySelector('{tab_dot('Other')}')).backgroundColor") == color, \
+        "the tab keeps its own color while it pulses"
+    core.set_activity("claude-agent")
+    page.evaluate("loadStatus()")
+    page.wait_for_function("() => !document.querySelector('#proj .dot.working')")
+    assert page.get_attribute(tab_dot("Other"), "title") is None, "an idle dot says nothing"
+    assert page.locator(tab_dot("Other")).is_visible(), "the color dot stays when the work ends"
+    assert not page.locator(tab_dot("")).is_visible(), "All's dot goes away again"
+
+
+def test_the_all_tab_shows_a_neutral_pulsing_dot_while_any_agent_works(page):
+    core.create_project("Other")
+    a = core.create_card("a", actor="ce", project="Home")["id"]
+    b = core.create_card("b", actor="ce", project="Other")["id"]
+    page.evaluate("load()")
+    page.wait_for_function("() => document.querySelectorAll('.card').length === 2")
+    assert not page.locator(tab_dot("")).is_visible()
+    core.set_activity("claude-agent", a, "planning")
+    core.set_activity("other-bot", b, "developing")
+    page.evaluate("loadStatus()")
+    page.wait_for_selector(tab_dot("") + ".working")
+    assert page.locator(tab_dot("")).is_visible()
+    assert page.evaluate(f"getComputedStyle(document.querySelector('{tab_dot('')}')).backgroundColor") \
+        == "rgb(151, 160, 175)", "grey: All has no project color"
+    assert lit_tabs(page) == ["", "Home", "Other"], "two agents, two projects: both tabs"
+    core.set_activity("claude-agent")   # one agent stops: All still lit by the other
+    page.evaluate("loadStatus()")
+    page.wait_for_function(f"() => !document.querySelector('{tab_dot('Home')}.working')")
+    assert lit_tabs(page) == ["", "Other"]
+    core.set_activity("other-bot")
+    page.evaluate("loadStatus()")
+    page.wait_for_function("() => !document.querySelector('#proj .dot.working')")
+    assert not page.locator(tab_dot("")).is_visible()
+
+
+def test_a_tab_pulses_while_another_tab_is_picked_and_after_a_reload(page):
+    core.create_project("Other")
+    core.create_card("here", actor="ce", project="Home")
+    away = core.create_card("away", actor="ce", project="Other")["id"]
+    page.evaluate("load()")
+    page.click('#proj button[value="Home"]')
+    page.wait_for_function("() => document.querySelectorAll('.card').length === 1")
+    core.set_activity("claude-agent", away, "planning")
+    page.evaluate("loadStatus()")
+    page.wait_for_selector(tab_dot("Other") + ".working")
+    assert lit_tabs(page) == ["", "Other"], "the unpicked tab says where the agent is"
+    page.evaluate("load()")   # the rebuilt tabs pulse without waiting for the next poll
+    page.wait_for_function("() => document.querySelectorAll('.card').length === 1")
+    assert lit_tabs(page) == ["", "Other"]
+    core.set_activity("claude-agent")
+
+
+def test_a_tab_matches_its_cards_project_whatever_the_case(page):
+    """Projects match case-insensitively everywhere (projectColor too), so an activity row
+    spelling the project differently still lights its tab."""
+    cid = core.create_card("busy", actor="ce", project="Home")["id"]
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{cid}"]')
+    page.evaluate(f"""async () => {{
+        const real = api;
+        window.api = async (m, p, b) => p === "/api/activity"
+            ? [{{actor: "claude-agent", card_id: {cid}, doing: "planning", since: new Date().toISOString(),
+                title: "busy", project: "HOME", lane: "plan"}}]
+            : real(m, p, b);
+        try {{ await loadStatus(); }} finally {{ window.api = real; }}
+    }}""")
+    assert lit_tabs(page) == ["", "Home"]
+
+
+def test_a_remembered_project_that_is_gone_shows_no_dot_until_lit(page):
+    page.evaluate("localStorage.setItem('project', 'Gone'); load()")
+    page.wait_for_selector('#proj button[value="Gone"]')
+    assert page.locator(tab_dot("Gone")).count() == 1
+    assert not page.locator(tab_dot("Gone")).is_visible(), "no color, nothing working: no dot"
+    page.evaluate("localStorage.removeItem('project')")
 
 
 # ---------- deleting a project ----------
