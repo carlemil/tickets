@@ -948,6 +948,34 @@ function renderPanel() {
   desc.onchange = () => patch({ description: desc.value });
   p.append(field("description", desc));
 
+  // the comments come right under the description (#95): the log with them, then the box.
+  // A draft's queued comments show as they will read once posted.
+  p.append(field("activity", renderLog(c.id ? c.events : c.comments.map(text =>
+    ({ actor: USER, kind: "comment", detail: { text }, at: new Date().toISOString() })))));
+
+  const box = Object.assign(document.createElement("textarea"),
+    { className: "say-box", placeholder: "comment… (ctrl+enter to send)" });
+  box.value = typed;
+  const send = Object.assign(document.createElement("button"),
+    { className: "primary", textContent: "comment" });
+  const post = async () => {
+    if (!box.value.trim()) return;
+    if (!c.id) { c.comments.push(box.value.trim()); box.value = ""; return renderPanel(); }
+    try {
+      const card = await api("POST", `/api/cards/${c.id}/comment`, { text: box.value.trim() });
+      replace(card);
+      if (open?.id !== card.id || stale(card)) return;   // closed or switched meanwhile
+      open = card;
+      box.value = "";
+      renderPanel();
+    } catch (e) { showErr(e.message); }
+  };
+  send.onclick = post;
+  box.onkeydown = ev => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) post(); };
+  const cw = document.createElement("div");
+  cw.append(box, send);
+  p.append(field("say something", cw));
+
   // the planning round, each in its own box: shown once the agent has planned
   if (c.plan || c.questions || c.answers)
     for (const [f, label] of [["plan", "plan"], ["questions", "open questions"],
@@ -1056,33 +1084,6 @@ function renderPanel() {
             document.createTextNode(" of "), lid, lgo);
   links.append(lk);
   p.append(field("links", links));
-
-  // a draft's queued comments show as they will read once posted
-  p.append(field("activity", renderLog(c.id ? c.events : c.comments.map(text =>
-    ({ actor: USER, kind: "comment", detail: { text }, at: new Date().toISOString() })))));
-
-  const box = Object.assign(document.createElement("textarea"),
-    { className: "say-box", placeholder: "comment… (ctrl+enter to send)" });
-  box.value = typed;
-  const send = Object.assign(document.createElement("button"),
-    { className: "primary", textContent: "comment" });
-  const post = async () => {
-    if (!box.value.trim()) return;
-    if (!c.id) { c.comments.push(box.value.trim()); box.value = ""; return renderPanel(); }
-    try {
-      const card = await api("POST", `/api/cards/${c.id}/comment`, { text: box.value.trim() });
-      replace(card);
-      if (open?.id !== card.id || stale(card)) return;   // closed or switched meanwhile
-      open = card;
-      box.value = "";
-      renderPanel();
-    } catch (e) { showErr(e.message); }
-  };
-  send.onclick = post;
-  box.onkeydown = ev => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) post(); };
-  const cw = document.createElement("div");
-  cw.append(box, send);
-  p.append(field("say something", cw));
   if (!c.id) title.focus();
 }
 

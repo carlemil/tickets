@@ -1210,6 +1210,50 @@ def test_the_project_is_chosen_right_under_the_title(page):
         "Home", "Other"]
 
 
+def sheet_heads(page, cid):
+    page.evaluate(f"openCard({cid})")
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    return page.locator("#panel h3").all_text_contents()
+
+
+def test_the_comments_sit_right_under_the_description(page):
+    """#95: the log with its comments, then the comment box, come straight after the
+    description -- above the plan round, assignee, lane, labels, checklist and links."""
+    cid = core.create_card("plain", actor="ce", project="Home")["id"]
+    core.comment(cid, "claude-agent", "an agent's note")
+    heads = sheet_heads(page, cid)
+    assert heads[:4] == ["project", "description", "activity", "say something"], heads
+    for later in ("assignee", "lane", "labels", "checklist", "links"):
+        assert heads.index(later) > heads.index("say something"), (later, heads)
+    desc = page.locator("#panel textarea.desc").bounding_box()
+    log = page.locator("#panel .log").bounding_box()
+    box = page.locator("#panel .say-box").bounding_box()
+    assert desc["y"] < log["y"] < box["y"], "on screen too: description, log, box"
+    assert page.locator("#panel .log li.comment").count() == 1
+
+
+def test_the_comments_come_before_a_planned_cards_plan(page):
+    cid = core.create_card("planned", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(cid, "claude-agent", plan="## Steps\n1. do it",
+                     questions="1. which?", answers="this one")
+    heads = sheet_heads(page, cid)
+    assert heads[:4] == ["project", "description", "activity", "say something"], heads
+    assert heads[4:7] == ["plan", "open questions", "your answers"], heads
+
+
+def test_a_draft_shows_the_comments_under_the_description_and_queues_them_there(page):
+    page.click("#add")
+    page.wait_for_selector("#panel.on")
+    heads = page.locator("#panel h3").all_text_contents()
+    assert heads[:4] == ["project", "description", "activity", "say something"], heads
+    page.fill("#panel input[type=text] >> nth=0", "draft with a note")
+    page.fill("#panel .say-box", "queued note")
+    page.click("#panel button:text-is('comment')")
+    page.wait_for_selector("#panel .log li.comment")
+    assert page.input_value("#panel .say-box") == "", "the box empties once queued"
+    assert core.list_cards() == [], "still nothing written"
+
+
 def test_a_card_created_in_another_project_switches_the_filter_to_it(page):
     core.create_project("Other")
     page.evaluate("localStorage.setItem('project', 'Home'); load()")
