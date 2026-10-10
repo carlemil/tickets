@@ -4,6 +4,8 @@ The `db` fixture in conftest.py gives each test its own database, so these run i
 order and each one builds only the cards it needs.
 """
 
+from contextlib import closing
+
 import pytest
 
 import core
@@ -1235,6 +1237,85 @@ def test_a_reworked_pr_blocker_blocks_until_its_new_pr_merges():
     assert marks(b["id"]) == ([a["id"]], []), "the new PR is not merged yet"
     core.update_card(a["id"], "ann", merged=True)
     assert marks(b["id"]) == ([], [])
+
+
+# ---------- #87: an empty pr is finished only in a merge project ----------
+
+def pr_project_pair(blocker_project="Shop"):
+    """A blocks B; the blocker in a project that lands by PR, B in Home."""
+    core.create_project("Shop", land="pr")
+    a, b = card(project=blocker_project), card("Second")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    return a["id"], b["id"]
+
+
+def test_a_pr_card_dragged_back_to_verify_without_a_ship_keeps_blocking():
+    a, b = pr_project_pair()
+    core.update_card(a, "ann", lane="verify", pr=PR)
+    assert marks(b) == ([a], []), "its PR is open"
+    core.update_card(a, "ce", lane="develop")      # rework clears pr (#72)
+    core.update_card(a, "ce", lane="verify")       # and straight back by hand
+    assert core.get_card(a)["pr"] == ""
+    assert marks(b) == ([a], []), "nothing was shipped"
+    assert marks(a) == ([], [b])
+    core.update_card(a, "agent", pr="https://example.test/pr/2")
+    assert marks(b) == ([a], [])
+    core.update_card(a, "agent", merged=True)
+    assert marks(a) == marks(b) == ([], [])
+
+
+def test_a_merged_pr_in_verify_unblocks_in_a_pr_project():
+    a, b = pr_project_pair()
+    core.update_card(a, "agent", lane="verify", pr=PR, merged=True)
+    assert marks(b) == ([], [])
+
+
+def test_a_person_blocker_in_a_pr_project_unblocks_at_done_not_verify():
+    a, b = pr_project_pair()
+    core.update_card(a, "ce", lane="verify")       # no PR, merged false
+    assert marks(b) == ([a], [])
+    core.update_card(a, "ce", lane="done")
+    assert marks(a) == marks(b) == ([], [])
+
+
+def test_the_blockers_project_decides_not_the_blocked_cards():
+    core.create_project("Shop", land="pr")
+    a, b = card(), card("Second", project="Shop")  # merge blocker, PR-project blocked card
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    core.update_card(a["id"], "ce", lane="verify")
+    assert marks(b["id"]) == ([], [])
+
+
+def test_changing_a_projects_land_flips_its_verify_blockers():
+    a, b = pr_project_pair()
+    core.update_card(a, "ce", lane="verify")
+    assert marks(b) == ([a], [])
+    core.update_project("Shop", land="merge")
+    assert marks(b) == ([], []), "computed, not stored"
+    core.update_project("Shop", land="pr")
+    assert marks(b) == ([a], [])
+
+
+def test_the_project_match_ignores_case():
+    a, b = pr_project_pair()
+    core.update_card(a, "ce", lane="verify")
+    with closing(core.connect()) as db, db:
+        db.execute("UPDATE cards SET project='SHOP' WHERE id=?", (a,))
+    assert marks(b) == ([a], [])
+
+
+def test_a_blocker_with_no_project_row_counts_as_merge():
+    a, b = pr_project_pair()
+    core.update_card(a, "ce", lane="verify")
+    with closing(core.connect()) as db, db:
+        db.execute("UPDATE cards SET project='Gone' WHERE id=?", (a,))
+    assert marks(b) == ([], [])
+
+
+def test_an_archived_pr_project_blocker_in_verify_without_a_pr_still_blocks():
+    a, b = pr_project_pair()
+    core.update_card(a, "ce", lane="verify", archived=True)
+    assert marks(b) == ([a], [])
 
 
 @pytest.mark.parametrize("f", ["merged", "deployed"])

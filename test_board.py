@@ -483,7 +483,7 @@ def test_dragging_a_blocker_to_verify_unmarks_the_card_and_drops_its_arrow(page)
     page.evaluate("load()")
     page.wait_for_selector(f'.card.blocked[data-id="{b}"]')
     assert page.get_attribute(f'.card[data-id="{b}"] .pill.blocked-by', "title") == \
-        "blocked: can't start until these reach verify (with an open PR: until it is merged) or done"
+        "blocked: can't start until these reach verify (with an open PR, or in a PR project with none: once merged) or done"
     assert arrows(page) == [[a, b]]
     drag(page, a, "verify")
     page.wait_for_selector(f'.card:not(.blocked)[data-id="{b}"]', timeout=2000)
@@ -493,6 +493,29 @@ def test_dragging_a_blocker_to_verify_unmarks_the_card_and_drops_its_arrow(page)
     drag(page, a, "develop")
     page.wait_for_selector(f'.card.blocked[data-id="{b}"]', timeout=2000)
     assert arrows(page) == [[a, b]]
+
+
+def test_in_a_pr_project_a_blocker_dragged_to_verify_without_a_pr_stays_blocking(page):
+    """#87: no PR in a PR project is not shipped; done or a merged PR unblocks."""
+    core.update_project("Home", land="pr")
+    a, b = (core.create_card(t, actor="ce", project="Home")["id"] for t in "ab")
+    core.link_cards(a, b, "blocks", "ce")
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card.blocked[data-id="{b}"]')
+    drag(page, a, "verify")
+    for _ in range(40):   # the drop's PATCH lands before we reload and check the marks
+        if core.get_card(a)["lane"] == "verify":
+            break
+        page.wait_for_timeout(50)
+    assert core.get_card(a)["lane"] == "verify"
+    page.evaluate("load()")
+    page.wait_for_selector(f'.lane[data-lane="verify"] .card[data-id="{a}"]')
+    page.wait_for_selector(f'.card.blocked[data-id="{b}"]', timeout=2000)
+    assert page.get_attribute(f'.card[data-id="{a}"]', "class").split() == ["card", "blocking"]
+    assert arrows(page) == [[a, b]]
+    drag(page, a, "done")
+    page.wait_for_selector(f'.card:not(.blocked)[data-id="{b}"]', timeout=2000)
+    assert arrows(page) == []
 
 
 # ---------- #37: arrows from blocking cards to the cards they block ----------

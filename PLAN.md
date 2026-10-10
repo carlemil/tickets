@@ -155,9 +155,17 @@ activity(actor PRIMARY KEY, card_id, doing, since)   -- what agents are doing no
 Every card `list_cards` and `get_card` return carries two computed lists (#35), sorted
 ids, empty when none: `blocked_by`, the cards with a `blocks` link to it, and `blocking`,
 the cards it has a `blocks` link to. Only live links count: the blocker not finished and
-the blocked card not `done`. Finished (#62) is `done`, or `verify` with no open unmerged
-PR (`pr` empty or `merged`): a merge project's verify is already merged and deployed, a
-PR project's unmerged code is not on the base yet. It is computed, links are never
+the blocked card not `done`. Finished (#62, #87) is `done`, or `verify` with `merged`
+set, or `verify` with `pr` empty when the blocker's project lands by `merge`: a merge
+project's verify is already merged and deployed, a PR project's unmerged code is not on
+the base yet. In a `pr` project an empty `pr` is not enough (#87): rework clears it
+(#72), so a card dragged to develop and straight back to verify by hand, without a ship,
+would otherwise unblock early. A person's "Blocked by a person" todo card dragged to
+verify (no PR, `merged` false) still unblocks in a merge project; in a `pr` project
+nothing tells it from that rework card, so it unblocks at `done`. The blocker's own
+project decides, not the blocked card's; a card whose project row is missing counts as
+`merge` (the column default); `_blocks` joins `projects` for it, so changing a project's
+`land` flips its verify blockers at once. It is computed, links are never
 deleted, so a blocker moved back to work blocks again. An archived card that is not
 finished still counts. The run and the idle gate read `blocked_by` too, so all three agree. The
 other end may be in any project, so the server works them out (`_blocks`, one query)
@@ -259,7 +267,7 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   below the card and above the repo's `CLAUDE.md`, which ranks above the skill.
 - **Queue:** the project's cards in `plan`, then `develop`, then `test`, board order
   within a lane. Skipped: questions without answers, a non-empty `blocked_by` (a
-  blocker not yet finished, #62), assigned to a person. `todo` is the backlog: moving a card to
+  blocker not yet finished, #62 and #87), assigned to a person. `todo` is the backlog: moving a card to
   `plan` queues it. One run drains the queue unattended, working each card once.
 - **Several at once (#1).** The session dispatches: each card's stage is a background
   subagent, up to 3 cards in flight, plan & develop and develop side by side in their
@@ -644,8 +652,9 @@ no longer on the board.
 | 81 | #97 docs: "A card at a glance" near the top, a screenshot of the real sheet with every field filled and numbered (`docs_card.py` makes it, `/docs/card.png` serves it) and a legend explaining each; tests fail when the sheet and the legend drift apart | done — 490 checks |
 | 82 | #83 a model per stage: `run.md` names it on every Agent call — plan & develop on the session's model, develop, test and deploy on `sonnet` | done — 490 checks |
 | 83 | #82 tabs pulse: a project tab's color dot pulses while an agent works a card in that project; "All" shows a grey pulsing dot while any agent works, and no dot otherwise | done — 495 checks |
+| 84 | #87 an empty `pr` makes a verify blocker finished only when its project lands by `merge`: in a `pr` project a card reworked (pr cleared, #72) and dragged straight back to verify by hand, or a person's task card there, keeps blocking until its PR merges or it is `done` (core `_blocks`, so the board, the run and the idle gate agree) | done — 505 checks |
 
-Gate for every task: `uv run pytest -q` — 495 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 505 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

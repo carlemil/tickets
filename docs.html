@@ -274,7 +274,10 @@ it is lit; a card with none of them has no dot.</p>
   <li><span style="display:inline-block;width:4px;height:12px;background:#bf2600;vertical-align:middle"></span>
     <b>red stripe</b> down a card's left edge, with a "blocked by #12" pill: the card is
     blocked, it can't start until those cards reach verify (a blocker with an open pull
-    request: once it is merged) or done. Moving a blocker back out of verify blocks
+    request: once it is merged) or done. In a project that lands by pull request, a
+    blocker in verify counts only once its pull request is merged: one dragged back to
+    verify by hand without a new one (rework clears the old one) still blocks, and so does
+    a person's task card there, so move that to done. Moving a blocker back out of verify blocks
     again: the link is never removed.
     <span style="display:inline-block;width:4px;height:12px;background:#ff991f;vertical-align:middle"></span>
     <b>amber stripe</b>, with a "blocks #37" pill: other cards wait for this one. A card that
