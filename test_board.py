@@ -101,6 +101,7 @@ def test_drag_moves_the_card_and_the_move_reaches_the_database(page):
     cid = add_card(page, "drag me")
     drag(page, cid, "develop")
     page.wait_for_selector(f'.lane[data-lane="develop"] .card[data-id="{cid}"]')
+    page.wait_for_function("() => window.__inflight === 0")   # drawn first, PATCHed after (#88)
     page.wait_for_function("() => !document.querySelector('#err').classList.contains('on')")
     c = core.get_card(cid)
     assert c["lane"] == "develop", "the PATCH landed, not just the optimistic re-render"
@@ -1048,10 +1049,13 @@ def test_an_edit_then_a_human_click_on_add_project_is_not_lost(page, tmp_path):
     page.click("#projects")
     project_block(page, "Tickets").locator("textarea").fill("edited")   # still focused
     project_block(page, "new project").locator("input >> nth=0").fill("Second")
+    page.wait_for_function("() => window.__inflight === 0")   # "edited" saved: one save at a time
     project_block(page, "Tickets").locator("textarea").focus()
     project_block(page, "Tickets").locator("textarea").fill("edited, then add")
     human_click(page, "#panel button:text-is('add project')")
     page.wait_for_selector("#panel .project h3:text-is('Second')")
+    # the add can draw before the instructions' PATCH, sent on the same click, lands (#88)
+    page.wait_for_function("() => window.__inflight === 0")
     assert core.get_project("Tickets")["instructions"] == "edited, then add"
 
 
@@ -1367,6 +1371,9 @@ def test_a_failed_create_keeps_the_sheet_and_everything_in_it(page):
     page.fill("#panel input[type=text] >> nth=0", "doomed")
     page.fill("#panel input[type=number]", str(other))
     page.click("#panel button:text-is('link')")
+    # the link is checked with a GET, then the sheet re-renders: typing before that lands
+    # types into a node the re-render throws away (#88)
+    page.wait_for_function("() => open.links.length === 1")
     page.fill("#panel textarea >> nth=0", "keep me")
     core.update_project("Home", name="Moved")           # the draft's project is now gone
     close_sheet(page)
@@ -1709,6 +1716,30 @@ def test_a_stale_status_poll_does_not_undo_a_newer_one(page):
     }""")
     assert page.locator(f"{card} .work.working").is_visible()
     core.set_activity("claude-agent")
+
+
+def test_a_board_load_answered_late_does_not_undo_a_newer_one(page):
+    """Two loads in flight, the older answered last -- a status poll's reload, say, and the
+    one after a write. The older answer must not put the older board back (#88)."""
+    cid, = cards_in(page, "quiet")
+    card = f'.card[data-id="{cid}"]'
+    # the next board load is answered with what the server holds now, but held back
+    page.evaluate("""() => {
+        const real = window.fetch;
+        window.fetch = (url, opts) => {
+            if (!String(url).startsWith("/api/cards?")) return real(url, opts);
+            window.fetch = real;
+            return real(url, opts).then(r => new Promise(ok => { window.__release = () => ok(r); }));
+        };
+        window.__older = load();
+    }""")
+    page.wait_for_function("() => window.__release")       # answered: the old, unmerged card
+    core.update_card(cid, "claude-agent", merged=True)
+    page.evaluate("load()")                                  # the newer load draws the merge
+    page.wait_for_selector(f"{card} .st.merged")
+    page.evaluate("window.__release(); window.__older")     # the older answer lands last
+    assert page.locator(f"{card} .st.merged").count() == 1, "the older load undid the newer one"
+    assert page.evaluate("cards.find(c => c.id === %d).merged" % cid) is True
 
 
 def test_the_pulse_survives_a_board_reload(page):
