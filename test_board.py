@@ -153,7 +153,7 @@ def test_panel_edits_each_save_on_change(page):
     wait_saved(page, cid, "checklist", [{"text": "first item", "done": True}])
     page.select_option("#panel select >> nth=2", "test")          # lane
     wait_saved(page, cid, "lane", "test")
-    page.fill("#panel textarea >> nth=1", "looks good")
+    page.fill("#panel .say-box", "looks good")
     page.click("#panel button:has-text('comment')")
     page.wait_for_selector("#panel .log li.comment")
 
@@ -293,7 +293,7 @@ def test_the_board_writes_as_user_with_no_who_box(page, stale):
     assert page.locator("#who").count() == 0, "the box is gone"
     cid = add_card(page, "mine")
     assert page.locator("#err.on").count() == 0, "no error opening the new-card panel"
-    page.fill("#panel textarea >> nth=1", "hello")
+    page.fill("#panel .say-box", "hello")
     page.click("#panel button:has-text('comment')")
     page.wait_for_selector("#panel .log li.comment")
     assert "User" in page.text_content("#panel .log li.comment")
@@ -771,7 +771,7 @@ def test_a_landed_comment_does_not_reopen_a_dismissed_panel(page):
     page.wait_for_function("() => window.__inflight === 0")
     page.evaluate("""const original = window.fetch;
         window.fetch = (...a) => original(...a).then(r => new Promise(ok => setTimeout(() => ok(r), 500)))""")
-    page.fill("#panel textarea >> nth=1", "sent while closing")
+    page.fill("#panel .say-box", "sent while closing")
     page.click("#panel button:has-text('comment')")
     close_sheet(page)
     assert page.locator("#panel.on").count() == 0, "dismissed"
@@ -788,7 +788,7 @@ def test_a_landed_comment_does_not_hijack_another_open_card(page):
     page.evaluate("""const original = window.fetch;
         window.fetch = (url, o) => original(url, o).then(r => String(url).includes('/comment')
             ? new Promise(ok => setTimeout(() => ok(r), 500)) : r)""")
-    page.fill("#panel textarea >> nth=1", "for the first card")
+    page.fill("#panel .say-box", "for the first card")
     page.click("#panel button:has-text('comment')")
     page.evaluate(f"openCard({other['id']})")
     page.wait_for_function(f"() => open && open.id === {other['id']}")
@@ -1209,6 +1209,50 @@ def test_the_project_is_chosen_right_under_the_title(page):
     assert heads[0] == "project", "first under the header row, which holds the title"
     assert page.locator("#panel select >> nth=0 >> option").all_text_contents() == [
         "Home", "Other"]
+
+
+def sheet_heads(page, cid):
+    page.evaluate(f"openCard({cid})")
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    return page.locator("#panel h3").all_text_contents()
+
+
+def test_the_comments_sit_right_under_the_description(page):
+    """#95: the log with its comments, then the comment box, come straight after the
+    description -- above the plan round, assignee, lane, labels, checklist and links."""
+    cid = core.create_card("plain", actor="ce", project="Home")["id"]
+    core.comment(cid, "claude-agent", "an agent's note")
+    heads = sheet_heads(page, cid)
+    assert heads[:4] == ["project", "description", "activity", "say something"], heads
+    for later in ("assignee", "lane", "labels", "checklist", "links"):
+        assert heads.index(later) > heads.index("say something"), (later, heads)
+    desc = page.locator("#panel textarea.desc").bounding_box()
+    log = page.locator("#panel .log").bounding_box()
+    box = page.locator("#panel .say-box").bounding_box()
+    assert desc["y"] < log["y"] < box["y"], "on screen too: description, log, box"
+    assert page.locator("#panel .log li.comment").count() == 1
+
+
+def test_the_comments_come_before_a_planned_cards_plan(page):
+    cid = core.create_card("planned", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(cid, "claude-agent", plan="## Steps\n1. do it",
+                     questions="1. which?", answers="this one")
+    heads = sheet_heads(page, cid)
+    assert heads[:4] == ["project", "description", "activity", "say something"], heads
+    assert heads[4:7] == ["plan", "open questions", "your answers"], heads
+
+
+def test_a_draft_shows_the_comments_under_the_description_and_queues_them_there(page):
+    page.click("#add")
+    page.wait_for_selector("#panel.on")
+    heads = page.locator("#panel h3").all_text_contents()
+    assert heads[:4] == ["project", "description", "activity", "say something"], heads
+    page.fill("#panel input[type=text] >> nth=0", "draft with a note")
+    page.fill("#panel .say-box", "queued note")
+    page.click("#panel button:text-is('comment')")
+    page.wait_for_selector("#panel .log li.comment")
+    assert page.input_value("#panel .say-box") == "", "the box empties once queued"
+    assert core.list_cards() == [], "still nothing written"
 
 
 def test_a_card_created_in_another_project_switches_the_filter_to_it(page):

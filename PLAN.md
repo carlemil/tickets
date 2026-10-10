@@ -305,8 +305,9 @@ itself, since stopping starts no work.
 ## Board (`board.html`)
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
-`drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: description,
-labels, checklist, links, activity log, comment box. The board writes as `User`, a fixed
+`drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: project,
+description, then right under it the activity log and comment box (#95), then the plan
+round, assignee and lane, labels, checklist, links. The board writes as `User`, a fixed
 name, and agents write under their own names. Project tabs (#63:
 "All" first, then one per project with its color dot; the pick is persisted) filter the
 board — an agent and a human both scope to one project. Crowded, the strip scrolls
@@ -354,7 +355,7 @@ No dark-theme colours: the board has no dark theme yet.
 
 The sheet hides an empty field that only an agent fills at that point and keeps every
 field a person fills in by hand at that point (#96). Plan and open questions each get their own box
-under the description once they hold text; "your answers" shows whenever there are
+under the comment box once they hold text; "your answers" shows whenever there are
 questions (or answers) and is hidden otherwise. The checklist shows once it has items;
 empty, it shows only on a new card or a card in todo, since from plan on the agent writes
 it from the plan's steps. The pull request link and session button were already shown
@@ -421,7 +422,7 @@ while the card is in `verify`) and "close". A new
 card's row is "new", the title, "cancel", "close".
 The card number carries the auto dot, which pulses while an agent works the card.
 The line under it says "created <when> by <author>" (the full date on hover; project
-and lane are the fields just below, #65), then, once an agent has taken the
+and lane are fields on the sheet, #65), then, once an agent has taken the
 card, "session <first 8>" (#2): the `session` field holds the Claude Code session id the
 skill writes when it takes a card, and the button copies `claude --resume <id>`, so the
 transcript of the run that worked the card is one paste away.
@@ -565,8 +566,9 @@ no longer on the board.
 | 75 | #76 docs brought up to date: setup through `/tickets-start` (user-scope MCP, skills, idle gate), the verify step after the agent's land, the blue dot, blocked-by-a-person and a person's move winning; board tooltips no longer say "master" or describe the retired agent prompt | done — 431 checks |
 | 76 | #84 one subagent plans and develops: a card in `plan` gets one plan & develop agent in its worktree that posts plan and checklist itself (a person's move wins) and, with no open questions, moves the card to `develop` and builds in the same context; questions stop it in `plan` and the unused worktree goes; develop-lane cards and test keep fresh agents | done — 431 checks |
 | 77 | #96 the card sheet hides empty fields only an agent fills: plan and open questions until written, your answers until there are questions, an empty checklist outside todo (a new card keeps it); fields a person fills stay | done — 433 checks |
+| 78 | #95 card sheet: the activity log and comment box sit right under the description, above the plan round, assignee/lane, labels, checklist and links (saved cards and drafts alike) | done — 436 checks |
 
-Gate for every task: `uv run pytest -q` — 433 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 436 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
