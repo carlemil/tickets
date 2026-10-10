@@ -20,7 +20,7 @@ import core
 OUT = Path(__file__).parent / "docs-card.png"
 PROJECT = "Tickets"
 
-# (key, target) in badge order. key is the data-field of the docs.html legend entry with
+# (key, target) in badge order, which is the sheet's top-to-bottom order. key is the data-field of the docs.html legend entry with
 # the same number; target finds the element: "h3:<label>" a sheet field by its heading,
 # "btn:<text>" a header button, anything else a CSS selector inside the sheet.
 MARKERS = [
@@ -32,6 +32,8 @@ MARKERS = [
     ("origin", "#panel > .sub"),
     ("project", "h3:project"),
     ("description", "h3:description"),
+    ("activity", "h3:activity"),
+    ("say something", "h3:say something"),
     ("plan", "h3:plan"),
     ("open questions", "h3:open questions"),
     ("your answers", "h3:your answers"),
@@ -40,8 +42,6 @@ MARKERS = [
     ("labels", "h3:labels"),
     ("checklist", "h3:checklist"),
     ("links", "h3:links"),
-    ("activity", "h3:activity"),
-    ("say something", "h3:say something"),
 ]
 
 # Draws the badges; returns the keys whose target is not on the sheet (none, when the

@@ -79,13 +79,20 @@ board</a> has the details.</p>
     the agent works in.</li>
   <li data-field="description"><b>description</b>: your request: what you want and why. The
     agent never writes over it.</li>
+  <li data-field="activity"><b>activity</b>: everything that happened to the card and who did
+    it, with the comments. Older lines fold away behind "show N earlier"; an agent's comment
+    has a "claude's output" box with its whole run.</li>
+  <li data-field="say something"><b>say something</b>: a comment, logged with your name;
+    ctrl+enter sends it. A new card has neither this nor the activity until it is
+    created.</li>
   <li data-field="plan"><b>plan</b>: the agent's plan, written in <code>plan</code>. Its
-    steps become the checklist.</li>
+    steps become the checklist. Hidden until the agent writes one.</li>
   <li data-field="open questions"><b>open questions</b>: what the agent needs you to decide
     before it builds. A question with options gets a row of radio buttons below it, the
-    agent's pick marked "recommended".</li>
+    agent's pick marked "recommended". Hidden while there are none.</li>
   <li data-field="your answers"><b>your answers</b>: your replies to the questions; a radio
-    click writes one here. The next run replans with them.</li>
+    click writes one here. The next run replans with them. Shown once there are
+    questions.</li>
   <li data-field="assignee"><b>assignee</b>: who has the card: you, or an agent while it
     works. A card assigned to a person is never taken by an agent.</li>
   <li data-field="lane"><b>lane</b>: the stage it is in, the same as dragging it to another
@@ -96,11 +103,6 @@ board</a> has the details.</p>
   <li data-field="links"><b>links</b>: this card's parent, and the cards it blocks. A
     blocked card waits until its blockers reach <code>verify</code> or
     <code>done</code>.</li>
-  <li data-field="activity"><b>activity</b>: everything that happened to the card and who did
-    it, with the comments. Older lines fold away behind "show N earlier"; an agent's comment
-    has a "claude's output" box with its whole run.</li>
-  <li data-field="say something"><b>say something</b>: a comment, logged with your name;
-    ctrl+enter sends it.</li>
 </ol>
 
 <h2 id="what">1. What Tickets is (and isn't)</h2>

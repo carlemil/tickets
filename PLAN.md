@@ -345,13 +345,14 @@ three dots, session, pull request, plan, questions with options, answers, checkl
 labels, parent and blocks links, comments with claude's output) on a throwaway database,
 serves the board from its own process on a free port (never 8123), opens the card in
 Chrome, draws a red badge per entry of `docs_card.MARKERS` and saves the shot. The legend's
-`data-field`s follow `MARKERS` in order. A screenshot cannot update itself, so two tests
-keep it honest: the browser one opens the same card and fails when the sheet shows a field
-heading `MARKERS` does not name or a badge no longer finds its target; the HTTP one checks
-the PNG is served and the legend matches `MARKERS`. A change to how the sheet looks (#94,
-#95's comments moved under the description, #96's hidden empty fields) still needs the
-script run again by hand: the card it builds has every field filled, so #96's hiding never
-drops one from the figure.
+`data-field`s follow `MARKERS` in order, which is the sheet's top-to-bottom order
+(activity and say something right under the description, #95). A screenshot cannot update
+itself, so two tests keep it honest: the browser one opens the same card and fails when the
+sheet's field headings differ from those `MARKERS` names, in order, or a badge no longer
+finds its target; the HTTP one checks the PNG is served and the legend matches `MARKERS`.
+Any other change to how the sheet looks needs the script run again by hand. The card it
+builds has every field filled, so #96's hiding of empty fields never drops one from the
+figure.
 
 ## Board (`board.html`)
 
