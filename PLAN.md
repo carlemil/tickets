@@ -306,7 +306,8 @@ itself, since stopping starts no work.
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
 `drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: project,
-description, then right under it the activity log and comment box (#95), then the plan
+description, then right under it the activity log and comment box (#95; a saved card
+only, a draft has neither, #94), then the plan
 round, assignee and lane, labels, checklist, links. The board writes as `User`, a fixed
 name, and agents write under their own names. Project tabs (#63:
 "All" first, then one per project with its color dot; the pick is persisted) filter the
@@ -355,7 +356,7 @@ No dark-theme colours: the board has no dark theme yet.
 
 The sheet hides an empty field that only an agent fills at that point and keeps every
 field a person fills in by hand at that point (#96). Plan and open questions each get their own box
-under the comment box once they hold text; "your answers" shows whenever there are
+under the comment box (under the description on a draft) once they hold text; "your answers" shows whenever there are
 questions (or answers) and is hidden otherwise. The checklist shows once it has items;
 empty, it shows only on a new card or a card in todo, since from plan on the agent writes
 it from the plan's steps. The pull request link and session button were already shown

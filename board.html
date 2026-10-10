@@ -1036,8 +1036,8 @@ function renderPanel() {
   // from plan on the agent writes the checklist from the plan's steps: an empty one shows
   // only while a person is writing the card (a draft, or todo) (#96)
   if (c.checklist.length || !c.id || c.lane === "todo") p.append(field("checklist", list));
-  // A new card shows the fields a saved one does, but no comments (#94). Links cannot be written
-  // before the card exists, so the draft holds them and "create" sends them after it.
+  // Links cannot be written before the card exists, so a draft holds them and "create"
+  // sends them after it.
   const links = document.createElement("ul");
   links.className = "links";
   for (const l of c.links) {

@@ -1280,7 +1280,7 @@ def test_all_projects_stays_all_projects_after_a_create(page):
     assert page.eval_on_selector("#proj [aria-selected=true]", "b => b.value") == ""
 
 
-# ---------- the new-card sheet shows everything ----------
+# ---------- the new-card sheet: everything but comments ----------
 
 def test_links_on_a_new_card_are_sent_on_create(page):
     other = core.create_card("other", actor="ce", project="Home")["id"]
