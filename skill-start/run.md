@@ -81,6 +81,7 @@ interrupted. Two kinds of failure, handled differently:
 
 Subagents follow the same rule (say so in every brief): a refused write is reported in
 their reply, never retried another way; you note it on the card and retry it next tick.
+Every brief also carries the no-chips line (#159; the brief rules are in step 3).
 
 ## 1. Find the project
 
@@ -199,10 +200,18 @@ include, each under its own heading:
   with;
 - that a board write refused by a permission check is never retried in another form or
   through another tool: it reports the refused write in its reply and carries on (you
-  note it on the card and retry it next tick). You — not the
-subagent — write to the board and run the git steps marked (you); the exceptions are the
-plan subagent posting its plan (and moving the card to `develop`), and the develop
-subagent ticking checklist items.
+  note it on the card and retry it next tick);
+- that it never creates background-task chips (no `spawn_task`) and never schedules
+  anything, and runs unattended and never asks the user in chat (a plan stage's questions
+  still go on the card, as its rules say) (#159: two haiku agents, #154 and #155, each
+  made a chip by accident; #156 with this line in the brief did not). A chip made by
+  mistake is dismissed at once (`dismiss_task`) and named in the reply; you note it on
+  the card's comment and in the summary. Every stage brief carries this line, whichever
+  stage builds it.
+
+You — not the subagent — write to the board and run the git steps marked (you); the
+exceptions are the plan subagent posting its plan (and moving the card to `develop`), and
+the develop subagent ticking checklist items.
 
 On a card's way out: `update_card(assignee="")` unless a person had it before you.
 
@@ -356,8 +365,8 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    not already (`git -C <repo> push -q origin <base>`), unless its tests failed: then
    leave the merge unpushed and say so in the comment.
 
-   **Tests in the deploy (#156).** Put one line in the deploy subagent's brief from the
-   verdict. Tested: "The test stage ran the full suite on exactly this tree (`<base>` had
+   **Tests in the deploy (#156).** Besides the brief rules (with the no-chips line), put
+   one line in the deploy subagent's brief from the verdict. Tested: "The test stage ran the full suite on exactly this tree (`<base>` had
    not moved since it merged it in, and ship committed nothing): do not run the tests,
    even if the deploy instructions say to." Not tested: "`<base>` moved since the test
    stage (or ship committed changes after it, or the land was skipped): run the tests if the deploy instructions
@@ -410,5 +419,6 @@ Then:
 - **Summary** in the chat: moved to verify (with deploy result), waiting for answers,
   blocked (and by what), failed (and why), skipped as assigned, ideas opened, and
   **refused writes**: each board write a permission check refused, once, with the card,
-  the write, and the permission rule that would let it through (it is retried next tick).
+  the write, and the permission rule that would let it through (it is retried next tick),
+  and any background-task chip a stage made by mistake (#159).
   The summary reports; it never ends "waiting on you".

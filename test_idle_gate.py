@@ -112,3 +112,13 @@ def test_only_ticks_from_a_known_folder_on_a_live_board_are_answered(server, pro
     assert gate.idle_line("fix the bug", here, server) is None
     assert gate.idle_line(TICK, "D:/elsewhere", server) is None
     assert gate.idle_line(TICK, here, "http://127.0.0.1:9") is None  # board down
+
+
+def test_the_brief_rules_require_the_no_chips_line():
+    text = open("skill-start/run.md", encoding="utf-8").read()
+    start = text.index("**The brief is the subagent's whole world**")
+    end = text.index("On a card's way out", start)
+    rules = text[start:end]
+    assert "spawn_task" in rules
+    assert "background-task chips" in rules
+    assert "dismiss_task" in rules

@@ -350,7 +350,9 @@ other way or through another tool: your permission settings decide. The agent co
 the card which write was refused, carries on with the rest of the queue, and tries the
 same write again on the next tick. Its summary tells you once which permission rule would
 let that write through (add it with <code>/permissions</code>). A tick never ends
-"waiting on you" just to hold the cards.</p>
+"waiting on you" just to hold the cards. The stage agents it starts are told the same, and
+also never to create background-task chips or schedule anything; a chip one makes by
+mistake is dismissed at once and named on the card and in the summary.</p>
 <p><b>Blocked by a person.</b> When a stage needs something only you can do (a credential,
 an account, a service to enable, a device to plug in), the agent opens a <code>todo</code>
 card for each such task, links it as blocking the card, and comments the new cards' numbers.
