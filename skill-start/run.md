@@ -143,8 +143,9 @@ once and a long run does not fill this session's context. When one finishes you 
 notified: do that card's (you) steps for the stage, then start its next stage in a
 **new** subagent, or, when the card is out of your hands, fill the freed slot from a
 fresh re-list. A card in `plan` gets a **plan** subagent: it plans, posts the plan and —
-with no questions — moves the card to `develop`, building nothing; you then start its
-**develop** subagent at once. A card already in `develop` gets a develop subagent too;
+with no questions — moves the card to `develop`; a large card it builds nothing (you then
+start its **develop** subagent at once), a small one (Card size) it then builds itself
+in the same context. A card already in `develop` gets a develop subagent too;
 `test` always a fresh one. Never
 continue a finished subagent (no SendMessage): every stage starts from a clean context
 holding only the card, so nothing an earlier stage assumed or got wrong leaks into the
@@ -163,6 +164,25 @@ next, and the test stage reviews work it did not write.
 - deploy: `model: "haiku"` — the owner's call (#154): mechanical: push and restart per
   the deploy instructions; it reruns the tests only when the landed tree is not the one
   the test stage tested (#156).
+
+**Card size (#190):** a small card is planned, posted and built by **one** plan subagent in
+one context (the one-agent path, see plan below), which saves the second read of the code
+that the plan/develop split costs; a large card keeps the split. One definition of size:
+- label `small` (case-insensitive) → the one-agent path, forced; label `large` → the split
+  path (plan, then a fresh develop), forced. Both labels → `large`.
+- neither → the plan subagent judges after reading the code, before it posts: the card is
+  small when the plan has at most 5 steps, no open questions and no `## Blocked by`, and
+  the change touches at most ~5 files (PLAN.md, docs and tests included), adds no new
+  module, and changes no database schema, HTTP route or MCP tool. Anything else is
+  large. When unsure: large.
+- the labels are the only signal known before planning, the judged rule only after. #187
+  reuses this paragraph as is (the `small` label picks the plan model); this card changes
+  no model.
+- a person forces a path by adding the label `small` or `large` to the card before its
+  plan stage starts; you read the labels from the `get_card` right before spawning. No
+  label: the agent judges. The posted plan's first line says which path it took:
+  `Size: small (label)`, `Size: small (judged: 3 steps, 2 files)` or `Size: large (…)`;
+  relabel and move the card back to `plan` to replan.
 
 **Slots.** At most **2 cards in flight** by default (#193). A project changes it with a line
 `Cards in flight: N` in its `instructions` (N a whole number from 1 up; case-insensitive,
@@ -189,7 +209,7 @@ Starting a card: `update_card(assignee="claude-agent", session="<session id>")`
 (the board's link back to this session's transcript). `set_activity` holds one entry
 for you, so point it at the card you started last and say how many are in flight:
 `set_activity(card_id=…, doing="developing (2 in flight)")` (`planning`,
-`developing`, `testing`); clear it (`set_activity` with no card) when the last card
+`planning and building` for a plan stage that may build, `developing`, `testing`); clear it (`set_activity` with no card) when the last card
 leaves your hands.
 Before every board write after a stage, `get_card` again: **a person's move wins** — if
 the lane changed under you (other than by your own move, or the plan stage's move to
@@ -233,11 +253,16 @@ On a card's way out: `update_card(assignee="")` unless a person had it before yo
 (you) `git -C <repo> pull --ff-only` first; if it fails, tell the subagent the code may
 be behind. Then set up the card's worktree as under develop below, before spawning; note
 whether `card/<id>` already existed. Not a git repo → no pull, no worktree: the subagent
-plans in the folder. The subagent gets `model: "opus"`.
+plans in the folder. The subagent gets `model: "opus"`. Its brief carries the card's
+labels and the Card size rule; unless a label is `large`, it also carries the develop
+stage's rules (build from the plan, targeted tests, commit on `card/<id>`, never push,
+tick checklist items, the `tests:` line and `Files changed:` section, all below), so it
+can build if the card turns out small. A `large` label: no build rules.
 
 **Plan.** The subagent reads code in the worktree, changes nothing (beyond resolving
 and committing the base merge's conflicts if you told it to), and writes the
-complete plan in markdown (Context section restates the request). If the card already
+complete plan in markdown (Context section restates the request; its first line is the
+`Size:` line, Card size above). If the card already
 has `questions` and `answers`, those are a person's answers: build them in, do not ask
 again. The plan has a `## Steps` section: a numbered list of concrete implementation
 steps, at most ~10, one line each. Anything needing a person's decision goes in a last
@@ -259,11 +284,16 @@ Last line `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
 - A `## Blocked by` → `update_card(plan=…, checklist=…)` (plus `questions=…` if OPEN),
   lane unchanged, end with the section and `STAGE: BLOCKED`.
 - NONE → `update_card(plan=…, checklist=…, lane="develop")`, so a person sees the plan
-  in `develop`, and end `STAGE: PLANNED`.
+  in `develop`. Size large → end `STAGE: PLANNED`. Size small → **build in the same
+  context** (the one-agent path) following the develop rules below, ticking checklist
+  items as it finishes them; its reply is the plan followed by the develop reply (summary,
+  `tests:` line, `Files changed:`), last line `STAGE: BUILT` (`STAGE: BLOCKED` with a
+  `## Blocked by`, or `STAGE: FAILED` if the build could not finish after the post).
 
-It **builds nothing**: no code edits, no commits of its own work, no checklist ticks.
-Its reply is the plan, last line one of `STAGE: PLANNED`, `STAGE: QUESTIONS`,
-`STAGE: BLOCKED`, `STAGE: MOVED`, `STAGE: FAILED`.
+It **builds nothing** unless the card is small (Card size) and posted with NONE: no code
+edits, no commits of its own work, no checklist ticks. Its reply is the plan, last line
+one of `STAGE: PLANNED`, `STAGE: BUILT`, `STAGE: QUESTIONS`, `STAGE: BLOCKED`,
+`STAGE: MOVED`, `STAGE: FAILED`.
 
 (you) Per verdict, after `get_card` (a person's move wins: expect `develop` after
 PLANNED, `plan` after QUESTIONS, either after BLOCKED or FAILED):
@@ -278,12 +308,15 @@ PLANNED, `plan` after QUESTIONS, either after BLOCKED or FAILED):
   with the plan in that comment so the next tick can make the same write, and start
   nothing. Not a git repo → failure ("no git repo"): the card sits in `develop` with its
   plan.
+- BUILT (a small card built by its plan stage) → after `get_card` expect `develop`, then
+  exactly the develop BUILT handling below: the BUILT check (#176), the BUILT comment with
+  the `tests:` and `build check:` lines, move to `test`. No develop subagent.
 - QUESTIONS → comment "open questions: answer them in the card; the next run replans
   with them".
 - BLOCKED → the blocker cards (Blocked by a person, below), plus the open-questions
   comment if it posted questions.
-- FAILED → failure. Posted already → the card sits in `develop` and a later run develops
-  it fresh; otherwise it stays in `plan`.
+- FAILED → failure. Posted already (also after a failed one-agent build) → the card sits
+  in `develop` and a later run develops it fresh; otherwise it stays in `plan`.
 - QUESTIONS, MOVED, or PLANNED/BLOCKED/FAILED (or a crash) with the card still in `plan` →
   `git -C <repo> worktree remove <tree>` (no `--force`; will not go → leave it, say so),
   and `git -C <repo> branch -d card/<id>` only if you created the branch for this run and
@@ -291,6 +324,7 @@ PLANNED, `plan` after QUESTIONS, either after BLOCKED or FAILED):
 
 ### develop  (in the card's worktree)
 
+A small card arrives already built (plan stage `BUILT`, Card size) and skips this stage.
 Two ways in: the plan stage just ended `PLANNED` (you start it at once, above), or the
 card was already in `develop` when the run found it (a person put it there, or a plan
 run failed after posting). Either way it is a new subagent with `model: "sonnet"` that
