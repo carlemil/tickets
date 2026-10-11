@@ -483,7 +483,12 @@ newest load, so a slow reload (a poll's, say) can no longer put an older board b
 newer one. A load that started before a write and is answered after the write's response
 is still the newest, so it merges per card (#105): a card whose copy on screen has a newer
 `updated_at` keeps that copy — unless that copy has left the view the load asked for
-(archived flag or project tab), when it is not drawn at all.
+(archived flag or project tab), when it is not drawn at all. A card on screen but missing
+from the load that renders needs no such rule (#148): `cards` only gains a card from a
+load, a create from the sheet reloads the board itself (so a load held across the POST is
+overtaken and dropped), and rendered loads go in start order, each asked after the
+previous one was answered. The ordering is causal, not by clock, so client/server clock
+skew cannot matter, and a card archived or moved away elsewhere still goes on the next load.
 
 **On master, deployed (#41).** After the auto dot come two more, on the board card and in
 the sheet header: blue when `merged` (the card's branch is on the base branch, locally or
@@ -699,8 +704,9 @@ no longer on the board.
 | 87 | #104 closing a new card while a link on it is still being checked waits for the check: the draft keeps its pending link checks and creates the card once they answer, with the link (a bad one is reported, a cancel drops it even after clicking out, an untitled draft asks for a title) | done — 522 checks |
 | 88 | #105 a board load answered after a write merges per card by `updated_at`: the just-written card (a sheet edit, a drag, a move to another project) is not flipped back to its old state, and a newer copy that left the tab is not drawn | done — 527 checks |
 | 89 | #147 runs never pause for the user over a card move: `run.md` retries a transient board-write failure (over HTTP if the tools fail), never retries a write a permission check refused in another form, notes it on the card, carries on and retries it next tick, names the permission rule once in the summary, and never ends a tick "waiting on you" | done — 527 checks (docs only) |
+| 90 | #148 a card created during a late board load is not dropped: shown to need no new merge rule (a create reloads the board, so the held load is overtaken and dropped by #88) and pinned with held-load browser tests — a sheet create, an agent create, and a card archived or moved away elsewhere that a stale load does not bring back | done — 530 checks |
 
-Gate for every task: `uv run pytest -q` — 527 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 530 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
