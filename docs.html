@@ -325,7 +325,12 @@ it did not write. The strong model thinks and checks: the plan is written on Opu
 review in <code>test</code> runs on Opus. The cheaper Sonnet writes the code from the
 posted plan, whether the card was just planned or you put it in <code>develop</code>
 yourself; reading the code a second time costs less than building on Opus. The deploy,
-which is mechanical, runs on Haiku. Each agent is handed the whole card: its
+which is mechanical, runs on Haiku, and it skips the full test rerun when the tested
+tree is the landed tree: the base branch had not moved since the test stage merged it
+in, shipping committed nothing and the merge into the base was not skipped. Otherwise
+it runs the tests the project's deploy instructions call for before it pushes, and a
+failing run leaves the merge unpushed. Its
+comment has a <code>tests:</code> line that says which. Each agent is handed the whole card: its
 description, plan, answers, checklist and comments, and the project's rules. Tests,
 the deploy and the merge into the base branch go one card after another. The status bar
 shows the card it started last and how many are in flight. A card that passes its tests
@@ -380,7 +385,9 @@ The card stays in its lane, marked blocked, and runs skip it until those cards r
     and pushed the base: the deploy comment says so, or why it skipped the merge (the repo
     was on another branch or had uncommitted changes) or that it conflicted; only then
     merge it yourself (unless the project's deploy instructions merged it; the blue dot
-    shows it is on the base). With "open a pull request", merge the PR linked under the title.
+    shows it is on the base). The comment's <code>tests:</code> line says whether the
+    deploy skipped the test rerun (the test stage had run it on the tree that landed) or
+    ran the suite itself (the base moved since). With "open a pull request", merge the PR linked under the title.
     Then click "move to done".</li>
 </ol>
 <ul>
