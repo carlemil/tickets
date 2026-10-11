@@ -193,7 +193,9 @@ the sheet there says so.</p>
   <dt>develop</dt><dd>The agent builds it, following the plan and your answers.</dd>
   <dt>test</dt><dd>The agent reviews the changes and runs the tests, fixing what it can. The
     review is Claude Code's own <code>/code-review</code> on the card's branch, plus a check
-    against the card's request, plan, answers and checklist.</dd>
+    against the card's request, plan, answers and checklist. When every changed file is a
+    Markdown file (not a page the app serves, like this manual) and no test names it, the suite
+    is skipped and the comment says <code>tests: skipped, docs-only (&lt;files&gt;)</code>.</dd>
   <dt>verify</dt><dd>The agent is done: you check the result.</dd>
   <dt>done</dt><dd>Finished: nothing more happens to it.</dd>
 </dl>
@@ -329,7 +331,10 @@ which is mechanical, runs on Haiku, and it skips the full test rerun when the te
 tree is the landed tree: the base branch had not moved since the test stage merged it
 in, shipping committed nothing and the merge into the base was not skipped. Otherwise
 it runs the tests the project's deploy instructions call for before it pushes, and a
-failing run leaves the merge unpushed. Its
+failing run leaves the merge unpushed. A docs-only card (the test stage
+skipped the suite, and the same check still holds on the landed tree) is a third case: nothing
+ran, nothing is owed, and the deploy does not run the tests either; if the check no
+longer holds, the deploy runs them. Its
 comment has a <code>tests:</code> line that says which. Each agent is handed the whole card: its
 description, plan, answers, checklist and comments, and the project's rules. Tests,
 the deploy and the merge into the base branch go one card after another. The status bar
@@ -389,7 +394,8 @@ The card stays in its lane, marked blocked, and runs skip it until those cards r
     merge it yourself (unless the project's deploy instructions merged it; the blue dot
     shows it is on the base). The comment's <code>tests:</code> line says whether the
     deploy skipped the test rerun (the test stage had run it on the tree that landed) or
-    ran the suite itself (the base moved since). With "open a pull request", merge the PR linked under the title.
+    ran the suite itself (the base moved since); <code>tests: skipped, docs-only</code> means the
+    change was docs only and no test reads it, so nobody ran the suite. With "open a pull request", merge the PR linked under the title.
     Then click "move to done".</li>
 </ol>
 <ul>

@@ -1,5 +1,7 @@
 import importlib.util
 import re
+import socket
+import threading
 
 import pytest
 
@@ -108,10 +110,38 @@ def test_an_open_pull_request_lets_the_tick_through(server, proj, here):
     assert gate.idle_line(TICK, here, server) is None
 
 
-def test_only_ticks_from_a_known_folder_on_a_live_board_are_answered(server, proj, here):
+@pytest.fixture
+def dead_board():
+    """A board that is down: accepts each connection and hangs up without answering.
+    (A refused connect to a closed localhost port takes ~2 s on Windows.)"""
+    ls = socket.socket()
+    ls.bind(("127.0.0.1", 0))
+    ls.listen()
+    ls.settimeout(0.05)   # so the thread sees the stop flag (close() alone does not wake
+    stop = threading.Event()  # a blocked accept() on every platform)
+
+    def run():
+        while not stop.is_set():
+            try:
+                ls.accept()[0].close()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    yield f"http://127.0.0.1:{ls.getsockname()[1]}"
+    stop.set()
+    t.join()
+    ls.close()
+
+
+def test_only_ticks_from_a_known_folder_on_a_live_board_are_answered(server, proj, here,
+                                                                     dead_board):
     assert gate.idle_line("fix the bug", here, server) is None
     assert gate.idle_line(TICK, "D:/elsewhere", server) is None
-    assert gate.idle_line(TICK, here, "http://127.0.0.1:9") is None  # board down
+    assert gate.idle_line(TICK, here, dead_board) is None  # board down
 
 
 def test_the_brief_rules_require_the_no_chips_line():
@@ -122,3 +152,33 @@ def test_the_brief_rules_require_the_no_chips_line():
     assert "spawn_task" in rules
     assert "background-task chips" in rules
     assert "dismiss_task" in rules
+
+
+def test_run_md_pins_the_docs_only_test_skip():
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    for needle in ("**Docs-only skip (#163):**",
+                   "diff --name-only --no-renames <base>...card/<id>",
+                   "never counts",
+                   "any other exit (an error, a missing path) counts as a hit",
+                   "`tests: skipped, docs-only (<files>)`",
+                   "the verdict is **docs-only**",
+                   "`tests: skipped, docs-only` is always **not tested**",
+                   "`tests: skipped, docs-only` (docs-only, the rules call for tests)"):
+        assert needle in text, needle
+
+
+def quoted(name, source):
+    # the run.md grep, `["']([^"']*[/\\])?<name>["']`, in Python
+    return re.search(r"""["']([^"']*[/\\])?""" + re.escape(name) + r"""["']""", source)
+
+
+def test_the_docs_only_grep_finds_the_files_the_tests_read():
+    import glob
+    tests = "".join(open(f, encoding="utf-8").read()
+                    for f in glob.glob("test_*.py") + ["conftest.py"])
+    assert quoted("run.md", tests)            # read by the test above, so never docs-only
+    # built from parts: a quoted full name here would itself be a hit
+    assert not quoted("PLAN" + ".md", tests)  # only named in comments
+    assert not quoted("README" + ".md", tests)
+    assert not quoted("run.md", TICK)         # a mention inside a longer string is no hit
+    assert quoted("run.md", 'open(r"skill-start\\run.md")')  # a Windows path

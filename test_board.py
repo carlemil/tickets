@@ -1221,6 +1221,9 @@ def test_new_card_with_no_projects_asks_for_one_first(page, tmp_path):
     assert each(page, "#panel .project h3", "ns => ns.map(n => n.textContent)") == ["new project"]
     assert page.evaluate("document.activeElement.placeholder") == "name", "ready to type"
     page.keyboard.type("First")
+    page.click("#err")   # dismiss the toast like a person: it covers the header for 8 s
+    page.wait_for_selector("#err", state="hidden")
+    assert page.input_value("#panel .project input[placeholder=name]") == "First"
     page.click("#panel button:text-is('add project')")
     page.wait_for_selector("#panel .project h3:text-is('First')")
     page.click("#panel button:text-is('done')")
@@ -3040,11 +3043,22 @@ def polled(page):
 
 @pytest.mark.real_poll   # the test is that the 5 s timer alone picks up the write
 def test_a_card_another_actor_creates_appears_without_a_reload(page, server):
+    page.clock.install()    # the board's own 5 s timer, run on a fast clock
+    page.clock.pause_at(page.evaluate("Date.now()") + 1000)  # only run_for moves it
+    page.reload()
+    page.wait_for_selector("#board .lane")
     polled(page)
+    polls = []
+    page.on("request", lambda r: "/api/version" in r.url and polls.append(r.url))
     c = http(server, "POST", "/api/cards", {"title": "an idea", "actor": "claude-agent",
                                             "project": "Home"})
-    # the board's own 5 s timer, no nudge
-    page.wait_for_selector(f'.card[data-id="{c["id"]}"]', timeout=7000)
+    sel = f'.card[data-id="{c["id"]}"]'
+    page.clock.run_for(4000)
+    page.evaluate("""new Promise(r => { const c = new MessageChannel();   // not faked:
+        c.port1.onmessage = r; c.port2.postMessage(0); })""")   # let a poll's request out
+    assert polls == [] and page.locator(sel).count() == 0, "not before the timer's 5 s"
+    page.clock.run_for(1500)   # no nudge: only the timer can bring it
+    page.wait_for_selector(sel, timeout=7000)
 
 
 def test_a_move_by_another_actor_moves_the_card(page, server):
@@ -3165,9 +3179,10 @@ def test_turning_it_on_waits_out_the_restart_then_shows_the_lan_url(page):
     page.click("#settings")
     page.wait_for_selector("#panel #lan")
     assert "listening on 127.0.0.1 only" in page.inner_text("#panel")
+    page.evaluate("RESTART_POLL_MS = 100")
     page.check("#lan")
-    page.wait_for_selector("#panel #lan:disabled")
-    assert "restarting the backend" in page.inner_text("#panel")
+    page.wait_for_function("""() => document.querySelector("#panel #lan").disabled
+        && document.querySelector("#panel").innerText.includes("restarting the backend")""")
     page.wait_for_selector('#panel a[href="http://192.168.1.5:8123/"]', timeout=10000)
     assert page.is_enabled("#lan") and page.is_checked("#lan")
     assert "open the board from another device" in page.inner_text("#panel")
@@ -3193,6 +3208,7 @@ def test_a_restart_that_never_happens_shows_on_the_sheet_at_once(page):
     page.route("**/api/settings", handle)
     page.click("#settings")
     page.wait_for_selector("#panel #lan")
+    page.evaluate("RESTART_POLL_MS = 100")
     page.check("#lan")
     page.wait_for_selector("#panel #lan:disabled")
     page.wait_for_selector("#panel #lan:enabled", timeout=10000)
