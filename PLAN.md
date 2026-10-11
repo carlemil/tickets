@@ -595,7 +595,7 @@ like the project settings: a "host the board on the LAN" checkbox that saves on 
 warning that there is no password, and what the backend is doing — listening on
 `127.0.0.1` only, or on every address with the LAN URLs as links, or that the change waits
 for a restart. When the PATCH says `restarting`, the checkbox is disabled and the sheet
-polls `/api/settings` every second until an answer is no longer `pending` (the old
+polls `/api/settings` every second (`RESTART_POLL_MS` in board.html, 1000; tests shorten it) until an answer is no longer `pending` (the old
 backend answers for ~2 s, then nothing, then the new one) or says `restart_failed`, and
 gives up with an error after a minute; it keeps the last answer, so a failed restart then
 shows on the sheet ("tried to restart itself … and did not", with the log, the command and
@@ -721,6 +721,7 @@ no longer on the board.
 | 92 | #154 the test stage runs on `opus` (the review is never weaker than the `sonnet` that builds a develop card) and the deploy stage on `haiku` (mechanical); plan & develop keeps the session's model and develop `sonnet` — `run.md`, docs and README name the new models | done — 538 checks |
 | 93 | #155 plan and develop are separate stages: the plan stage (`opus`, pinned) plans, posts plan and checklist and with no questions moves the card to `develop`, building nothing (`STAGE: PLANNED`); the session starts the develop stage (`sonnet`) at once in the same slot and worktree, from a fresh brief (a person's move at the hand-off wins; a refused plan post is noted and retried next tick, the card still in `plan`) — the strong model thinks and checks, the cheaper one writes; `run.md`, docs and README follow | done — 538 checks |
 | 94 | #156 the deploy skips the test rerun when the landed tree is the tested one: the dispatcher checks `git merge-base --is-ancestor <base> card/<id>` (and that ship committed nothing) before the land merge and tells the deploy subagent whether to run the tests; the deploy comment's `tests:` line says which; repo `CLAUDE.md` Deploy line, `run.md`, docs and PLAN follow (text only) | done — 538 checks |
+| 95 | #164 the five slowest tests stop waiting on production timers: the no-projects test dismisses the 8 s toast, the other-actor test runs the real 5 s poll on `page.clock`, the restart tests set `RESTART_POLL_MS = 100`, the idle-gate test uses a local accept-and-close listener instead of a refused connect (~22 s to ~4 s) | done |
 
 Gate for every task: `uv run pytest -q` — 538 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
