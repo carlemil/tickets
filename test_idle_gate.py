@@ -152,3 +152,33 @@ def test_the_brief_rules_require_the_no_chips_line():
     assert "spawn_task" in rules
     assert "background-task chips" in rules
     assert "dismiss_task" in rules
+
+
+def test_run_md_pins_the_docs_only_test_skip():
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    for needle in ("**Docs-only skip (#163):**",
+                   "diff --name-only --no-renames <base>...card/<id>",
+                   "never counts",
+                   "any other exit (an error, a missing path) counts as a hit",
+                   "`tests: skipped, docs-only (<files>)`",
+                   "the verdict is **docs-only**",
+                   "`tests: skipped, docs-only` is always **not tested**",
+                   "`tests: skipped, docs-only` (docs-only, the rules call for tests)"):
+        assert needle in text, needle
+
+
+def quoted(name, source):
+    # the run.md grep, `["']([^"']*[/\\])?<name>["']`, in Python
+    return re.search(r"""["']([^"']*[/\\])?""" + re.escape(name) + r"""["']""", source)
+
+
+def test_the_docs_only_grep_finds_the_files_the_tests_read():
+    import glob
+    tests = "".join(open(f, encoding="utf-8").read()
+                    for f in glob.glob("test_*.py") + ["conftest.py"])
+    assert quoted("run.md", tests)            # read by the test above, so never docs-only
+    # built from parts: a quoted full name here would itself be a hit
+    assert not quoted("PLAN" + ".md", tests)  # only named in comments
+    assert not quoted("README" + ".md", tests)
+    assert not quoted("run.md", TICK)         # a mention inside a longer string is no hit
+    assert quoted("run.md", 'open(r"skill-start\\run.md")')  # a Windows path
