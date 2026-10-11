@@ -151,10 +151,10 @@ next, and the test stage reviews work it did not write.
   not write the plan; the build in the same context keeps it. (Not pinned to `opus`, so
   a session on another model is respected.)
 - develop: `model: "sonnet"` — it follows a written plan.
-- test: `model: "sonnet"` — the owner's call: cheaper, though the review then runs on a
-  tier no stronger than the one that wrote the code (the same for a develop card,
-  weaker than the session's for a plan & develop card).
-- deploy: `model: "sonnet"` — mechanical: follow the deploy instructions.
+- test: `model: "opus"` — the owner's call (#154): the review runs on a tier at least as
+  strong as the one that wrote the code.
+- deploy: `model: "haiku"` — the owner's call (#154): mechanical: run the tests, push
+  and restart per the deploy instructions.
 
 **Slots.** At most **3 cards in flight**. Plan & develop and develop stages run side by
 side within that limit, each in its card's own worktree. At most **one card in `test`**
@@ -286,7 +286,7 @@ nothing else; tell it so in the brief.
 (you) Same worktree steps as develop; a card in test with neither a worktree nor a
 `card/<id>` branch fails ("nothing was built: move it back to develop").
 
-The subagent (`model: "sonnet"`) commits anything uncommitted in the worktree on
+The subagent (`model: "opus"`) commits anything uncommitted in the worktree on
 `card/<id>`, then runs the Skill tool with skill `code-review` and args `<base>...card/<id>` (a ref range: committed
 work only, whatever the cwd). It fixes the findings it agrees with on the branch, in the
 worktree, and lists those it rejects in its reply with a one-line reason each. No Skill
@@ -314,7 +314,7 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    `git -C <repo> merge --no-ff card/<id> -m "Merge #<id> <title>"`; a conflict →
    `merge --abort`. Say which happened (or why it was skipped) in the deploy comment.
    Do not push yet.
-3. **Deploy:** a subagent (`model: "sonnet"`) deploys per the project instructions.
+3. **Deploy:** a subagent (`model: "haiku"`) deploys per the project instructions.
    Local only — the test backend, or an install on a connected phone (check `adb devices`; none → skip the
    phone) — never production, a public server or an app store unless the instructions
    clearly say so. Changed neither backend nor app → deploy nothing. It may merge, push
