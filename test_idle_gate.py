@@ -167,6 +167,40 @@ def test_run_md_pins_the_docs_only_test_skip():
         assert needle in text, needle
 
 
+def test_run_md_pins_the_built_check():
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    for needle in ("**BUILT check (#176):**",
+                   "`Files changed:` section, one repo-relative path per line",  # the brief
+                   "BUILT → the BUILT check below first",  # runs before the comment and move
+                   "A brief carrying a `build check: MISMATCH` note (#176)",  # the test stage
+                   "diff --name-only --no-renames <base>...card/<id>",
+                   "status --porcelain",
+                   "build check: MISMATCH",
+                   "build check: OK",
+                   "BUILT but card/<id> holds no changes"):
+        assert needle in text, needle
+
+
+def test_run_md_pins_the_in_flight_setting():
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    for needle in ("**2 cards in flight** by default",
+                   "`Cards in flight: N`",
+                   "falls back to 2",
+                   "fewer slots spend fewer tokens",
+                   "fewer merge conflicts at land",
+                   "more slots finish a batch sooner on the clock",
+                   "developing (2 in flight)"):
+        assert needle in text, needle
+    assert "fell back to 2 (#193)" in text  # the summary's fallback line
+    assert not re.search(r"\b(3|three)\b\**\s+cards\s+in\s+flight", text, re.I)
+    assert not re.search(r"up to (3|three) at", text, re.I)
+    # docs.html only: a test reading the README would make README edits non-docs-only (#163)
+    page = " ".join(open("docs.html", encoding="utf-8").read().split())
+    assert "up to 2 cards" in page and "Cards in flight: N" in page
+    assert not re.search(r"up to (3|three) (cards )?at", page, re.I)
+    assert "among the 3" not in page
+
+
 def quoted(name, source):
     # the run.md grep, `["']([^"']*[/\\])?<name>["']`, in Python
     return re.search(r"""["']([^"']*[/\\])?""" + re.escape(name) + r"""["']""", source)
@@ -189,7 +223,7 @@ def test_run_md_pins_the_targeted_develop_tests():
     start = text.index("**Targeted tests (#192):**")
     end = text.index("Its one board write", start)
     develop = text[start:end]
-    for needle in ("diff --name-only --no-renames <base>...HEAD",
+    for needle in ("diff --name-only --no-renames <base>...card/<id>",
                    "`tests: skipped, docs-only (<files>)`",
                    "test map",
                    "full suite instead",

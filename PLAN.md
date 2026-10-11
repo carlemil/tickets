@@ -288,7 +288,7 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   blocker not yet finished, #62 and #87), assigned to a person. `todo` is the backlog: moving a card to
   `plan` queues it. One run drains the queue unattended, working each card once.
 - **Several at once (#1).** The session dispatches: each card's stage is a background
-  subagent, up to 3 cards in flight, plan and develop side by side in their
+  subagent, up to 2 cards in flight by default (a project sets `Cards in flight: N` in its instructions, #193), plan and develop side by side in their
   own worktrees (#84, #155: a card keeps its slot and worktree from plan into develop), one card at a time from test through land/deploy (shared ports, devices, the base checkout). `set_activity` is
   one row per actor, so it points at the card started last with the count in its text.
 - **Stages,** each by a new subagent so the session's context stays small and each
@@ -301,12 +301,15 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   `develop` and builds nothing, ending `STAGE: PLANNED`; open questions stop it in `plan`
   and the session removes the unused worktree; verdicts PLANNED, QUESTIONS, BLOCKED,
   MOVED, FAILED), develop (a fresh subagent that builds from the posted plan: started at
-  once on PLANNED, or for a card a person put in `develop`; #192 it runs only the tests that
+  once on PLANNED, or for a card a person put in `develop`; its reply ends with a `Files changed:` list, and before the
+  card moves to test the dispatcher checks it against `diff --name-only --no-renames <base>...card/<id>` and `status --porcelain`, #176:
+  an empty build fails, any other gap is `build check: MISMATCH` on the BUILT comment and in the test brief, which then
+  verifies each claim of the develop reply; #192 it runs only the tests that
   cover its change: none when the docs-only check holds, else the files of the repo `CLAUDE.md`
   test map or, with no map, the changed tests, `test_<stem>` files and importers/quoters; the
   full suite for an unmapped file, a changed fixture/config/lockfile, an un-narrowable command
-  or most of the suite; reply line `tests: targeted|full suite|skipped, docs-only`; the test
-  stage's full run stays mandatory), test (always fresh: it reviews work it did not
+  or most of the suite; reply line `tests: targeted|full suite|skipped, docs-only` before its
+  `Files changed:` list; the test stage's full run stays mandatory), test (always fresh: it reviews work it did not
   write; `/code-review` on `<base>...card/<id>` plus a check against the card, #7; `RESULT: PASS` or the card stays), then
   ship (commit, push `card/<id>`), land (merge into the base when the repo is on it and
   clean; before it the dispatcher checks `git merge-base --is-ancestor <base> card/<id>`
@@ -742,9 +745,11 @@ no longer on the board.
 | 97 | #160 repo `CLAUDE.md` Deploy restarts the backend only when the push brings a file it loads at start (`git diff --name-only origin/master HEAD`, so a fast-forward counts too): board.html/docs.html/docs-card.png are served live, PLAN/README/CLAUDE.md/tests/docs_card.py/skill-* are unused (`DEPLOY: SKIPPED` when only these change), any other file (app.py, core.py, log-config.json, pyproject.toml/uv.lock, restart-backend.ps1, a new module) restarts (text only) | done — 539 checks |
 | 98 | #163 the test stage skips the suite for docs-only changes: every changed file is `*.md` (never a served page like `docs.html`) and no test file quotes a changed file's name; code-review still runs, comment `tests: skipped, docs-only (<files>)`; the tested-tree rule (#156) gets a third verdict, docs-only, for the deploy; `run.md`, repo `CLAUDE.md`, docs and PLAN follow | done — 541 checks |
 | 99 | #165 the flaky board tests: the idle-dot test read its nodes in two protocol steps (`evaluate_all`) and a re-render between them handed it the detached old dot; DOM reads after a re-rendering action are now one `page.evaluate` (`each()`/`shown()` in `test_board.py`); the page fixture switches the 5 s status-poll timer off (`--poll-ms N` sets it for stress runs, `@pytest.mark.real_poll` keeps the real timer), drains `__inflight` before closing the page, and names `#err` and any 5xx when no lane draws; board: a failed load is retried by the next status poll (`loadFailed`), so a transient first-load error no longer leaves the board empty | done — 542 checks |
-| 100 | #192 the develop stage runs only the tests that cover its change (subsumes #180): `run.md` has it list `diff --name-only --no-renames <base>...HEAD`, skip tests when the #163 docs-only check holds, else use the repo `CLAUDE.md` test map (or heuristics), falling back to the full suite for an unmapped file, a changed fixture/config/lockfile, an un-narrowable command or most of the suite; reply `tests: targeted (<files>)` / `full suite (<why>)` / `skipped, docs-only`; the test stage's full run stays mandatory; the Tickets test map is in `CLAUDE.md`; two `test_idle_gate.py` tests pin run.md and the map's completeness; docs follow | done — 544 checks |
+| 100 | #193 fewer cards in flight: the in-flight limit in `run.md` is a setting, default 2 (was 3), a project overrides it with `Cards in flight: N` in its instructions (invalid falls back to 2, one summary line says so; a card's comments never set it); the trade-off (wall-clock vs tokens and merge rework) is stated in Slots and in `docs.html`, README follows; guard test `test_run_md_pins_the_in_flight_setting` | done — 543 checks |
+| 101 | #176 the dispatcher checks a BUILT commit holds the work it claims: the develop reply lists `Files changed:`; before the move to test `diff --name-only --no-renames`/`--stat <base>...card/<id>` and `status --porcelain` are compared with it (claimed-not-committed, committed-not-claimed, uncommitted, no list); an empty build fails, any other gap is `build check: MISMATCH` in the BUILT comment and the test brief, a match is `build check: OK (<n> files)`; guard test `test_run_md_pins_the_built_check` | done — 544 checks |
+| 102 | #192 the develop stage runs only the tests that cover its change (subsumes #180): `run.md` has it list `diff --name-only --no-renames <base>...card/<id>`, skip tests when the #163 docs-only check holds, else use the repo `CLAUDE.md` test map (or heuristics), falling back to the full suite for an unmapped file, a changed fixture/config/lockfile, an un-narrowable command or most of the suite; reply `tests: targeted (<files>)` / `full suite (<why>)` / `skipped, docs-only`; the test stage's full run stays mandatory; the Tickets test map is in `CLAUDE.md`; two `test_idle_gate.py` tests pin run.md and the map's completeness; docs follow | done — COUNT checks |
 
-Gate for every task (except a docs-only test stage, #163; the develop stage runs the targeted files, #192, the test stage the full suite): `uv run pytest -q` — 544 checks across core, HTTP, the MCP tools
+Gate for every task (except a docs-only test stage, #163; the develop stage runs the targeted files, #192, the test stage the full suite): `uv run pytest -q` — COUNT checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
