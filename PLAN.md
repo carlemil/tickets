@@ -305,10 +305,11 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   write; `/code-review` on `<base>...card/<id>` plus a check against the card, #7; `RESULT: PASS` or the card stays), then
   ship (commit, push `card/<id>`), land (merge into the base when the repo is on it and
   clean; before it the dispatcher checks `git merge-base --is-ancestor <base> card/<id>`
-  and that ship committed nothing, #156), deploy (local unless the instructions say
+  and that ship committed nothing and the land was not skipped, #156; the test stage's
+  last test run follows its last commit), deploy (local unless the instructions say
   production; the comment head lights the purple dot; it skips the full test rerun when
   the landed tree is the tested one, else runs the tests, and its `tests:` line says
-  which, #156), `merged=True` from git, remove the worktree, move to `verify`.
+  which; a failing deploy test run leaves the merge unpushed, #156), `merged=True` from git, remove the worktree, move to `verify`.
   Each stage sets its model (#83): plan `opus` (pinned, no longer the session's:
   planning is judgement), develop `sonnet` (it writes code from a written plan), test
   `opus` (never weaker than the `sonnet` that builds) and deploy `haiku` (mechanical;

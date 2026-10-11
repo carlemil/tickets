@@ -312,7 +312,9 @@ worktree, and lists those it rejects in its reply with a one-line reason each. N
 tool, no `code-review`, or an error → it reviews `git -C <tree> diff <base>...HEAD` itself
 and says so. code-review does not know the card, so it also checks the diff against the
 request, plan, answers and checklist, and runs the tests, fixing what it can itself on
-the branch. What it cannot (unfinished work, a decision a person must make) it leaves alone.
+the branch. Its last test run comes after its last commit, so the suite ran on the tree
+that ships (the deploy may skip its own run on that, #156). What it cannot (unfinished
+work, a decision a person must make) it leaves alone.
 Its review names every checklist step still unticked (one skipped on purpose says why).
 Last line exactly `RESULT: PASS` or `RESULT: FAIL`. Comment its reply. FAIL → failure.
 
@@ -331,9 +333,11 @@ PASS → (you) ship, land, deploy, clean up — in this order:
 2. **Tested tree (#156):** first, in either land mode and before any merge, run
    `git -C <repo> merge-base --is-ancestor <base> card/<id>`. The landed tree is the
    tested one only if that exits 0 **and** ship committed nothing; any other result
-   (exit 1, an error, a ship commit) means it is not. A land that is skipped, aborted or
-   conflicts does not change the answer (a conflict already implies the base moved).
-   Hand the deploy the verdict, **tested** or **not tested**, in the deploy step.
+   (exit 1, an error, a ship commit) means it is not. With `land` `merge`, a land that is
+   skipped (the repo is off `<base>` or has uncommitted changes) makes it not tested too:
+   the checkout the deploy works from is not the tested tree. A conflict needs no extra
+   rule: it already implies the base moved. Hand the deploy the verdict, **tested** or
+   **not tested**, in the deploy step.
 3. **Land:** only when `land` is `merge` — with `pr`, skip it and say "landing by pull
    request" in the deploy comment. Only if the repo is on `<base>` with nothing uncommitted
    (`git status --porcelain --untracked-files=no` empty):
@@ -349,13 +353,14 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    line `DEPLOY: OK`, `DEPLOY: SKIPPED` or `DEPLOY: FAILED`. (you) Comment it headed
    exactly `deployed: `, `deploy skipped: ` or `deploy failed: ` — the board lights the
    purple dot from that head. Then push the base if the land merged and the deploy did
-   not already (`git -C <repo> push -q origin <base>`).
+   not already (`git -C <repo> push -q origin <base>`), unless its tests failed: then
+   leave the merge unpushed and say so in the comment.
 
    **Tests in the deploy (#156).** Put one line in the deploy subagent's brief from the
    verdict. Tested: "The test stage ran the full suite on exactly this tree (`<base>` had
    not moved since it merged it in, and ship committed nothing): do not run the tests,
    even if the deploy instructions say to." Not tested: "`<base>` moved since the test
-   stage (or ship committed changes after it): run the tests if the deploy instructions
+   stage (or ship committed changes after it, or the land was skipped): run the tests if the deploy instructions
    call for them, before any push." The rule only removes a test run the instructions
    call for, never adds one. The subagent puts exactly one `tests:` line in its reply
    (the head `deployed: ` / `deploy skipped: ` / `deploy failed: ` is unchanged):
@@ -364,8 +369,8 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    is `tests: <the summary line>`, no push, `DEPLOY: FAILED`); `tests: none in the deploy
    rules` (the rules name no test run, either verdict). Nothing deployed (`DEPLOY:
    SKIPPED`) needs no line. If the reply lacks the line, add it to the comment yourself
-   from the verdict (`tests: run in test stage, skipped` when tested), so the comment
-   always says which.
+   from the verdict (`tests: run in test stage, skipped` when tested, `tests: not
+   reported` when not tested), so the comment always says which.
 5. **Merged dot:** `update_card(merged=True)` if `git -C <repo> branch --merged <base>
    --list card/<id>` lists it. Not with `pr`: the queue step sets it once the PR merges.
 6. **Clean up:** `git -C <repo> worktree remove --force <tree>`; if it will not go, say

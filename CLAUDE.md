@@ -7,5 +7,6 @@
   updates it too.
 - **Deploy:** merge the card into master, push, then restart the backend 30 s later with
   `powershell -NoProfile -File restart-backend.ps1 -Delay 30`. Run the tests
-  (`uv run pytest -q`) after the merge and before the push only if master moved since
-  the test stage merged it in (the run's deploy brief says which, #156).
+  (`uv run pytest -q`) after the merge and before the push unless the run's deploy brief
+  says the test stage already ran them on this exact tree (master had not moved since it
+  merged it in, #156); with no such brief, run them.
