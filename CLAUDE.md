@@ -9,4 +9,4 @@
   `powershell -NoProfile -File restart-backend.ps1 -Delay 30`. Run the tests
   (`uv run pytest -q`) after the merge and before the push unless the run's deploy brief
   says the test stage already ran them on this exact tree (master had not moved since it
-  merged it in, #156); with no such brief, run them.
+  merged it in, #156) or skipped them as docs-only (#163); with no such brief, run them.

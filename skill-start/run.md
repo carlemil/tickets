@@ -321,7 +321,16 @@ worktree, and lists those it rejects in its reply with a one-line reason each. N
 tool, no `code-review`, or an error → it reviews `git -C <tree> diff <base>...HEAD` itself
 and says so. code-review does not know the card, so it also checks the diff against the
 request, plan, answers and checklist, and runs the tests, fixing what it can itself on
-the branch. Its last test run comes after its last commit, so the suite ran on the tree
+the branch. **Docs-only skip (#163):** it skips the test run, and only the test run (the
+review and the card check still happen), when (a) every file in
+`git -C <tree> diff --name-only <base>...card/<id>` ends in `.md` (a page the app serves,
+e.g. `docs.html`, never counts: tests fetch it without naming it) and (b) no test file
+(`test_*.py`, `conftest.py`, anything under `tests/`) quotes a changed file's name or path as a
+string: `grep -nE "[\"']([^\"']*/)?<name>[\"']"` over them finds nothing for each
+changed file (`<name>` is the file's base name, regex-escaped). A mention in a comment or docstring
+is no hit; a doubtful hit only runs the suite, which is safe. Then its reply has the
+line `tests: skipped, docs-only (<files>)`. Otherwise it runs the suite as always. When
+the suite ran, its last run comes after its last commit, so the suite ran on the tree
 that ships (the deploy may skip its own run on that, #156). What it cannot (unfinished
 work, a decision a person must make) it leaves alone.
 Its review names every checklist step still unticked (one skipped on purpose says why).
@@ -345,8 +354,11 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    (exit 1, an error, a ship commit) means it is not. With `land` `merge`, a land that is
    skipped (the repo is off `<base>` or has uncommitted changes) makes it not tested too:
    the checkout the deploy works from is not the tested tree. A conflict needs no extra
-   rule: it already implies the base moved. Hand the deploy the verdict, **tested** or
-   **not tested**, in the deploy step.
+   rule: it already implies the base moved. Before that, rerun the docs-only check of the
+   test stage (#163) on `<base>...card/<id>` against the base's current tests (this covers
+   a ship commit and a moved base): if it holds, the verdict is **docs-only** (no suite
+   ran, none is owed). Otherwise use the logic above. Hand the deploy the verdict,
+   **docs-only**, **tested** or **not tested**, in the deploy step.
 3. **Land:** only when `land` is `merge` — with `pr`, skip it and say "landing by pull
    request" in the deploy comment. Only if the repo is on `<base>` with nothing uncommitted
    (`git status --porcelain --untracked-files=no` empty):
@@ -366,19 +378,22 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    leave the merge unpushed and say so in the comment.
 
    **Tests in the deploy (#156).** Besides the brief rules (with the no-chips line), put
-   one line in the deploy subagent's brief from the verdict. Tested: "The test stage ran the full suite on exactly this tree (`<base>` had
+   one line in the deploy subagent's brief from the verdict. Docs-only: "The change is
+   docs-only and no test reads it: do not run the tests, even if the deploy instructions
+   say to." Tested: "The test stage ran the full suite on exactly this tree (`<base>` had
    not moved since it merged it in, and ship committed nothing): do not run the tests,
    even if the deploy instructions say to." Not tested: "`<base>` moved since the test
    stage (or ship committed changes after it, or the land was skipped): run the tests if the deploy instructions
    call for them, before any push." The rule only removes a test run the instructions
    call for, never adds one. The subagent puts exactly one `tests:` line in its reply
    (the head `deployed: ` / `deploy skipped: ` / `deploy failed: ` is unchanged):
+   `tests: skipped, docs-only` (docs-only, the rules call for tests);
    `tests: run in test stage, skipped` (tested, the rules call for tests);
    `tests: <count> passed`, e.g. `tests: 538 passed` (not tested, tests ran; a failing run
    is `tests: <the summary line>`, no push, `DEPLOY: FAILED`); `tests: none in the deploy
    rules` (the rules name no test run, either verdict). Nothing deployed (`DEPLOY:
    SKIPPED`) needs no line. If the reply lacks the line, add it to the comment yourself
-   from the verdict (`tests: run in test stage, skipped` when tested, `tests: not
+   from the verdict (`tests: skipped, docs-only` when docs-only, `tests: run in test stage, skipped` when tested, `tests: not
    reported` when not tested), so the comment always says which.
 5. **Merged dot:** `update_card(merged=True)` if `git -C <repo> branch --merged <base>
    --list card/<id>` lists it. Not with `pr`: the queue step sets it once the PR merges.

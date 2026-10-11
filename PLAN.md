@@ -306,7 +306,12 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   ship (commit, push `card/<id>`), land (merge into the base when the repo is on it and
   clean; before it the dispatcher checks `git merge-base --is-ancestor <base> card/<id>`
   and that ship committed nothing and the land was not skipped, #156; the test stage's
-  last test run follows its last commit), deploy (local unless the instructions say
+  last test run follows its last commit when the suite ran; a docs-only card, #163, skips it:
+  every changed file is `*.md` (a served page like `docs.html` never counts) and no test
+  quotes a changed file's name, grep `["']([^"']*/)?<name>["']`; the reply says
+  `tests: skipped, docs-only (<files>)`; the dispatcher reruns that check before land and
+  hands the deploy a third verdict, docs-only, so it runs no tests and its line is
+  `tests: skipped, docs-only`), deploy (local unless the instructions say
   production; the comment head lights the purple dot; it skips the full test rerun when
   the landed tree is the tested one, else runs the tests, and its `tests:` line says
   which; a failing deploy test run leaves the merge unpushed, #156), `merged=True` from git, remove the worktree, move to `verify`.
@@ -727,8 +732,9 @@ no longer on the board.
 | 94 | #156 the deploy skips the test rerun when the landed tree is the tested one: the dispatcher checks `git merge-base --is-ancestor <base> card/<id>` (and that ship committed nothing) before the land merge and tells the deploy subagent whether to run the tests; the deploy comment's `tests:` line says which; repo `CLAUDE.md` Deploy line, `run.md`, docs and PLAN follow (text only) | done — 538 checks |
 | 95 | #159 every stage brief carries the no-chips line: `run.md`'s brief rules require that the subagent never creates background-task chips (`spawn_task`), never schedules anything and never asks the user (a chip made by mistake is dismissed and named in the reply); a `test_idle_gate.py` test pins the rule in `run.md`; docs and PLAN follow | done — 539 checks |
 | 96 | #164 the five slowest tests stop waiting on production timers: the no-projects test dismisses the 8 s toast, the other-actor test runs the real 5 s poll on `page.clock`, the restart tests set `RESTART_POLL_MS = 100`, the idle-gate test uses a local accept-and-close listener instead of a refused connect (~22 s to ~4 s) | done — 539 checks |
+| 97 | #163 the test stage skips the suite for docs-only changes: every changed file is `*.md` (never a served page like `docs.html`) and no test file quotes a changed file's name; code-review still runs, comment `tests: skipped, docs-only (<files>)`; the tested-tree rule (#156) gets a third verdict, docs-only, for the deploy; `run.md`, repo `CLAUDE.md`, docs and PLAN follow | done — 539 checks |
 
-Gate for every task: `uv run pytest -q` — 539 checks across core, HTTP, the MCP tools
+Gate for every task (except a docs-only test stage, #163): `uv run pytest -q` — 539 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
