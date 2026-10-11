@@ -598,8 +598,9 @@ like the project settings: a "host the board on the LAN" checkbox that saves on 
 warning that there is no password, and what the backend is doing — listening on
 `127.0.0.1` only, or on every address with the LAN URLs as links, or that the change waits
 for a restart. When the PATCH says `restarting`, the checkbox is disabled and the sheet
-polls `/api/settings` every second (`RESTART_POLL_MS` in board.html, 1000; tests shorten it) until an answer is no longer `pending` (the old
-backend answers for ~2 s, then nothing, then the new one) or says `restart_failed`, and
+polls `/api/settings` every second (`RESTART_POLL_MS` in board.html, 1000; tests
+shorten it) until an answer is no longer `pending` (the old backend answers for ~2 s,
+then nothing, then the new one) or says `restart_failed`, and
 gives up with an error after a minute; it keeps the last answer, so a failed restart then
 shows on the sheet ("tried to restart itself … and did not", with the log, the command and
 "untick and tick again"), as it does when the sheet is opened later (#138). A board opened over the LAN that turns the setting off does not poll (it

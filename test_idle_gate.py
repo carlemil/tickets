@@ -117,16 +117,23 @@ def dead_board():
     ls = socket.socket()
     ls.bind(("127.0.0.1", 0))
     ls.listen()
+    ls.settimeout(0.05)   # so the thread sees the stop flag (close() alone does not wake
+    stop = threading.Event()  # a blocked accept() on every platform)
 
     def run():
-        while True:
+        while not stop.is_set():
             try:
                 ls.accept()[0].close()
+            except TimeoutError:
+                continue
             except OSError:
                 return
 
-    threading.Thread(target=run, daemon=True).start()
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
     yield f"http://127.0.0.1:{ls.getsockname()[1]}"
+    stop.set()
+    t.join()
     ls.close()
 
 

@@ -1224,6 +1224,7 @@ def test_new_card_with_no_projects_asks_for_one_first(page, tmp_path):
     page.keyboard.type("First")
     page.click("#err")   # dismiss the toast like a person: it covers the header for 8 s
     page.wait_for_selector("#err", state="hidden")
+    assert page.input_value("#panel .project input[placeholder=name]") == "First"
     page.click("#panel button:text-is('add project')")
     page.wait_for_selector("#panel .project h3:text-is('First')")
     page.click("#panel button:text-is('done')")
@@ -3035,14 +3036,19 @@ def polled(page):
 
 def test_a_card_another_actor_creates_appears_without_a_reload(page, server):
     page.clock.install()    # the board's own 5 s timer, run on a fast clock
+    page.clock.pause_at(page.evaluate("Date.now()") + 1000)  # only run_for moves it
     page.reload()
     page.wait_for_selector("#board .lane")
     polled(page)
+    polls = []
+    page.on("request", lambda r: "/api/version" in r.url and polls.append(r.url))
     c = http(server, "POST", "/api/cards", {"title": "an idea", "actor": "claude-agent",
                                             "project": "Home"})
     sel = f'.card[data-id="{c["id"]}"]'
     page.clock.run_for(4000)
-    assert page.locator(sel).count() == 0, "not before the timer's 5 s"
+    page.evaluate("""new Promise(r => { const c = new MessageChannel();   // not faked:
+        c.port1.onmessage = r; c.port2.postMessage(0); })""")   # let a poll's request out
+    assert polls == [] and page.locator(sel).count() == 0, "not before the timer's 5 s"
     page.clock.run_for(1500)   # no nudge: only the timer can bring it
     page.wait_for_selector(sel, timeout=7000)
 
