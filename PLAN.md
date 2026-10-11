@@ -288,27 +288,29 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   blocker not yet finished, #62 and #87), assigned to a person. `todo` is the backlog: moving a card to
   `plan` queues it. One run drains the queue unattended, working each card once.
 - **Several at once (#1).** The session dispatches: each card's stage is a background
-  subagent, up to 3 cards in flight, plan & develop and develop side by side in their
-  own worktrees (#84), one card at a time from test through land/deploy (shared ports, devices, the base checkout). `set_activity` is
+  subagent, up to 3 cards in flight, plan and develop side by side in their
+  own worktrees (#84, #155: a card keeps its slot and worktree from plan into develop), one card at a time from test through land/deploy (shared ports, devices, the base checkout). `set_activity` is
   one row per actor, so it points at the card started last with the count in its text.
 - **Stages,** each by a new subagent so the session's context stays small and each
   stage starts clean (#61: never a continued one; the brief pastes the whole card
   verbatim, comments without their CLI output, plus project, repo and worktree); the session
-  writes the board and does the git: plan & develop (#84: one subagent for a card in
+  writes the board and does the git: plan (#84, split by #155: a subagent for a card in
   `plan`, in the card's worktree `<repo>.worktrees/card-<id>`, branch `card/<id>`, base
   merged in first; it plans read-only, posts plan and checklist itself after a
   `get_card` — a person's move wins — and with no open questions moves the card to
-  `develop` and builds in the same context, so the code is read once; open questions stop
-  it in `plan` and the session removes the unused worktree), develop (a fresh subagent,
-  only for a card already in `develop`), test (always fresh: it reviews work it did not
+  `develop` and builds nothing, ending `STAGE: PLANNED`; open questions stop it in `plan`
+  and the session removes the unused worktree; verdicts PLANNED, QUESTIONS, BLOCKED,
+  MOVED, FAILED), develop (a fresh subagent that builds from the posted plan: started at
+  once on PLANNED, or for a card a person put in `develop`), test (always fresh: it reviews work it did not
   write; `/code-review` on `<base>...card/<id>` plus a check against the card, #7; `RESULT: PASS` or the card stays), then
   ship (commit, push `card/<id>`), land (merge into the base when the repo is on it and
   clean), deploy (local unless the instructions say production; the comment head lights
   the purple dot), `merged=True` from git, remove the worktree, move to `verify`.
-  Each stage sets its model (#83): plan & develop gets no `model` (the session's, which
-  also builds the card it planned: planning is judgement); develop gets `sonnet`, test
-  `opus` (never weaker than the `sonnet` that builds a develop card) and deploy `haiku` (mechanical)
-  — the owner's call, #154.
+  Each stage sets its model (#83): plan `opus` (pinned, no longer the session's:
+  planning is judgement), develop `sonnet` (it writes code from a written plan), test
+  `opus` (never weaker than the `sonnet` that builds) and deploy `haiku` (mechanical) —
+  the owner's calls, #154 and #155: the strong model thinks and checks, the cheaper one
+  writes; the split trades one extra read of the code for a cheaper writer.
 - **Landing by pull request (#6).** A project's `land` is `merge` (the default, above) or
   `pr`: then ship also opens a PR with `gh` and stores its URL in the card's `pr`, the
   local merge is skipped (the deploy never merges either), and the merged dot waits for
@@ -317,7 +319,7 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   is open, so a reworked card ships as a new PR and never inherits the old merged one.
 - **The checklist is the live task list (#3).** The plan's `## Steps` become checklist
   items (new texts only, existing items kept); the subagent that builds ticks each as it
-  finishes — its one board write besides plan & develop's plan post — so the board card's `☑ done/total` chip moves while it
+  finishes — its one board write besides the plan stage's plan post — so the board card's `☑ done/total` chip moves while it
   works, and the test review names any step left unticked.
 - **What only a person can do** (`## Blocked by`) becomes `todo` cards linked `blocks`.
   A failure is an `agent failed: …` comment, lane unchanged.
@@ -712,6 +714,7 @@ no longer on the board.
 | 90 | #153 "move to plan" on the new-card sheet, next to "close": creates the card straight in `plan` (one `created` event, overriding the lane select) and closes; an empty draft just closes, an untitled one stays and keeps its lane; existing cards get no button | done — 535 checks |
 | 91 | #148 a card created during a late board load is not dropped: shown to need no new merge rule (a create reloads the board, so the held load is overtaken and dropped by #88) and pinned with held-load browser tests — a sheet create, an agent create, and a card archived or moved away elsewhere that a stale load does not bring back | done — 538 checks |
 | 92 | #154 the test stage runs on `opus` (the review is never weaker than the `sonnet` that builds a develop card) and the deploy stage on `haiku` (mechanical); plan & develop keeps the session's model and develop `sonnet` — `run.md`, docs and README name the new models | done — 538 checks |
+| 93 | #155 plan and develop are separate stages: the plan stage (`opus`, pinned) plans, posts plan and checklist and with no questions moves the card to `develop`, building nothing (`STAGE: PLANNED`); the session starts the develop stage (`sonnet`) at once in the same slot and worktree, from a fresh brief — the strong model thinks and checks, the cheaper one writes; `run.md`, docs and README follow | done — 538 checks |
 
 Gate for every task: `uv run pytest -q` — 538 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
