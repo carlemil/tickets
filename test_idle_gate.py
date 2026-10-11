@@ -167,6 +167,20 @@ def test_run_md_pins_the_docs_only_test_skip():
         assert needle in text, needle
 
 
+def test_run_md_pins_the_built_check():
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    for needle in ("**BUILT check (#176):**",
+                   "`Files changed:` section, one repo-relative path per line",  # the brief
+                   "BUILT → the BUILT check below first",  # runs before the comment and move
+                   "A brief carrying a `build check: MISMATCH` note (#176)",  # the test stage
+                   "diff --name-only --no-renames <base>...card/<id>",
+                   "status --porcelain",
+                   "build check: MISMATCH",
+                   "build check: OK",
+                   "BUILT but card/<id> holds no changes"):
+        assert needle in text, needle
+
+
 def test_run_md_pins_the_in_flight_setting():
     text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
     for needle in ("**2 cards in flight** by default",
