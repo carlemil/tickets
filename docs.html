@@ -199,8 +199,9 @@ the sheet there says so.</p>
     plus a check against the card's request, plan, answers and checklist. When every changed file is a
     Markdown file (not a page the app serves, like this manual) and no test names it, the suite
     is skipped and the comment says <code>tests: skipped, docs-only (&lt;files&gt;)</code>.
-    Otherwise the full suite runs once, after the last commit, and again only after a failure
-    or a fix.</dd>
+    Otherwise the full suite runs once, after the last commit, and again only after the agent
+    fixes something; a failing test is fixed or the card fails (a test is rerun unchanged
+    only when it is a known flake).</dd>
   <dt>verify</dt><dd>The agent is done: you check the result.</dd>
   <dt>done</dt><dd>Finished: nothing more happens to it.</dd>
 </dl>

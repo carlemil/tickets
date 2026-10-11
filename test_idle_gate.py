@@ -214,12 +214,15 @@ def test_run_md_pins_one_suite_run_and_sized_review():
                    "the one full suite run on that last commit",
                    "again only after a failure it then fixed",
                    "only when it is a known flake",
+                   "a flake recorded as fixed (e.g. #165) no longer counts",
+                   "runs the tests in the order below (#191)",
                    "no rerun and hope"):
         assert needle in text, needle
     assert "args `<base>...card/<id>`" not in text  # the old bare range, no level
     # docs.html only: a test reading the README would make README edits non-docs-only (#163)
     page = " ".join(open("docs.html", encoding="utf-8").read().split())
     assert "follows the size of the change" in page and "once, after the last commit" in page
+    assert "only when it is a known flake" in page and "whatever the develop lane ran" in page
 
 
 def quoted(name, source):

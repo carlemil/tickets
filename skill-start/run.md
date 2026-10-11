@@ -380,8 +380,8 @@ work only, whatever the cwd; the level is always named, see below). It fixes the
 worktree, and lists those it rejects in its reply with a one-line reason each. No Skill
 tool, no `code-review`, or an error → it reviews `git -C <tree> diff <base>...HEAD` itself
 and says so. code-review does not know the card, so it also checks the diff against the
-request, plan, answers and checklist, and runs the tests, fixing what it can itself on
-the branch. **Docs-only skip (#163):** it skips the test run, and only the test run (the
+request, plan, answers and checklist, and runs the tests in the order below (#191),
+fixing what it can itself on the branch. **Docs-only skip (#163):** it skips the test run, and only the test run (the
 review and the card check still happen), when, checked after its last commit, (a) every
 file in `git -C <tree> diff --name-only --no-renames <base>...card/<id>` ends in `.md`
 (a renamed file lists its old and new name; a page the app serves, e.g. `docs.html`,
@@ -406,7 +406,8 @@ the full suite before its last commit. It runs the full suite again only after a
 it then fixed (on the new commit) or after a fix it committed after the run; the run that
 counts is the last, on the tree that ships (#156). The one full run stays mandatory. A
 failing test is rerun unchanged (once, that test alone) only when it is a known flake:
-named flaky in the repo's `CLAUDE.md` or `PLAN.md`, or marked so in the test code. Any
+named as a current flake in the repo's `CLAUDE.md` or `PLAN.md`, or marked so in the test
+code; a flake recorded as fixed (e.g. #165) no longer counts. Any
 other failure is real: fix it or `RESULT: FAIL`, no rerun and hope. The reply names any
 flake rerun. The `<level>` comes from the committed diff (`git -C <tree> diff --name-only
 --no-renames <base>...card/<id>` and `--shortstat`), never left to the skill's last level:
