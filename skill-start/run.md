@@ -5,7 +5,7 @@ tick or once when asked. Whoever hands it to you gives three things: the **sessi
 the **Tickets repo** (the folder holding `restart-backend.ps1`), and optionally a **card
 id**. The board is the record, not the boss: nothing runs until a person types
 `/tickets-start`.
-One run takes every ready card of this folder's project, up to three at a time, from
+One run takes every ready card of this folder's project, up to the project's in-flight limit (default 2, see Slots) at a time, from
 where it stands to `verify`, writing each step onto the board as it goes, and ends
 with ideas for what to do next. Work unattended: never stop to ask the user, never wait for an answer —
 what needs a person goes on the board (questions, blocker cards) and the run moves on.
@@ -96,6 +96,9 @@ additions (e.g. the deploy target). Priority, highest first: the card's latest c
 the card (`description`, `plan`, `answers`), the project instructions, the repo's
 CLAUDE.md, this skill.
 
+Read the run's in-flight limit from the project `instructions` here (see Slots): it is
+the one setting outside that priority order, so a card's comments or text never set it.
+
 The **repo** is the git toplevel of the path; the **base** branch is the repo's current
 branch (`git -C <repo> rev-parse --abbrev-ref HEAD`). Develop and test need a git repo:
 if the path is not one, cards can still be planned (the plan is posted, nothing is
@@ -161,8 +164,18 @@ next, and the test stage reviews work it did not write.
   the deploy instructions; it reruns the tests only when the landed tree is not the one
   the test stage tested (#156).
 
-**Slots.** At most **3 cards in flight**. Plan and develop stages run side by side
-within that limit, each in its card's own worktree. A card keeps its slot and its
+**Slots.** At most **2 cards in flight** by default (#193). A project changes it with a line
+`Cards in flight: N` in its `instructions` (N a whole number from 1 up; case-insensitive,
+the first match wins, no upper cap). A missing, non-numeric or below-1 value falls back to
+2 and the summary says so in one line. It is a run-wide setting: only the project
+instructions or the default set it, never a card's comments or text. The trade-off:
+more slots finish a batch sooner on the clock; fewer slots spend fewer tokens (each
+finished stage wakes a dispatcher whose context grows with every card in flight) and cause
+fewer merge conflicts at land (cards branched from the same base edit the same files, and
+each conflict costs a rework round in test). A card waiting for the test slot keeps its
+slot, so at 2 the run is near serial while a land is slow. 1 is serial: cheapest, slowest. 2 is the
+default. 3 suits many small, unrelated cards when time matters more than tokens. Plan and
+develop stages run side by side within that limit, each in its card's own worktree. A card keeps its slot and its
 worktree from plan straight into develop (no re-list in between). At most **one card in `test`**
 at a time — from the test stage through ship, land, deploy and clean-up to `verify` —
 because tests, the deploy and service
@@ -175,7 +188,7 @@ the `card/<id>` branch and its worktree path are the record.
 Starting a card: `update_card(assignee="claude-agent", session="<session id>")`
 (the board's link back to this session's transcript). `set_activity` holds one entry
 for you, so point it at the card you started last and say how many are in flight:
-`set_activity(card_id=…, doing="developing (3 in flight)")` (`planning`,
+`set_activity(card_id=…, doing="developing (2 in flight)")` (`planning`,
 `developing`, `testing`); clear it (`set_activity` with no card) when the last card
 leaves your hands.
 Before every board write after a stage, `get_card` again: **a person's move wins** — if
@@ -463,5 +476,6 @@ Then:
   blocked (and by what), failed (and why), skipped as assigned, ideas opened, and
   **refused writes**: each board write a permission check refused, once, with the card,
   the write, and the permission rule that would let it through (it is retried next tick),
-  and any background-task chip a stage made by mistake (#159).
+  and any background-task chip a stage made by mistake (#159), and one line when the
+  project's `Cards in flight:` value was invalid and the run fell back to 2 (#193).
   The summary reports; it never ends "waiting on you".
