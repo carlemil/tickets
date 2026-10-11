@@ -736,8 +736,9 @@ no longer on the board.
 | 96 | #164 the five slowest tests stop waiting on production timers: the no-projects test dismisses the 8 s toast, the other-actor test runs the real 5 s poll on `page.clock`, the restart tests set `RESTART_POLL_MS = 100`, the idle-gate test uses a local accept-and-close listener instead of a refused connect (~22 s to ~4 s) | done — 539 checks |
 | 97 | #160 repo `CLAUDE.md` Deploy restarts the backend only when the push brings a file it loads at start (`git diff --name-only origin/master HEAD`, so a fast-forward counts too): board.html/docs.html/docs-card.png are served live, PLAN/README/CLAUDE.md/tests/docs_card.py/skill-* are unused (`DEPLOY: SKIPPED` when only these change), any other file (app.py, core.py, log-config.json, pyproject.toml/uv.lock, restart-backend.ps1, a new module) restarts (text only) | done — 539 checks |
 | 98 | #163 the test stage skips the suite for docs-only changes: every changed file is `*.md` (never a served page like `docs.html`) and no test file quotes a changed file's name; code-review still runs, comment `tests: skipped, docs-only (<files>)`; the tested-tree rule (#156) gets a third verdict, docs-only, for the deploy; `run.md`, repo `CLAUDE.md`, docs and PLAN follow | done — 541 checks |
+| 99 | #165 the flaky board tests: the idle-dot test read its nodes in two protocol steps (`evaluate_all`) and a re-render between them handed it the detached old dot; DOM reads after a re-rendering action are now one `page.evaluate` (`each()`/`shown()` in `test_board.py`); the page fixture switches the 5 s status-poll timer off (`--poll-ms N` sets it for stress runs, `@pytest.mark.real_poll` keeps the real timer), drains `__inflight` before closing the page, and names `#err` and any 5xx when no lane draws; board: a failed load is retried by the next status poll (`loadFailed`), so a transient first-load error no longer leaves the board empty | done — 542 checks |
 
-Gate for every task (except a docs-only test stage, #163): `uv run pytest -q` — 541 checks across core, HTTP, the MCP tools
+Gate for every task (except a docs-only test stage, #163): `uv run pytest -q` — 542 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
@@ -755,6 +756,15 @@ so a test that reads the database or types on after a board action first waits f
 board's own requests: `window.__inflight === 0` (the page fixture counts `api()` calls),
 or the state the action ends in. A full run is slower than a lone file, which is when
 such a missing wait shows.
+
+A DOM read after an action that can re-render (a load, `loadStatus()`, a drop, a patch) is
+one `page.evaluate` (`each()` / `shown()` in `test_board.py`): `locator.evaluate_all` and
+`all_text_contents` resolve the nodes in one protocol step and read them in the next, and a
+re-render between them hands over detached old nodes (#165). The board's 5 s status-poll
+timer is off in the browser tests, which call `loadStatus()` themselves; `--poll-ms N`
+turns it on at that interval for stress runs, and a test whose point is the timer takes
+`@pytest.mark.real_poll`. The page fixture's teardown waits for `__inflight === 0`
+(at most 5 s) so no request lands in the next test's database.
 
 ## End-to-end result (task 4)
 
