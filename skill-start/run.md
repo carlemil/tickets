@@ -335,7 +335,7 @@ that same list, `git -C <tree> diff --name-only --no-renames <base>...card/<id>`
    test file, when a shared fixture or config changed (`conftest.py`, the test config, the
    dependency manifest or lockfile) or the map says "full suite" for a file, when the
    project's test command cannot be narrowed to files, or when the picked files are most of
-   the suite anyway.
+   the suite anyway (all of its test files, or all but one).
 4. It runs the project's test command narrowed to those files (e.g.
    `uv run pytest -q test_core.py test_app.py`); it may run targeted tests while it
    iterates, but the run that counts is the last one, on the committed tree.

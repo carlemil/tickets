@@ -1,6 +1,8 @@
 import importlib.util
+import os
 import re
 import socket
+import subprocess
 import threading
 
 import pytest
@@ -229,7 +231,7 @@ def test_run_md_pins_the_targeted_develop_tests():
                    "full suite instead",
                    "`conftest.py`",
                    "cannot be narrowed to files",
-                   "most of the suite",
+                   "most of the suite anyway (all of its test files, or all but one)",
                    "`tests: targeted (<files>): <summary>`",
                    "`tests: full suite (<why>): <summary>`"):
         assert needle in develop, needle
@@ -237,19 +239,18 @@ def test_run_md_pins_the_targeted_develop_tests():
 
 
 def test_claude_md_test_map_is_complete():
-    import subprocess
     claude = open("CLAUDE.md", encoding="utf-8").read()
     rows = [line.strip() for line in claude.splitlines()
-            if line.strip().startswith(("| `", "| other"))]
+            if line.strip().startswith(("| `", "| other", "| a "))]
     mapped = "\n".join(rows)
-    tracked = subprocess.run(["git", "ls-files"], capture_output=True, text=True,
-                             check=True).stdout.split()
-    top = {p.split("/")[0] + ("/" if "/" in p else "") for p in tracked}
+    assert "| `*.md` |" in mapped and "| a `test_*.py` |" in mapped
+    tracked = subprocess.run(["git", "ls-files", "-z"], capture_output=True, text=True,
+                             check=True).stdout.split("\0")
+    top = {p.split("/")[0] + ("/" if "/" in p else "") for p in tracked if p}
     for item in sorted(top):
         if item.endswith(".md") or re.match(r"test_.*\.py$", item):
             continue
-        assert f"`{item}`" in mapped or (item.startswith("skill-") and "`skill-*/`" in mapped
-                                         or "other `skill-*/`" in mapped), item
-    import os
+        assert f"`{item}`" in mapped or (item.startswith("skill-")
+                                         and "`skill-*/`" in mapped), item
     for name in re.findall(r"`(test_\w+\.py)`", mapped):
         assert os.path.exists(name), name
