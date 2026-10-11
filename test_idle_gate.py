@@ -201,6 +201,25 @@ def test_run_md_pins_the_in_flight_setting():
     assert "among the 3" not in page
 
 
+def test_run_md_pins_one_suite_run_and_sized_review():
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    for needle in ("**One suite run, a sized review (#191):**",
+                   "args `<level> <base>...card/<id>`",
+                   "`low`: text-only",
+                   "`medium`: code, but small, at most ~50 changed lines",
+                   "`high`: any other code diff",
+                   "`review: <level> (<n> files, +<a>/-<b>, text-only|code)`",
+                   "the one full suite run on that last commit",
+                   "again only after a failure it then fixed",
+                   "only when it is a known flake",
+                   "no rerun and hope"):
+        assert needle in text, needle
+    assert "args `<base>...card/<id>`" not in text  # the old bare range, no level
+    # docs.html only: a test reading the README would make README edits non-docs-only (#163)
+    page = " ".join(open("docs.html", encoding="utf-8").read().split())
+    assert "follows the size of the change" in page and "once, after the last commit" in page
+
+
 def quoted(name, source):
     # the run.md grep, `["']([^"']*[/\\])?<name>["']`, in Python
     return re.search(r"""["']([^"']*[/\\])?""" + re.escape(name) + r"""["']""", source)

@@ -192,10 +192,13 @@ the sheet there says so.</p>
   <dt>plan</dt><dd>The agent writes a plan and any open questions.</dd>
   <dt>develop</dt><dd>The agent builds it, following the plan and your answers.</dd>
   <dt>test</dt><dd>The agent reviews the changes and runs the tests, fixing what it can. The
-    review is Claude Code's own <code>/code-review</code> on the card's branch, plus a check
-    against the card's request, plan, answers and checklist. When every changed file is a
+    review is Claude Code's own <code>/code-review</code> on the card's branch, its depth
+    follows the size of the change (low for text only, medium for small code, high otherwise),
+    plus a check against the card's request, plan, answers and checklist. When every changed file is a
     Markdown file (not a page the app serves, like this manual) and no test names it, the suite
-    is skipped and the comment says <code>tests: skipped, docs-only (&lt;files&gt;)</code>.</dd>
+    is skipped and the comment says <code>tests: skipped, docs-only (&lt;files&gt;)</code>.
+    Otherwise the full suite runs once, after the last commit, and again only after a failure
+    or a fix.</dd>
   <dt>verify</dt><dd>The agent is done: you check the result.</dd>
   <dt>done</dt><dd>Finished: nothing more happens to it.</dd>
 </dl>

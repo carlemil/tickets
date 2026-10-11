@@ -351,8 +351,8 @@ section**. Outcomes:
 `card/<id>` branch fails ("nothing was built: move it back to develop").
 
 The subagent (`model: "opus"`) commits anything uncommitted in the worktree on
-`card/<id>`, then runs the Skill tool with skill `code-review` and args `<base>...card/<id>` (a ref range: committed
-work only, whatever the cwd). It fixes the findings it agrees with on the branch, in the
+`card/<id>`, then runs the Skill tool with skill `code-review` and args `<level> <base>...card/<id>` (a ref range: committed
+work only, whatever the cwd; the level is always named, see below). It fixes the findings it agrees with on the branch, in the
 worktree, and lists those it rejects in its reply with a one-line reason each. No Skill
 tool, no `code-review`, or an error → it reviews `git -C <tree> diff <base>...HEAD` itself
 and says so. code-review does not know the card, so it also checks the diff against the
@@ -372,6 +372,23 @@ has the line `tests: skipped, docs-only (<files>)`. Otherwise it runs the suite 
 always. Either way its last commit comes first: the suite's last run, or the docs-only
 check, is on the tree that ships (the deploy may skip its own run on that, #156). What it cannot (unfinished
 work, a decision a person must make) it leaves alone.
+
+**One suite run, a sized review (#191):** the order is: commit leftovers, sized review,
+fix the findings and the card check, commit, then the one full suite run on that last
+commit (or the docs-only check instead). While fixing it may run single test files, never
+the full suite before its last commit. It runs the full suite again only after a failure
+it then fixed (on the new commit) or after a fix it committed after the run; the run that
+counts is the last, on the tree that ships (#156). The one full run stays mandatory. A
+failing test is rerun unchanged (once, that test alone) only when it is a known flake:
+named flaky in the repo's `CLAUDE.md` or `PLAN.md`, or marked so in the test code. Any
+other failure is real: fix it or `RESULT: FAIL`, no rerun and hope. The reply names any
+flake rerun. The `<level>` comes from the committed diff (`git -C <tree> diff --name-only
+--no-renames <base>...card/<id>` and `--shortstat`), never left to the skill's last level:
+- `low`: text-only, every changed file is prose (`*.md`, `*.txt`, or a manual page with no
+  script such as `docs.html`); tests, config and pages with script (`board.html`) are code;
+- `medium`: code, but small, at most ~50 changed lines (insertions + deletions) in total;
+- `high`: any other code diff.
+Its reply has one line `review: <level> (<n> files, +<a>/-<b>, text-only|code)`.
 A brief carrying a `build check: MISMATCH` note (#176) makes it verify every claim of the
 develop reply (tests said to be added, results quoted) against the diff, and say in its
 reply what was missing and what it did about it.
