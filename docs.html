@@ -333,7 +333,8 @@ in, shipping committed nothing and the merge into the base was not skipped. Othe
 it runs the tests the project's deploy instructions call for before it pushes, and a
 failing run leaves the merge unpushed. A docs-only card (the test stage
 skipped the suite, and the same check still holds on the landed tree) is a third case: nothing
-ran, nothing is owed, and the deploy does not run the tests either. Its
+ran, nothing is owed, and the deploy does not run the tests either; if the check no
+longer holds, the deploy runs them. Its
 comment has a <code>tests:</code> line that says which. Each agent is handed the whole card: its
 description, plan, answers, checklist and comments, and the project's rules. Tests,
 the deploy and the merge into the base branch go one card after another. The status bar

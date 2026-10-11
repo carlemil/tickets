@@ -322,16 +322,19 @@ tool, no `code-review`, or an error → it reviews `git -C <tree> diff <base>...
 and says so. code-review does not know the card, so it also checks the diff against the
 request, plan, answers and checklist, and runs the tests, fixing what it can itself on
 the branch. **Docs-only skip (#163):** it skips the test run, and only the test run (the
-review and the card check still happen), when (a) every file in
-`git -C <tree> diff --name-only <base>...card/<id>` ends in `.md` (a page the app serves,
-e.g. `docs.html`, never counts: tests fetch it without naming it) and (b) no test file
-(`test_*.py`, `conftest.py`, anything under `tests/`) quotes a changed file's name or path as a
-string: `grep -nE "[\"']([^\"']*/)?<name>[\"']"` over them finds nothing for each
-changed file (`<name>` is the file's base name, regex-escaped). A mention in a comment or docstring
-is no hit; a doubtful hit only runs the suite, which is safe. Then its reply has the
-line `tests: skipped, docs-only (<files>)`. Otherwise it runs the suite as always. When
-the suite ran, its last run comes after its last commit, so the suite ran on the tree
-that ships (the deploy may skip its own run on that, #156). What it cannot (unfinished
+review and the card check still happen), when, checked after its last commit, (a) every
+file in `git -C <tree> diff --name-only --no-renames <base>...card/<id>` ends in `.md`
+(a renamed file lists its old and new name; a page the app serves, e.g. `docs.html`,
+never counts: tests fetch it without naming it) and (b) no test file (`test_*.py`,
+`conftest.py`, anything under `tests/`) quotes a changed file's name or path as a
+string. For each changed file, in the Bash tool (Git Bash) from the worktree:
+`grep -rnE "[\"']([^\"']*[/\\])?<name>[\"']" <the test files that exist>` (`<name>` is the
+file's base name, regex-escaped); exit 1 (no match) is no hit, exit 0 is a hit, and any
+other exit (an error, a missing path) counts as a hit. A mention in a comment or
+docstring is no hit; a doubtful hit only runs the suite, which is safe. Then its reply
+has the line `tests: skipped, docs-only (<files>)`. Otherwise it runs the suite as
+always. Either way its last commit comes first: the suite's last run, or the docs-only
+check, is on the tree that ships (the deploy may skip its own run on that, #156). What it cannot (unfinished
 work, a decision a person must make) it leaves alone.
 Its review names every checklist step still unticked (one skipped on purpose says why).
 Last line exactly `RESULT: PASS` or `RESULT: FAIL`. Comment its reply. FAIL → failure.
@@ -357,7 +360,9 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    rule: it already implies the base moved. Before that, rerun the docs-only check of the
    test stage (#163) on `<base>...card/<id>` against the base's current tests (this covers
    a ship commit and a moved base): if it holds, the verdict is **docs-only** (no suite
-   ran, none is owed). Otherwise use the logic above. Hand the deploy the verdict,
+   ran, none is owed). Otherwise use the logic above, except that a test reply with
+   `tests: skipped, docs-only` is always **not tested** (the suite never ran on this
+   branch). Hand the deploy the verdict,
    **docs-only**, **tested** or **not tested**, in the deploy step.
 3. **Land:** only when `land` is `merge` — with `pr`, skip it and say "landing by pull
    request" in the deploy comment. Only if the repo is on `<base>` with nothing uncommitted
@@ -391,8 +396,9 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    `tests: run in test stage, skipped` (tested, the rules call for tests);
    `tests: <count> passed`, e.g. `tests: 538 passed` (not tested, tests ran; a failing run
    is `tests: <the summary line>`, no push, `DEPLOY: FAILED`); `tests: none in the deploy
-   rules` (the rules name no test run, either verdict). Nothing deployed (`DEPLOY:
-   SKIPPED`) needs no line. If the reply lacks the line, add it to the comment yourself
+   rules` (the rules name no test run, any verdict). A `DEPLOY: SKIPPED` reply has the
+   line too (a deploy may merge, test and push yet skip the rest, as the Tickets repo's
+   does for a docs-only change, #160). If the reply lacks the line, add it to the comment yourself
    from the verdict (`tests: skipped, docs-only` when docs-only, `tests: run in test stage, skipped` when tested, `tests: not
    reported` when not tested), so the comment always says which.
 5. **Merged dot:** `update_card(merged=True)` if `git -C <repo> branch --merged <base>
