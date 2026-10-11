@@ -224,7 +224,9 @@ again.</p>
     project picker under the title changes it. A draft has no activity log or comment
     box: comments come once the card exists. A link is checked as you add it; close
     while that check is still running and the card waits for it, then is created with
-    the link.</li>
+    the link. "move to plan", next to "close", creates the card straight in
+    <code>plan</code> (whatever the lane picker says) and closes the draft, ready for the
+    next run; on an empty draft it just closes, like "close".</li>
 </ul>
 
 <h3>Cards</h3>
@@ -362,7 +364,8 @@ The card stays in its lane, marked blocked, and runs skip it until those cards r
     <code>/tickets-open-board</code> opens the board in your browser any time.</li>
   <li>New Card in <code>todo</code>: a title and a clear description of what you want and
     why.</li>
-  <li>Drag it to <code>plan</code>, and the next run of <code>/tickets-start</code> takes it.
+  <li>Drag it to <code>plan</code> (or create it with "move to plan" instead of "close"),
+    and the next run of <code>/tickets-start</code> takes it.
     Watch the status bar and the comments. The plan's steps become the card's checklist and
     the agent ticks each one as it finishes it, so the checklist (and the
     <code>☑ done/total</code> chip on the board card) is its live task list.</li>
