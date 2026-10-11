@@ -529,7 +529,11 @@ filter). It shows the fields a saved card does, links included, but no activity 
 no comment box: a card that does not exist yet has no comments (#94). Nothing
 is written until the draft is closed with "close" (or Enter in the title), which
 `POST`s the fields all at once (one `created` event), then the links queued on the
-draft (checked to exist as they are added), and hides the sheet. A draft with nothing typed just closes. A draft with
+draft (checked to exist as they are added), and hides the sheet. A link whose check is
+still in flight when the draft is closed is waited for, not dropped: the draft keeps its
+pending checks (`checks`) and the `POST` goes out once they have answered, with the link
+if it checked out (#104). A draft with nothing typed just closes; a link being checked
+counts as typed. A draft with
 content but no title stays open and says "a card needs a title". If the `POST` fails
 the sheet stays with everything in it and the next "close" retries; a double click makes one
 card. "cancel" discards the draft. The draft re-renders only for checklist edits and
@@ -678,8 +682,9 @@ no longer on the board.
 | 84 | #87 an empty `pr` makes a verify blocker finished only when its project lands by `merge`: in a `pr` project a card reworked (pr cleared, #72) and dragged straight back to verify by hand, or a person's task card there, keeps blocking until its PR merges or it is `done` (core `_blocks`, so the board, the run and the idle gate agree) | done — 505 checks |
 | 85 | #88 flaky tests: a board load answered after a newer one is dropped (the idle-dot flake, a real board race), and the drag, failed-create and add-project tests wait for the board's own requests before reading the database or typing on | done — 506 checks |
 | 86 | #138 the board's self-restart works: the spawn drops `DETACHED_PROCESS` (Windows PowerShell with no console exits without running its script), a test runs the real spawn against a stand-in of the script's -Delay branch, and a restart that does not happen shows on the settings sheet (`restart_failed`) | done — 517 checks |
+| 87 | #104 closing a new card while a link on it is still being checked waits for the check: the draft keeps its pending link checks and creates the card once they answer, with the link (a bad one is reported, a cancel drops it even after clicking out, an untitled draft asks for a title) | done — 522 checks |
 
-Gate for every task: `uv run pytest -q` — 517 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 522 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
