@@ -1409,6 +1409,97 @@ def test_a_failed_create_keeps_the_sheet_and_everything_in_it(page):
     assert [c["id"] for c in core.list_cards()] == [other], "nothing was created"
 
 
+def hold_link_checks(page):
+    """Holds back the new-card sheet's link check (a GET of one card) until
+    release_link_checks(), so a test can act while it is in flight -- no sleeps.
+    Returns once the board has sent one."""
+    page.evaluate(r"""() => {
+        window.__held = 0;
+        window.__checks = new Promise(ok => { window.__release = ok; });
+        const original = window.fetch;
+        window.fetch = (url, opts) => /^\/api\/cards\/\d+$/.test(url) && opts.method === "GET"
+            ? (window.__held++, window.__checks.then(() => original(url, opts)))
+            : original(url, opts);
+    }""")
+
+
+def link_while_held(page, to):
+    hold_link_checks(page)
+    page.fill("#panel input[type=number]", str(to))
+    page.click("#panel button:text-is('link')")
+    page.wait_for_function("() => window.__held === 1")
+
+
+def test_clicking_out_during_a_link_check_waits_for_it(page):
+    """#104: the link was still being checked when the person clicked out, and the card
+    was created without it. Creating now waits for the check."""
+    other = core.create_card("other", actor="ce", project="Home")["id"]
+    page.click("#add")
+    page.fill("#panel input[type=text] >> nth=0", "quick")
+    link_while_held(page, other)
+    click_outside(page)
+    page.evaluate("window.__release()")
+    cid = created(page)
+    assert [(l["from_id"], l["to_id"], l["kind"]) for l in core.get_card(cid)["links"]] \
+        == [(cid, other, "parent")]
+    assert page.locator("#err.on").count() == 0
+
+
+def test_a_bad_link_checked_while_closing_still_creates_the_card(page):
+    page.click("#add")
+    page.fill("#panel input[type=text] >> nth=0", "no such link")
+    link_while_held(page, 999)
+    close_sheet(page)
+    page.evaluate("window.__release()")
+    cid = created(page)
+    assert core.get_card(cid)["links"] == []
+    assert "no card 999" in page.text_content("#err")
+
+
+def test_cancel_during_a_link_check_creates_nothing(page):
+    other = core.create_card("other", actor="ce", project="Home")["id"]
+    page.click("#add")
+    page.fill("#panel input[type=text] >> nth=0", "never mind")
+    link_while_held(page, other)
+    page.click("#panel button:text-is('cancel')")
+    page.evaluate("window.__release()")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.locator("#panel.on").count() == 0
+    assert [c["id"] for c in core.list_cards()] == [other]
+
+
+def test_cancel_after_clicking_out_during_a_link_check_creates_nothing(page):
+    other = core.create_card("other", actor="ce", project="Home")["id"]
+    page.click("#add")
+    page.fill("#panel input[type=text] >> nth=0", "changed my mind")
+    link_while_held(page, other)
+    close_sheet(page)
+    page.click("#panel button:text-is('cancel')")
+    page.evaluate("window.__release()")
+    page.wait_for_function("() => window.__inflight === 0")
+    page.evaluate("fetch('/api/cards').then(r => r.json())")
+    assert [c["id"] for c in core.list_cards()] == [other]
+
+
+def test_an_untitled_draft_with_a_link_check_running_asks_for_a_title(page):
+    """A link being checked is something typed: the untitled draft stays, the link
+    lands when its check answers, and the card it makes carries it."""
+    other = core.create_card("other", actor="ce", project="Home")["id"]
+    page.click("#add")
+    link_while_held(page, other)
+    click_outside(page)
+    page.wait_for_selector("#err.on")
+    assert "needs a title" in page.text_content("#err")
+    assert page.locator("#panel.on").count() == 1
+    page.evaluate("window.__release()")
+    page.wait_for_selector(f"#panel .links li:has-text('parent → #{other}')")
+    page.wait_for_function("() => window.__inflight === 0")
+    page.fill("#panel input[type=text] >> nth=0", "titled at last")
+    close_sheet(page)
+    cid = created(page)
+    assert [l["to_id"] for l in core.get_card(cid)["links"]] == [other]
+
+
 # ---------- closing the sheet ----------
 
 def test_the_card_editor_leaves_a_margin_around_it(page):
