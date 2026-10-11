@@ -686,9 +686,9 @@ no longer on the board.
 | 85 | #88 flaky tests: a board load answered after a newer one is dropped (the idle-dot flake, a real board race), and the drag, failed-create and add-project tests wait for the board's own requests before reading the database or typing on | done — 506 checks |
 | 86 | #138 the board's self-restart works: the spawn drops `DETACHED_PROCESS` (Windows PowerShell with no console exits without running its script), a test runs the real spawn against a stand-in of the script's -Delay branch, and a restart that does not happen shows on the settings sheet (`restart_failed`) | done — 517 checks |
 | 87 | #104 closing a new card while a link on it is still being checked waits for the check: the draft keeps its pending link checks and creates the card once they answer, with the link (a bad one is reported, a cancel drops it even after clicking out, an untitled draft asks for a title) | done — 522 checks |
-| 88 | #105 a board load answered after a write merges per card by `updated_at`: the just-written card (a sheet edit, a drag, a move to another project) is not flipped back to its old state, and a newer copy that left the tab is not drawn | done — 525 checks |
+| 88 | #105 a board load answered after a write merges per card by `updated_at`: the just-written card (a sheet edit, a drag, a move to another project) is not flipped back to its old state, and a newer copy that left the tab is not drawn | done — 527 checks |
 
-Gate for every task: `uv run pytest -q` — 525 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 527 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

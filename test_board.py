@@ -1841,6 +1841,7 @@ def test_a_board_load_answered_late_does_not_undo_a_newer_one(page):
     # the next board load is answered with what the server holds now, but held back
     page.evaluate("""() => {
         const real = window.fetch;
+        window.__release = null;
         window.fetch = (url, opts) => {
             if (!String(url).startsWith("/api/cards?")) return real(url, opts);
             window.fetch = real;
@@ -1936,6 +1937,27 @@ def test_a_load_answered_after_a_card_left_the_tab_does_not_bring_it_back(page):
     page.evaluate("load()")                                  # and the next load agrees
     page.wait_for_function("() => window.__inflight === 0")
     assert page.locator(f'.card[data-id="{cid}"]').count() == 0
+
+
+def test_a_load_still_brings_in_a_change_made_elsewhere(page):
+    """An older copy on screen never blocks a fresher load: only a strictly newer
+    updated_at on screen is kept (#105)."""
+    cid, = cards_in(page, "before")
+    core.update_card(cid, title="changed elsewhere", actor="ce")
+    page.evaluate("load()")
+    page.wait_for_function(f"() => cards.find(c => c.id === {cid}).title === 'changed elsewhere'")
+    assert page.text_content(f'.card[data-id="{cid}"] .t') == "changed elsewhere"
+
+
+def test_a_kept_copy_that_was_archived_meanwhile_is_not_drawn(page):
+    cid, = cards_in(page, "to archive")
+    call = hold_a_load(page)
+    page.wait_for_function("() => window.__release")       # it holds the card, not archived
+    page.evaluate(f"async () => replace(await api('PATCH', '/api/cards/{cid}', {{archived: true}}))")
+    page.wait_for_function(f"() => !cards.find(c => c.id === {cid}) || cards.find(c => c.id === {cid}).archived")
+    release_the_load(page, call)
+    assert page.locator(f'.card[data-id="{cid}"]').count() == 0, "the late load drew an archived card"
+    assert core.get_card(cid)["archived"]
 
 
 def test_the_pulse_survives_a_board_reload(page):
