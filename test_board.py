@@ -1939,6 +1939,77 @@ def test_a_load_answered_after_a_card_left_the_tab_does_not_bring_it_back(page):
     assert page.locator(f'.card[data-id="{cid}"]').count() == 0
 
 
+def land_the_stale_load(page, call):
+    """Release a held load that a newer one has overtaken: it must change nothing (#88)."""
+    page.wait_for_function("() => window.__release")
+    assert page.evaluate("loads") > call, "no newer load started: the held one is not stale"
+    page.evaluate("window.__release(); window.__older")
+    page.wait_for_function("() => window.__inflight === 0")
+
+
+def test_a_card_created_from_the_sheet_during_a_held_load_stays_when_it_lands(page):
+    """A load that started before the create holds a board without the new card. The
+    create reloads the board itself, so that load is overtaken and dropped when it lands:
+    the card is never on screen and missing from the load that drew it (#148)."""
+    cards_in(page, "already here")
+    call = hold_a_load(page)
+    page.wait_for_function("() => window.__release")       # answered without the new card
+    page.click("#add")
+    page.fill("#panel input[type=text] >> nth=0", "made during a held load")
+    close_sheet(page)
+    for _ in range(100):
+        made = [c["id"] for c in core.list_cards() if c["title"] == "made during a held load"]
+        if made:
+            break
+        page.wait_for_timeout(50)
+    else:
+        raise AssertionError("the create never landed")
+    cid, = made
+    page.wait_for_selector(f'.card[data-id="{cid}"]')
+    land_the_stale_load(page, call)
+    assert page.locator(f'.card[data-id="{cid}"]').count() == 1, "the late load dropped the new card"
+    assert page.evaluate(f"cards.some(c => c.id === {cid})")
+
+
+def test_a_card_an_agent_creates_during_a_held_load_stays_when_it_lands(page):
+    """Created elsewhere, drawn by the reload the version change brings, and then the
+    older held load (which never saw the card) lands last (#148)."""
+    cards_in(page, "already here")
+    call = hold_a_load(page)
+    page.wait_for_function("() => window.__release")
+    cid = core.create_card("made by an agent", actor="claude-agent", project="Home")["id"]
+    page.evaluate("load()")                                  # what the status poll does
+    page.wait_for_selector(f'.card[data-id="{cid}"]')
+    land_the_stale_load(page, call)
+    assert page.locator(f'.card[data-id="{cid}"]').count() == 1, "the late load dropped the new card"
+
+
+def test_a_card_archived_or_moved_away_elsewhere_still_goes_when_a_held_load_lands(page):
+    """The other side of #148: a card truly taken off the board elsewhere (archived, or
+    moved to another project) is gone after the next load, and an older held load that
+    still holds it does not bring it back."""
+    gone, moved, stays = cards_in(page, "archived elsewhere", "moved elsewhere", "stays")
+    core.create_project("Other")
+    page.evaluate("load()")
+    page.click('#proj button[value="Home"]')
+    page.wait_for_function("() => window.__inflight === 0 && proj() === 'Home'")
+    call = hold_a_load(page)
+    page.wait_for_function("() => window.__release")       # it holds all three
+    core.update_card(gone, "claude-agent", archived=True)
+    core.update_card(moved, "claude-agent", project="Other")
+    page.evaluate("load()")
+    page.wait_for_function(f"""() => !document.querySelector('.card[data-id="{gone}"]')
+                                  && !document.querySelector('.card[data-id="{moved}"]')""")
+    land_the_stale_load(page, call)
+    for cid in (gone, moved):
+        assert page.locator(f'.card[data-id="{cid}"]').count() == 0, f"#{cid} came back"
+    assert page.locator(f'.card[data-id="{stays}"]').count() == 1
+    page.evaluate("load()")                                  # and the next load agrees
+    page.wait_for_function("() => window.__inflight === 0")
+    for cid in (gone, moved):
+        assert page.locator(f'.card[data-id="{cid}"]').count() == 0
+
+
 def test_a_load_still_brings_in_a_change_made_elsewhere(page):
     """An older copy on screen never blocks a fresher load: only a strictly newer
     updated_at on screen is kept (#105)."""

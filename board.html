@@ -1396,6 +1396,10 @@ $("#add").onclick = () => {
 // merges per card, like replace(): a card whose copy on screen has a newer updated_at keeps
 // that copy, unless the copy has left the view this load asked for (archived, or moved to
 // another project), when its newer state says it is no longer on this board (#105).
+// A card on screen but missing from the load that renders is truly gone, and needs no rule
+// (#148): `cards` only gains a card from a load, a create reloads the board itself, and
+// loads render in start order -- each rendered load was asked after the previous one was
+// answered, so its snapshot is newer. That ordering is causal, so no clocks are compared.
 let loads = 0, loading = null;
 function mergeCards(fresh, archived, project) {
   const shown = new Map(cards.map(c => [c.id, c]));
