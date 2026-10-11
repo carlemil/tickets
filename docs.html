@@ -190,8 +190,10 @@ the sheet there says so.</p>
 <dl>
   <dt>todo</dt><dd>Your backlog: not started. Move a card on to plan to start it.</dd>
   <dt>plan</dt><dd>The agent writes a plan and any open questions.</dd>
-  <dt>develop</dt><dd>The agent builds it, following the plan and your answers.</dd>
-  <dt>test</dt><dd>The agent reviews the changes and runs the tests, fixing what it can. The
+  <dt>develop</dt><dd>The agent builds it, following the plan and your answers. It runs only the tests that
+    cover what it changed (none for a docs-only change); the full suite is left to the test
+    lane.</dd>
+  <dt>test</dt><dd>The agent reviews the changes and always runs the full test suite, fixing what it can. The
     review is Claude Code's own <code>/code-review</code> on the card's branch, plus a check
     against the card's request, plan, answers and checklist. When every changed file is a
     Markdown file (not a page the app serves, like this manual) and no test names it, the suite

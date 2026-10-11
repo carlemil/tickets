@@ -182,3 +182,40 @@ def test_the_docs_only_grep_finds_the_files_the_tests_read():
     assert not quoted("README" + ".md", tests)
     assert not quoted("run.md", TICK)         # a mention inside a longer string is no hit
     assert quoted("run.md", 'open(r"skill-start\\run.md")')  # a Windows path
+
+
+def test_run_md_pins_the_targeted_develop_tests():
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    start = text.index("**Targeted tests (#192):**")
+    end = text.index("Its one board write", start)
+    develop = text[start:end]
+    for needle in ("diff --name-only --no-renames <base>...HEAD",
+                   "`tests: skipped, docs-only (<files>)`",
+                   "test map",
+                   "full suite instead",
+                   "`conftest.py`",
+                   "cannot be narrowed to files",
+                   "most of the suite",
+                   "`tests: targeted (<files>): <summary>`",
+                   "`tests: full suite (<why>): <summary>`"):
+        assert needle in develop, needle
+    assert "The test stage's full run stays mandatory (#192)" in text
+
+
+def test_claude_md_test_map_is_complete():
+    import subprocess
+    claude = open("CLAUDE.md", encoding="utf-8").read()
+    rows = [line.strip() for line in claude.splitlines()
+            if line.strip().startswith(("| `", "| other"))]
+    mapped = "\n".join(rows)
+    tracked = subprocess.run(["git", "ls-files"], capture_output=True, text=True,
+                             check=True).stdout.split()
+    top = {p.split("/")[0] + ("/" if "/" in p else "") for p in tracked}
+    for item in sorted(top):
+        if item.endswith(".md") or re.match(r"test_.*\.py$", item):
+            continue
+        assert f"`{item}`" in mapped or (item.startswith("skill-") and "`skill-*/`" in mapped
+                                         or "other `skill-*/`" in mapped), item
+    import os
+    for name in re.findall(r"`(test_\w+\.py)`", mapped):
+        assert os.path.exists(name), name

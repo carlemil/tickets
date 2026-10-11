@@ -1,7 +1,22 @@
 # Tickets
 
 - **Test:** `uv run pytest -q` from the repo root. Never with pytest-xdist: the suite
-  shares one process with an in-thread server on purpose.
+  shares one process with an in-thread server on purpose. The test stage always runs it
+  in full. The develop stage runs only the files that cover its change (test map, #192;
+  a path with no row, or a new module, runs the full suite):
+
+  | changed | develop runs |
+  |---|---|
+  | `core.py` | `test_core.py test_app.py` |
+  | `app.py`, `log-config.json`, `restart-backend.ps1` | `test_app.py` (plus `test_e2e.py` for `app.py`) |
+  | `board.html` | `test_board.py test_e2e.py` |
+  | `docs.html`, `docs-card.png`, `docs_card.py` | `test_app.py test_board.py` |
+  | `skill-start/` | `test_idle_gate.py` |
+  | other `skill-*/` | the docs-only check, else `test_idle_gate.py` |
+  | a `test_*.py` | that file |
+  | `conftest.py`, `pyproject.toml`, `uv.lock`, `.gitignore`, a new module | full suite |
+  | `*.md` | the docs-only check |
+
 - **PLAN.md** is the source of truth: every change updates it.
 - **docs.html** is the user's manual: a change to how the board or the skill behaves
   updates it too.
