@@ -23,7 +23,7 @@ password then, so only on a network you trust. Never host it online.
   (Sonnet for a card you put here or a retried build; a card planned without questions
   is built by the planning agent on the session's model).
 - `test` — the agent reviews the code, runs the project's tests and fixes what fails
-  (Sonnet).
+  (Opus).
 - `verify` — yours: read the comments, look at the branch, try the deployed build. With
   `land: merge` the agent already merged `card/<id>` into the base and pushed; merge it
   yourself only if the deploy comment says the merge was skipped or conflicted. With

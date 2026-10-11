@@ -306,8 +306,9 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   clean), deploy (local unless the instructions say production; the comment head lights
   the purple dot), `merged=True` from git, remove the worktree, move to `verify`.
   Each stage sets its model (#83): plan & develop gets no `model` (the session's, which
-  also builds the card it planned: planning is judgement); develop, test (the owner's
-  answer) and deploy get `sonnet`.
+  also builds the card it planned: planning is judgement); develop gets `sonnet`, test
+  `opus` (never weaker than the `sonnet` that builds a develop card) and deploy `haiku` (mechanical)
+  — the owner's call, #154.
 - **Landing by pull request (#6).** A project's `land` is `merge` (the default, above) or
   `pr`: then ship also opens a PR with `gh` and stores its URL in the card's `pr`, the
   local merge is skipped (the deploy never merges either), and the merged dot waits for
@@ -710,6 +711,7 @@ no longer on the board.
 | 89 | #147 runs never pause for the user over a card move: `run.md` retries a transient board-write failure (over HTTP if the tools fail), never retries a write a permission check refused in another form, notes it on the card, carries on and retries it next tick, names the permission rule once in the summary, and never ends a tick "waiting on you" | done — 527 checks (docs only) |
 | 90 | #153 "move to plan" on the new-card sheet, next to "close": creates the card straight in `plan` (one `created` event, overriding the lane select) and closes; an empty draft just closes, an untitled one stays and keeps its lane; existing cards get no button | done — 535 checks |
 | 91 | #148 a card created during a late board load is not dropped: shown to need no new merge rule (a create reloads the board, so the held load is overtaken and dropped by #88) and pinned with held-load browser tests — a sheet create, an agent create, and a card archived or moved away elsewhere that a stale load does not bring back | done — 538 checks |
+| 92 | #154 the test stage runs on `opus` (the review is never weaker than the `sonnet` that builds a develop card) and the deploy stage on `haiku` (mechanical); plan & develop keeps the session's model and develop `sonnet` — `run.md`, docs and README name the new models | done — 538 checks |
 
 Gate for every task: `uv run pytest -q` — 538 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
