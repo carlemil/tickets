@@ -236,7 +236,7 @@ Last line `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
 - A `## Blocked by` → `update_card(plan=…, checklist=…)` (plus `questions=…` if OPEN),
   lane unchanged, end with the section and `STAGE: BLOCKED`.
 - NONE → `update_card(plan=…, checklist=…, lane="develop")`, so a person sees the plan
-  while the code is written, and end `STAGE: PLANNED`.
+  in `develop`, and end `STAGE: PLANNED`.
 
 It **builds nothing**: no code edits, no commits of its own work, no checklist ticks.
 Its reply is the plan, last line one of `STAGE: PLANNED`, `STAGE: QUESTIONS`,
@@ -245,18 +245,23 @@ Its reply is the plan, last line one of `STAGE: PLANNED`, `STAGE: QUESTIONS`,
 (you) Per verdict, after `get_card` (a person's move wins: expect `develop` after
 PLANNED, `plan` after QUESTIONS, either after BLOCKED or FAILED):
 - PLANNED → start the card's **develop** stage at once (below): same slot, same
-  worktree, a new subagent on `sonnet` with a fresh brief from a fresh `get_card`, so the
-  posted plan and checklist are in it. No re-list in between and no comment needed: the
-  plan is on the card. If a person moved the card off `develop` or took it meanwhile,
-  start nothing and leave it where they put it. Not a git repo → failure ("no git repo"):
-  the card sits in `develop` with its plan.
+  worktree (its (you) steps still run: the folder exists, so only the base merge), a new
+  subagent on `sonnet` with a fresh brief from a fresh `get_card`, so the posted plan and
+  checklist are in it, and `set_activity(doing="developing …")` on it. No re-list in
+  between and no comment needed: the plan is on the card. If a person moved the card off
+  `develop` or took it meanwhile, start nothing and leave it where they put it. If the
+  reply says its plan post was refused by a permission check, the card is still in
+  `plan` by no one's move: note the refused write as under "Board writes that fail",
+  with the plan in that comment so the next tick can make the same write, and start
+  nothing. Not a git repo → failure ("no git repo"): the card sits in `develop` with its
+  plan.
 - QUESTIONS → comment "open questions: answer them in the card; the next run replans
   with them".
 - BLOCKED → the blocker cards (Blocked by a person, below), plus the open-questions
   comment if it posted questions.
 - FAILED → failure. Posted already → the card sits in `develop` and a later run develops
   it fresh; otherwise it stays in `plan`.
-- QUESTIONS, MOVED, or BLOCKED/FAILED (or a crash) with the card still in `plan` →
+- QUESTIONS, MOVED, or PLANNED/BLOCKED/FAILED (or a crash) with the card still in `plan` →
   `git -C <repo> worktree remove <tree>` (no `--force`; will not go → leave it, say so),
   and `git -C <repo> branch -d card/<id>` only if you created the branch for this run and
   `git -C <repo> rev-list --count <base>..card/<id>` is 0 (an older branch is the record).
