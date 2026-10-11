@@ -1238,8 +1238,8 @@ def test_the_project_is_chosen_right_under_the_title(page):
     page.click("#add")
     heads = each(page, "#panel h3", "ns => ns.map(n => n.textContent)")
     assert heads[0] == "project", "first under the header row, which holds the title"
-    assert page.locator("#panel select >> nth=0 >> option").all_text_contents() == [
-        "Home", "Other"]
+    assert each(page, "#panel select",
+                "ns => [...ns[0].options].map(o => o.textContent)") == ["Home", "Other"]
 
 
 def sheet_heads(page, cid):
@@ -2948,16 +2948,16 @@ def test_the_log_opens_folded_down_to_the_agents_last_comment(page):
     page.evaluate(f"openCard({cid})")
     page.wait_for_function(f"() => open && open.id === {cid}")
 
-    shown = lambda: each(page, "#panel .log li:not(.more)", "ns => ns.filter(n => n.getClientRects().length).map(n => n.textContent)")
-    assert len(shown()) == len(events) - last, shown()   # that comment and all after it
-    assert "done, see the diff" in shown()[0]
-    assert not any("plan written" in t for t in shown()), "the older round is folded away"
+    visible_lines = lambda: each(page, "#panel .log li:not(.more)", "ns => ns.filter(n => n.getClientRects().length).map(n => n.textContent)")
+    assert len(visible_lines()) == len(events) - last, visible_lines()   # that comment and all after it
+    assert "done, see the diff" in visible_lines()[0]
+    assert not any("plan written" in t for t in visible_lines()), "the older round is folded away"
 
     page.click("#panel .log li.more button")
-    assert len(shown()) == len(events), shown()
+    assert len(visible_lines()) == len(events), visible_lines()
     assert page.text_content("#panel .log li.more button") == "hide earlier"
     page.click("#panel .log li.more button")
-    assert len(shown()) == len(events) - last, shown()
+    assert len(visible_lines()) == len(events) - last, visible_lines()
     assert page.text_content("#panel .log li.more button") == f"show {last} earlier"
 
 
@@ -3236,6 +3236,8 @@ def test_a_failed_first_load_is_retried_by_the_next_status_poll(browser, server)
     """A transient 5xx on the first /api/cards used to leave the board without lanes until
     someone wrote: the poll reloaded only on a version change (#165)."""
     pg = browser.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))   # as the page fixture does
     try:
         failed = []
 
@@ -3258,3 +3260,4 @@ def test_a_failed_first_load_is_retried_by_the_next_status_poll(browser, server)
         assert pg.evaluate("loadFailed") is False
     finally:
         pg.close()
+    assert not errors, errors

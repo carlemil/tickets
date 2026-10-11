@@ -10,6 +10,7 @@ why this suite must not be run under pytest-xdist.
 import socket
 import threading
 import time
+import warnings
 
 import pytest
 
@@ -111,9 +112,13 @@ def browser():
 # --poll-ms when stressing. A test whose point is the timer itself takes @pytest.mark.real_poll.
 POLL_INIT = """(ms => {
     const real = window.setInterval.bind(window);
-    window.setInterval = (f, d, ...a) =>
-        (typeof f === 'function' && f.name === 'loadStatus' && d === 5000)
-            ? (ms > 0 ? real(f, ms) : 0) : real(f, d, ...a);
+    window.setInterval = (f, d, ...a) => {
+        if (typeof f === 'function' && f.name === 'loadStatus' && d === 5000) {
+            window.__pollStubbed = true;   // the fixture checks the match still happens
+            return ms > 0 ? real(f, ms) : 0;
+        }
+        return real(f, d, ...a);
+    };
 })(%d)"""
 
 
@@ -140,9 +145,16 @@ def page(browser, server, request):
     try:
         pg.wait_for_selector("#board .lane", timeout=30000)
     except Exception as e:
-        err = pg.evaluate("document.querySelector('#err')?.textContent ?? null")
+        try:
+            err = pg.evaluate("document.querySelector('#err')?.textContent ?? null")
+        except Exception as read:
+            err = f"<unreadable: {read}>"
         raise AssertionError(f"the board never drew a lane: #err={err!r}, "
                              f"5xx responses={server_errors}") from e
+    if not request.node.get_closest_marker("real_poll"):
+        assert pg.evaluate("window.__pollStubbed === true"), (
+            "the page fixture no longer finds board.html's setInterval(loadStatus, 5000): "
+            "update POLL_INIT, or the real 5 s poll runs in every browser test again")
     # Count in-flight api() calls. Every panel edit PATCHes and then re-renders the panel,
     # replacing its field nodes, and the write lands in the database before the browser
     # re-renders -- so a test that waits only on the database can type into a node the
@@ -159,8 +171,13 @@ def page(browser, server, request):
     # Let every request this test started finish before the next test's db fixture moves
     # core.DB_PATH, or a late write lands in that test's database.
     try:
-        pg.wait_for_function("() => window.__inflight === 0", timeout=5000)
+        pg.wait_for_function("() => !(window.__inflight > 0)", timeout=5000)   # gone after a reload
     except Exception:
-        pass
+        try:
+            left = pg.evaluate("window.__inflight")
+        except Exception:
+            left = "?"
+        warnings.warn(f"{request.node.nodeid}: {left} board request(s) still in flight "
+                      "after 5 s at teardown; a late write may land in the next test's db")
     pg.close()
     assert not errors, errors

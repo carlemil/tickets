@@ -1413,7 +1413,8 @@ function mergeCards(fresh, archived, project) {
     return here(mine) ? [mine] : [];
   });
 }
-function load() { return loading = loadBoard(++loads); }
+// a new load clears loadFailed, so a retry never cancels a slow load still on its way
+function load() { loadFailed = false; return loading = loadBoard(++loads); }
 async function loadBoard(call) {
   let got;
   const project = proj(), archived = $("#showArch").checked;
