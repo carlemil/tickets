@@ -180,11 +180,11 @@ def test_run_md_pins_the_in_flight_setting():
     assert "fell back to 2 (#193)" in text  # the summary's fallback line
     assert not re.search(r"\b(3|three)\b\**\s+cards\s+in\s+flight", text, re.I)
     assert not re.search(r"up to (3|three) at", text, re.I)
-    for doc in ("docs.html", "README.md"):
-        page = " ".join(open(doc, encoding="utf-8").read().split())
-        assert "up to 2" in page and "Cards in flight: N" in page, doc
-        assert not re.search(r"up to (3|three) (cards )?at", page, re.I), doc
-        assert "among the 3" not in page, doc
+    # docs.html only: a test reading the README would make README edits non-docs-only (#163)
+    page = " ".join(open("docs.html", encoding="utf-8").read().split())
+    assert "up to 2 cards" in page and "Cards in flight: N" in page
+    assert not re.search(r"up to (3|three) (cards )?at", page, re.I)
+    assert "among the 3" not in page
 
 
 def quoted(name, source):
