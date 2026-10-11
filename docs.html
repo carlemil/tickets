@@ -334,6 +334,14 @@ never reused.</p>
 <p>You can still move a card while the agent works it: <b>a person's move wins</b>. The
 agent then posts its output as a comment saying the card was moved during the run and
 leaves it where you put it. A card assigned to a person is never taken.</p>
+<p><b>It never waits for you to move cards.</b> A board write that fails for a passing
+reason (the board tools gone, an HTTP error, a timeout) is retried, over the web API if the
+tools failed. A write that Claude Code's permission check refuses is never retried some
+other way or through another tool: your permission settings decide. The agent comments on
+the card which write was refused, carries on with the rest of the queue, and tries the
+same write again on the next tick. Its summary tells you once which permission rule would
+let that write through (add it with <code>/permissions</code>). A tick never ends
+"waiting on you" just to hold the cards.</p>
 <p><b>Blocked by a person.</b> When a stage needs something only you can do (a credential,
 an account, a service to enable, a device to plug in), the agent opens a <code>todo</code>
 card for each such task, links it as blocking the card, and comments the new cards' numbers.
