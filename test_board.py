@@ -1468,6 +1468,19 @@ def test_cancel_during_a_link_check_creates_nothing(page):
     assert [c["id"] for c in core.list_cards()] == [other]
 
 
+def test_cancel_after_clicking_out_during_a_link_check_creates_nothing(page):
+    other = core.create_card("other", actor="ce", project="Home")["id"]
+    page.click("#add")
+    page.fill("#panel input[type=text] >> nth=0", "changed my mind")
+    link_while_held(page, other)
+    close_sheet(page)
+    page.click("#panel button:text-is('cancel')")
+    page.evaluate("window.__release()")
+    page.wait_for_function("() => window.__inflight === 0")
+    page.evaluate("fetch('/api/cards').then(r => r.json())")
+    assert [c["id"] for c in core.list_cards()] == [other]
+
+
 def test_an_untitled_draft_with_a_link_check_running_asks_for_a_title(page):
     """A link being checked is something typed: the untitled draft stays, the link
     lands when its check answers, and the card it makes carries it."""

@@ -832,6 +832,7 @@ async function createDraft(c) {
   c.creating = true;
   // a link still being checked goes with the card: wait for it, not past it (#104)
   while (c.checks.size) await Promise.allSettled([...c.checks]);
+  if (!open) { c.creating = false; return; }   // cancelled while it waited: nothing to create
   const { events, links, creating, checks, ...fields } = c;
   let card;
   try {
