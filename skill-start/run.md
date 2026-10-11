@@ -156,8 +156,9 @@ next, and the test stage reviews work it did not write.
   starts fresh) for a cheaper writer.
 - test: `model: "opus"` — the owner's call (#154): the review is never weaker than the
   `sonnet` that wrote the code. The strong model thinks (plan) and checks (test).
-- deploy: `model: "haiku"` — the owner's call (#154): mechanical: run the tests, push
-  and restart per the deploy instructions.
+- deploy: `model: "haiku"` — the owner's call (#154): mechanical: push and restart per
+  the deploy instructions; it reruns the tests only when the landed tree is not the one
+  the test stage tested (#156).
 
 **Slots.** At most **3 cards in flight**. Plan and develop stages run side by side
 within that limit, each in its card's own worktree. A card keeps its slot and its
@@ -316,7 +317,8 @@ Its review names every checklist step still unticked (one skipped on purpose say
 Last line exactly `RESULT: PASS` or `RESULT: FAIL`. Comment its reply. FAIL → failure.
 
 PASS → (you) ship, land, deploy, clean up — in this order:
-1. **Ship:** `git -C <tree> add -A`, commit `#<id> <title>` if anything is staged,
+1. **Ship:** `git -C <tree> add -A`, commit `#<id> <title>` if anything is staged
+   (note whether it committed, #156),
    `git -C <tree> push -q -u origin card/<id>` (env `GIT_TERMINAL_PROMPT=0`). Any git
    error → failure, card stays in test. Comment the commit pushed. If the project's
    `land` is `pr`, then in the repo: `gh pr create --base <base> --head card/<id> --title
@@ -326,13 +328,19 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    http(s) URL back, e.g. empty or `null` → failure, card stays in test),
    `update_card(pr=<url>)`, and comment the URL. gh missing or failing → failure, card
    stays in test.
-2. **Land:** only when `land` is `merge` — with `pr`, skip it and say "landing by pull
+2. **Tested tree (#156):** first, in either land mode and before any merge, run
+   `git -C <repo> merge-base --is-ancestor <base> card/<id>`. The landed tree is the
+   tested one only if that exits 0 **and** ship committed nothing; any other result
+   (exit 1, an error, a ship commit) means it is not. A land that is skipped, aborted or
+   conflicts does not change the answer (a conflict already implies the base moved).
+   Hand the deploy the verdict, **tested** or **not tested**, in the deploy step.
+3. **Land:** only when `land` is `merge` — with `pr`, skip it and say "landing by pull
    request" in the deploy comment. Only if the repo is on `<base>` with nothing uncommitted
    (`git status --porcelain --untracked-files=no` empty):
    `git -C <repo> merge --no-ff card/<id> -m "Merge #<id> <title>"`; a conflict →
    `merge --abort`. Say which happened (or why it was skipped) in the deploy comment.
    Do not push yet.
-3. **Deploy:** a subagent (`model: "haiku"`) deploys per the project instructions.
+4. **Deploy:** a subagent (`model: "haiku"`) deploys per the project instructions.
    Local only — the test backend, or an install on a connected phone (check `adb devices`; none → skip the
    phone) — never production, a public server or an app store unless the instructions
    clearly say so. Changed neither backend nor app → deploy nothing. It may merge, push
@@ -342,11 +350,27 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    exactly `deployed: `, `deploy skipped: ` or `deploy failed: ` — the board lights the
    purple dot from that head. Then push the base if the land merged and the deploy did
    not already (`git -C <repo> push -q origin <base>`).
-4. **Merged dot:** `update_card(merged=True)` if `git -C <repo> branch --merged <base>
+
+   **Tests in the deploy (#156).** Put one line in the deploy subagent's brief from the
+   verdict. Tested: "The test stage ran the full suite on exactly this tree (`<base>` had
+   not moved since it merged it in, and ship committed nothing): do not run the tests,
+   even if the deploy instructions say to." Not tested: "`<base>` moved since the test
+   stage (or ship committed changes after it): run the tests if the deploy instructions
+   call for them, before any push." The rule only removes a test run the instructions
+   call for, never adds one. The subagent puts exactly one `tests:` line in its reply
+   (the head `deployed: ` / `deploy skipped: ` / `deploy failed: ` is unchanged):
+   `tests: run in test stage, skipped` (tested, the rules call for tests);
+   `tests: <count> passed`, e.g. `tests: 538 passed` (not tested, tests ran; a failing run
+   is `tests: <the summary line>`, no push, `DEPLOY: FAILED`); `tests: none in the deploy
+   rules` (the rules name no test run, either verdict). Nothing deployed (`DEPLOY:
+   SKIPPED`) needs no line. If the reply lacks the line, add it to the comment yourself
+   from the verdict (`tests: run in test stage, skipped` when tested), so the comment
+   always says which.
+5. **Merged dot:** `update_card(merged=True)` if `git -C <repo> branch --merged <base>
    --list card/<id>` lists it. Not with `pr`: the queue step sets it once the PR merges.
-5. **Clean up:** `git -C <repo> worktree remove --force <tree>`; if it will not go, say
+6. **Clean up:** `git -C <repo> worktree remove --force <tree>`; if it will not go, say
    so in a comment (not a failure). The branch stays: it is the record.
-6. Move to `verify`.
+7. Move to `verify`.
 
 A deploy that restarts the Tickets backend itself cuts the MCP connection: if the
 tools stop answering, wait until `GET /api/projects` answers again (start it as in 0 if

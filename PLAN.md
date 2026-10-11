@@ -304,11 +304,15 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   once on PLANNED, or for a card a person put in `develop`), test (always fresh: it reviews work it did not
   write; `/code-review` on `<base>...card/<id>` plus a check against the card, #7; `RESULT: PASS` or the card stays), then
   ship (commit, push `card/<id>`), land (merge into the base when the repo is on it and
-  clean), deploy (local unless the instructions say production; the comment head lights
-  the purple dot), `merged=True` from git, remove the worktree, move to `verify`.
+  clean; before it the dispatcher checks `git merge-base --is-ancestor <base> card/<id>`
+  and that ship committed nothing, #156), deploy (local unless the instructions say
+  production; the comment head lights the purple dot; it skips the full test rerun when
+  the landed tree is the tested one, else runs the tests, and its `tests:` line says
+  which, #156), `merged=True` from git, remove the worktree, move to `verify`.
   Each stage sets its model (#83): plan `opus` (pinned, no longer the session's:
   planning is judgement), develop `sonnet` (it writes code from a written plan), test
-  `opus` (never weaker than the `sonnet` that builds) and deploy `haiku` (mechanical) —
+  `opus` (never weaker than the `sonnet` that builds) and deploy `haiku` (mechanical;
+  it reruns the tests only when the base moved since the test stage, #156) —
   the owner's calls, #154 and #155: the strong model thinks and checks, the cheaper one
   writes; the split trades one extra read of the code for a cheaper writer.
 - **Landing by pull request (#6).** A project's `land` is `merge` (the default, above) or
@@ -715,6 +719,7 @@ no longer on the board.
 | 91 | #148 a card created during a late board load is not dropped: shown to need no new merge rule (a create reloads the board, so the held load is overtaken and dropped by #88) and pinned with held-load browser tests — a sheet create, an agent create, and a card archived or moved away elsewhere that a stale load does not bring back | done — 538 checks |
 | 92 | #154 the test stage runs on `opus` (the review is never weaker than the `sonnet` that builds a develop card) and the deploy stage on `haiku` (mechanical); plan & develop keeps the session's model and develop `sonnet` — `run.md`, docs and README name the new models | done — 538 checks |
 | 93 | #155 plan and develop are separate stages: the plan stage (`opus`, pinned) plans, posts plan and checklist and with no questions moves the card to `develop`, building nothing (`STAGE: PLANNED`); the session starts the develop stage (`sonnet`) at once in the same slot and worktree, from a fresh brief (a person's move at the hand-off wins; a refused plan post is noted and retried next tick, the card still in `plan`) — the strong model thinks and checks, the cheaper one writes; `run.md`, docs and README follow | done — 538 checks |
+| 94 | #156 the deploy skips the test rerun when the landed tree is the tested one: the dispatcher checks `git merge-base --is-ancestor <base> card/<id>` (and that ship committed nothing) before the land merge and tells the deploy subagent whether to run the tests; the deploy comment's `tests:` line says which; repo `CLAUDE.md` Deploy line, `run.md`, docs and PLAN follow (text only) | done — 538 checks |
 
 Gate for every task: `uv run pytest -q` — 538 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
