@@ -36,8 +36,16 @@ def restarts(monkeypatch):
     return calls
 
 
+def pytest_addoption(parser):
+    parser.addoption("--poll-ms", type=int, default=0,
+                     help="stress runs: make the board's status poll fire every N ms "
+                          "instead of switching the timer off (browser tests)")
+
+
 def pytest_configure(config):
     config.addinivalue_line("markers", "no_home: start with no projects configured")
+    config.addinivalue_line("markers", "real_poll: keep the board's real 5 s status-poll "
+                            "timer (the page fixture switches it off by default)")
 
 
 @pytest.fixture(autouse=True)
@@ -97,13 +105,30 @@ def browser():
         b.close()
 
 
+# The board polls /api/activity every 5 s with setInterval(loadStatus, 5000). A poll landing
+# mid-assert re-renders cards under a test (#165), and no test relies on the timer: they call
+# loadStatus() themselves. So the page fixture swaps that one timer for nothing, or for
+# --poll-ms when stressing. A test whose point is the timer itself takes @pytest.mark.real_poll.
+POLL_INIT = """(ms => {
+    const real = window.setInterval.bind(window);
+    window.setInterval = (f, d, ...a) =>
+        (typeof f === 'function' && f.name === 'loadStatus' && d === 5000)
+            ? (ms > 0 ? real(f, ms) : 0) : real(f, d, ...a);
+})(%d)"""
+
+
 @pytest.fixture
-def page(browser, server):
+def page(browser, server, request):
     """A page on the board. Any uncaught JS error or console
     error fails the test that caused it — the board is one file of hand-written DOM code
     and a silent TypeError there is exactly the kind of bug these tests exist to catch."""
     pg = browser.new_page()
     errors = []
+    server_errors = []
+    if not request.node.get_closest_marker("real_poll"):
+        pg.add_init_script(POLL_INIT % request.config.getoption("--poll-ms"))
+    pg.on("response", lambda r: server_errors.append(f"{r.status} {r.request.method} {r.url}")
+          if r.status >= 500 else None)
     pg.on("pageerror", lambda e: errors.append(str(e)))
     # Subresource failures ("Failed to load resource: …") are not board bugs — the board
     # ships no favicon, so every load logs one 404. Real JS exceptions arrive on
@@ -112,7 +137,12 @@ def page(browser, server):
           if m.type == "error" and not m.text.startswith("Failed to load resource")
           else None)
     pg.goto(server)
-    pg.wait_for_selector("#board .lane")
+    try:
+        pg.wait_for_selector("#board .lane", timeout=30000)
+    except Exception as e:
+        err = pg.evaluate("document.querySelector('#err')?.textContent ?? null")
+        raise AssertionError(f"the board never drew a lane: #err={err!r}, "
+                             f"5xx responses={server_errors}") from e
     # Count in-flight api() calls. Every panel edit PATCHes and then re-renders the panel,
     # replacing its field nodes, and the write lands in the database before the browser
     # re-renders -- so a test that waits only on the database can type into a node the
@@ -126,5 +156,11 @@ def page(browser, server):
         };
     }""")
     yield pg
+    # Let every request this test started finish before the next test's db fixture moves
+    # core.DB_PATH, or a late write lands in that test's database.
+    try:
+        pg.wait_for_function("() => window.__inflight === 0", timeout=5000)
+    except Exception:
+        pass
     pg.close()
     assert not errors, errors

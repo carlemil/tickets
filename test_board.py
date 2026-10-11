@@ -113,8 +113,7 @@ def test_dragging_a_card_up_its_column_reorders_it_and_the_order_is_saved(page):
     close_sheet(page)
     under = add_card(page, "was under it")
     close_sheet(page)
-    order = lambda: page.locator('.lane[data-lane="todo"] .card').evaluate_all(
-        "ns => ns.map(n => +n.dataset.id)")
+    order = lambda: each(page, '.lane[data-lane="todo"] .card', "ns => ns.map(n => +n.dataset.id)")
     assert order() == [top, under], "a new card lands at the bottom of its column"
     box = page.locator(f'.card[data-id="{top}"]').bounding_box()
     drag(page, under, "todo", y=box["y"] + 1)          # above the top card's middle
@@ -213,7 +212,7 @@ def test_a_project_tab_shows_only_its_cards_and_survives_a_reload(page):
     page.reload()
     page.wait_for_selector(".card")
     assert tabs(page) == [["All", False], ["Home", False], ["Other", True]]
-    assert page.locator(".card .t").all_text_contents() == ["other card"]
+    assert each(page, ".card .t", "ns => ns.map(n => n.textContent)") == ["other card"]
     page.click('#proj button[value=""]')
     page.wait_for_function("() => document.querySelectorAll('.card').length === 2")
     assert tabs(page)[0] == ["All", True]
@@ -849,7 +848,7 @@ def test_add_opens_an_empty_panel_and_writes_nothing(page):
     assert "new card" in page.text_content("#panel .sub")
     for gone in ("create", "archive"):
         assert page.locator(f"#panel button:text-is('{gone}')").count() == 0, gone
-    heads = page.locator("#panel h3").all_text_contents()
+    heads = each(page, "#panel h3", "ns => ns.map(n => n.textContent)")
     assert "links" in heads, heads
     for gone in ("activity", "say something"):   # a card that does not exist has no comments
         assert gone not in heads, (gone, heads)
@@ -976,7 +975,7 @@ def test_the_projects_panel_lists_and_edits_projects(page, tmp_path):
     page.evaluate("load()")
     page.click("#projects")
     page.wait_for_selector("#panel.on .project")
-    assert page.locator("#panel .project h3").all_text_contents() == [
+    assert each(page, "#panel .project h3", "ns => ns.map(n => n.textContent)") == [
         "Home", "Tickets", "new project"]
     b = project_block(page, "Tickets")
     b.locator("input >> nth=1").fill(str(tmp_path))
@@ -1016,7 +1015,7 @@ def test_add_a_project_from_the_panel(page, tmp_path):
     assert core.get_project("Fresh") == {"name": "Fresh", "path": str(tmp_path),
                                          "instructions": "be careful", "color": "#00875a",
                                          "land": "merge"}
-    assert "Fresh" in page.locator("#proj button").all_text_contents(), "a tab for it"
+    assert "Fresh" in each(page, "#proj button", "ns => ns.map(n => n.textContent)"), "a tab for it"
     assert page.get_attribute('#proj button[value="Fresh"]', "aria-selected") == "false"
     assert project_block(page, "new project").locator("input >> nth=0").input_value() == ""
 
@@ -1046,7 +1045,7 @@ def test_adding_a_project_with_nothing_set_puts_its_setup_cards_on_the_board(pag
     page.wait_for_selector("#panel .project h3:text-is('Fresh')")
     close_sheet(page)   # the panel covers the board
     page.wait_for_selector("#panel.on", state="detached")
-    titles = page.locator('.lane[data-lane="todo"] .card .t').all_text_contents()
+    titles = each(page, '.lane[data-lane="todo"] .card .t', "ns => ns.map(n => n.textContent)")
     assert [t for t in titles if "Fresh" in t] == ["Set Fresh's folder",
                                                    "Tell the agent how to test Fresh",
                                                    "Tell the agent how to deploy Fresh"]
@@ -1219,7 +1218,7 @@ def test_new_card_with_no_projects_asks_for_one_first(page, tmp_path):
     page.click("#add")
     page.wait_for_selector("#err.on")
     assert "create a project first" in page.text_content("#err")
-    assert page.locator("#panel .project h3").all_text_contents() == ["new project"]
+    assert each(page, "#panel .project h3", "ns => ns.map(n => n.textContent)") == ["new project"]
     assert page.evaluate("document.activeElement.placeholder") == "name", "ready to type"
     page.keyboard.type("First")
     page.click("#panel button:text-is('add project')")
@@ -1234,7 +1233,7 @@ def test_the_project_is_chosen_right_under_the_title(page):
     core.create_project("Other")
     page.evaluate("load()")
     page.click("#add")
-    heads = page.locator("#panel h3").all_text_contents()
+    heads = each(page, "#panel h3", "ns => ns.map(n => n.textContent)")
     assert heads[0] == "project", "first under the header row, which holds the title"
     assert page.locator("#panel select >> nth=0 >> option").all_text_contents() == [
         "Home", "Other"]
@@ -1243,7 +1242,7 @@ def test_the_project_is_chosen_right_under_the_title(page):
 def sheet_heads(page, cid):
     page.evaluate(f"openCard({cid})")
     page.wait_for_function(f"() => open && open.id === {cid}")
-    return page.locator("#panel h3").all_text_contents()
+    return each(page, "#panel h3", "ns => ns.map(n => n.textContent)")
 
 
 def test_the_comments_sit_right_under_the_description(page):
@@ -1276,7 +1275,7 @@ def test_a_draft_has_no_comments_under_its_description(page):
     next field it shows -- no activity log, no comment box, nothing queued."""
     page.click("#add")
     page.wait_for_selector("#panel.on")
-    heads = page.locator("#panel h3").all_text_contents()
+    heads = each(page, "#panel h3", "ns => ns.map(n => n.textContent)")
     assert heads[:3] == ["project", "description", "assignee"], heads
     assert "activity" not in heads and "say something" not in heads, heads
     assert page.locator("#panel .say-box").count() == 0
@@ -1337,7 +1336,7 @@ def test_a_new_card_has_no_comments_section_until_it_exists(page):
     assert page.locator("#panel .say-box").count() == 0
     assert page.locator("#panel .log").count() == 0
     assert page.locator("#panel button:text-is('comment')").count() == 0
-    heads = page.locator("#panel h3").all_text_contents()
+    heads = each(page, "#panel h3", "ns => ns.map(n => n.textContent)")
     assert "activity" not in heads and "say something" not in heads, heads
     assert "links" in heads, "the rest of the sheet is still there"
     assert page.evaluate("document.activeElement.placeholder") == "what needs doing?"
@@ -1701,7 +1700,7 @@ def test_the_work_dot_leads_and_the_project_tag_sits_after_the_assignee(page):
     auto = core.create_card("b", actor="ce", project="Home")["id"]
     page.evaluate("load()")
     page.wait_for_selector(f'.card[data-id="{auto}"]')
-    chips = lambda cid: page.locator(f'.card[data-id="{cid}"] .meta > *').all_text_contents()
+    chips = lambda cid: each(page, f'.card[data-id="{cid}"] .meta > *', "ns => ns.map(n => n.textContent)")
     # the work dot (hidden while idle); unlit merged and deployed dots are not there at all
     assert chips(plain) == ["", f"#{plain}", "bob", "Home", "ui"], chips(plain)
     assert chips(auto) == ["", f"#{auto}", "Home"], chips(auto)
@@ -1762,6 +1761,18 @@ def test_an_agent_finishing_reloads_the_board(page):
 
 # ---------- the work dot pulses while an agent works the card ----------
 
+def each(page, css, fn):
+    """Read the nodes matching css and map them with the JS function `fn(nodes)` in ONE
+    page.evaluate. locator.evaluate_all resolves the nodes in one protocol step and reads
+    them in a later one, and a re-render landing between hands it detached old nodes (#165)."""
+    return page.evaluate("([s, f]) => eval(f)([...document.querySelectorAll(s)])", [css, fn])
+
+
+def shown(page, css):
+    """The class names of the visible nodes matching css, read in one step (see each())."""
+    return each(page, css, "ns => ns.filter(n => n.offsetParent !== null).map(n => n.className)")
+
+
 def pulsing(page, sel):
     return page.locator(sel + " .work.working").count()
 
@@ -1786,8 +1797,7 @@ def test_the_board_dot_pulses_while_an_agent_works_the_card(page):
 def test_an_idle_unmerged_card_shows_no_dot_until_something_lights_one(page):
     cid, other = cards_in(page, "quiet", "other")
     card = f'.card[data-id="{cid}"]'
-    visible_dots = lambda: page.locator(f"{card} .work, {card} .st").evaluate_all(
-        "ns => ns.filter(n => n.offsetParent !== null).map(n => n.className)")
+    visible_dots = lambda: shown(page, f"{card} .work, {card} .st")
     assert visible_dots() == []
     core.set_activity("claude-agent", cid, "planning")
     page.evaluate("loadStatus()")
@@ -1804,8 +1814,7 @@ def test_an_idle_unmerged_card_shows_no_dot_until_something_lights_one(page):
     assert visible_dots() == ["st merged"], "blue only: not deployed"
     page.click(card)
     page.wait_for_function(f"() => open && open.id === {cid}")
-    assert page.locator("#panel .head .id .work, #panel .head .id .st").evaluate_all(
-        "ns => ns.filter(n => n.offsetParent !== null).map(n => n.className)") == ["st merged"]
+    assert shown(page, "#panel .head .id .work, #panel .head .id .st") == ["st merged"]
 
 
 def test_a_stale_status_poll_does_not_undo_a_newer_one(page):
@@ -2406,8 +2415,8 @@ def test_an_open_question_s_options_are_radios_that_write_the_answers(page):
 
     type_into(page, "#panel textarea.answers", "1. red\n3. blue\nand be quick")   # still editable
     wait_saved(page, cid, "answers", "1. red\n3. blue\nand be quick")
-    assert page.locator("#panel .choice input:checked").evaluate_all(
-        "rs => rs.map(r => r.parentNode.textContent.trim())") == ["blue"], \
+    assert each(page, "#panel .choice input:checked",
+                "rs => rs.map(r => r.parentNode.textContent.trim())") == ["blue"], \
         "an answer matching an option shows checked; one matching none checks nothing"
 
 
@@ -2558,13 +2567,13 @@ def test_the_docs_card_figure_numbers_every_field_the_sheet_shows(page):
 
     page.evaluate("id => openCard(id)", docs_card.build_card())
     page.wait_for_selector("#panel.on h3")
-    headings = page.eval_on_selector_all(
-        "#panel h3", "hs => hs.filter(h => h.getClientRects().length).map(h => h.textContent)")
+    headings = each(
+        page, "#panel h3", "hs => hs.filter(h => h.getClientRects().length).map(h => h.textContent)")
     numbered = [t[3:] for _, t in docs_card.MARKERS if t.startswith("h3:")]
     # in order too: the badges read top to bottom, so a moved field means a new screenshot
     assert headings == numbered, "sheet fields vs. docs_card.MARKERS"
-    buttons = page.eval_on_selector_all(
-        "#panel .head button", "bs => bs.filter(b => b.getClientRects().length).map(b => b.textContent)")
+    buttons = each(
+        page, "#panel .head button", "bs => bs.filter(b => b.getClientRects().length).map(b => b.textContent)")
     assert buttons == [t[4:] for _, t in docs_card.MARKERS if t.startswith("btn:")]
     assert page.evaluate(docs_card.MARK_JS, docs_card.MARKERS) == []   # every badge lands
     badges = page.locator("#panel .docs-badge")
@@ -2801,8 +2810,8 @@ def cards_in(page, *titles, project="Home"):
 
 
 def picked(page):
-    return sorted(int(x) for x in page.eval_on_selector_all(
-        ".card.selected", "ns => ns.map(n => n.dataset.id)"))
+    return sorted(int(x) for x in each(
+        page, ".card.selected", "ns => ns.map(n => n.dataset.id)"))
 
 
 def ctrl(page, cid):
@@ -2901,7 +2910,7 @@ def test_esc_in_an_open_sheet_leaves_the_selection_alone(page):
 # ---------- the merged and deployed dots ----------
 
 def status(page, where):
-    return page.eval_on_selector_all(where + " .st", "ns => ns.map(n => [n.className, n.title])")
+    return each(page, where + " .st", "ns => ns.map(n => [n.className, n.title])")
 
 
 def test_merged_and_deployed_dots_on_the_board_and_in_the_editor(page):
@@ -2936,8 +2945,7 @@ def test_the_log_opens_folded_down_to_the_agents_last_comment(page):
     page.evaluate(f"openCard({cid})")
     page.wait_for_function(f"() => open && open.id === {cid}")
 
-    shown = lambda: page.locator("#panel .log li:not(.more):visible").evaluate_all(
-        "ns => ns.map(n => n.textContent)")
+    shown = lambda: each(page, "#panel .log li:not(.more)", "ns => ns.filter(n => n.getClientRects().length).map(n => n.textContent)")
     assert len(shown()) == len(events) - last, shown()   # that comment and all after it
     assert "done, see the diff" in shown()[0]
     assert not any("plan written" in t for t in shown()), "the older round is folded away"
@@ -2965,8 +2973,7 @@ def test_the_log_leaves_out_bookkeeping_and_counts_only_what_it_shows(page):
     assert core.get_card(cid)["deployed"] is True
     page.evaluate(f"openCard({cid})")
     page.wait_for_function(f"() => open && open.id === {cid}")
-    lines = lambda: page.locator("#panel .log li:not(.more):visible").evaluate_all(
-        "ns => ns.map(n => n.textContent)")
+    lines = lambda: each(page, "#panel .log li:not(.more)", "ns => ns.filter(n => n.getClientRects().length).map(n => n.textContent)")
     assert page.text_content("#panel .log li.more button") == "show 4 earlier"
     page.click("#panel .log li.more button")
     text = " | ".join(lines())
@@ -3031,6 +3038,7 @@ def polled(page):
     page.wait_for_function("() => version !== null")
 
 
+@pytest.mark.real_poll   # the test is that the 5 s timer alone picks up the write
 def test_a_card_another_actor_creates_appears_without_a_reload(page, server):
     polled(page)
     c = http(server, "POST", "/api/cards", {"title": "an idea", "actor": "claude-agent",
@@ -3206,3 +3214,31 @@ def test_a_failed_restart_shows_when_the_sheet_is_opened_later(page):
     assert "tried to restart itself onto the new address and did not" in text
     assert "restart the backend to apply it" not in text
     page.unroute("**/api/settings")
+
+
+def test_a_failed_first_load_is_retried_by_the_next_status_poll(browser, server):
+    """A transient 5xx on the first /api/cards used to leave the board without lanes until
+    someone wrote: the poll reloaded only on a version change (#165)."""
+    pg = browser.new_page()
+    try:
+        failed = []
+
+        def handle(route):
+            if not failed:
+                failed.append(1)
+                return route.fulfill(status=500, body='{"detail": "boom"}',
+                                     content_type="application/json")
+            route.continue_()
+
+        pg.route("**/api/cards?*", handle)
+        pg.route("**/api/activity", lambda route: route.abort())   # the boot poll must not retry
+        pg.goto(server)
+        pg.wait_for_selector("#err.on")
+        assert "could not load the board" in pg.text_content("#err")
+        assert pg.locator("#board .lane").count() == 0, "nothing drawn after the failure"
+        pg.unroute("**/api/activity")
+        pg.evaluate("loadStatus()")
+        pg.wait_for_selector("#board .lane")
+        assert pg.evaluate("loadFailed") is False
+    finally:
+        pg.close()

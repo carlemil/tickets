@@ -416,7 +416,8 @@ The card stays in its lane, marked blocked, and runs skip it until those cards r
   <li>No auth and no multiple users. No remote access beyond your own LAN, and that one
     without a password.</li>
   <li>No live push: the board checks every few seconds and refreshes itself when anything changes.
-    A refresh never flips a card you just changed back to how it was.</li>
+    A refresh never flips a card you just changed back to how it was. If a load fails (the
+    red bar says so), the next check retries it, so the board fills in by itself once the backend answers.</li>
   <li>No search and no attachments.</li>
   <li>Cards are never deleted, only archived.</li>
 </ul>

@@ -725,8 +725,9 @@ no longer on the board.
 | 93 | #155 plan and develop are separate stages: the plan stage (`opus`, pinned) plans, posts plan and checklist and with no questions moves the card to `develop`, building nothing (`STAGE: PLANNED`); the session starts the develop stage (`sonnet`) at once in the same slot and worktree, from a fresh brief (a person's move at the hand-off wins; a refused plan post is noted and retried next tick, the card still in `plan`) — the strong model thinks and checks, the cheaper one writes; `run.md`, docs and README follow | done — 538 checks |
 | 94 | #156 the deploy skips the test rerun when the landed tree is the tested one: the dispatcher checks `git merge-base --is-ancestor <base> card/<id>` (and that ship committed nothing) before the land merge and tells the deploy subagent whether to run the tests; the deploy comment's `tests:` line says which; repo `CLAUDE.md` Deploy line, `run.md`, docs and PLAN follow (text only) | done — 538 checks |
 | 95 | #159 every stage brief carries the no-chips line: `run.md`'s brief rules require that the subagent never creates background-task chips (`spawn_task`), never schedules anything and never asks the user (a chip made by mistake is dismissed and named in the reply); a `test_idle_gate.py` test pins the rule in `run.md`; docs and PLAN follow | done — 539 checks |
+| 96 | #165 the flaky board tests: the idle-dot test read its nodes in two protocol steps (`evaluate_all`) and a re-render between them handed it the detached old dot; DOM reads after a re-rendering action are now one `page.evaluate` (`each()`/`shown()` in `test_board.py`); the page fixture switches the 5 s status-poll timer off (`--poll-ms N` sets it for stress runs, `@pytest.mark.real_poll` keeps the real timer), drains `__inflight` before closing the page, and names `#err` and any 5xx when no lane draws; board: a failed load is retried by the next status poll (`loadFailed`), so a transient first-load error no longer leaves the board empty | done — 540 checks |
 
-Gate for every task: `uv run pytest -q` — 539 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 540 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
@@ -744,6 +745,15 @@ so a test that reads the database or types on after a board action first waits f
 board's own requests: `window.__inflight === 0` (the page fixture counts `api()` calls),
 or the state the action ends in. A full run is slower than a lone file, which is when
 such a missing wait shows.
+
+A DOM read after an action that can re-render (a load, `loadStatus()`, a drop, a patch) is
+one `page.evaluate` (`each()` / `shown()` in `test_board.py`): `locator.evaluate_all` and
+`all_text_contents` resolve the nodes in one protocol step and read them in the next, and a
+re-render between them hands over detached old nodes (#165). The board's 5 s status-poll
+timer is off in the browser tests, which call `loadStatus()` themselves; `--poll-ms N`
+turns it on at that interval for stress runs, and a test whose point is the timer takes
+`@pytest.mark.real_poll`. The page fixture's teardown waits for `__inflight === 0`
+(at most 5 s) so no request lands in the next test's database.
 
 ## End-to-end result (task 4)
 
