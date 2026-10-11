@@ -97,7 +97,8 @@ cost about 400k cached tokens. The gate needs `python` on PATH and uses only the
 library.
 
 **A run** takes every ready card of this folder's project in `plan`, `develop` and
-`test` through to `verify`, up to 3 at once and one in test at a time. It plans first:
+`test` through to `verify`, up to 2 at once by default (a project line `Cards in flight: N`
+in its instructions changes it) and one in test at a time. It plans first:
 open questions stay on the card for you, with clickable options. With none, the same
 agent goes on to build in a worktree on `card/<id>`, ticking the checklist as it goes.
 A separate, fresh agent tests with `/code-review` plus the project's tests, then merges (or opens a PR) and deploys. Without the MCP tools it uses

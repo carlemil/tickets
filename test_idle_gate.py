@@ -177,8 +177,14 @@ def test_run_md_pins_the_in_flight_setting():
                    "more slots finish a batch sooner on the clock",
                    "developing (2 in flight)"):
         assert needle in text, needle
-    assert "3 cards in flight" not in text
-    assert "up to three at a time" not in text
+    assert "fell back to 2 (#193)" in text  # the summary's fallback line
+    assert not re.search(r"\b(3|three)\b\**\s+cards\s+in\s+flight", text, re.I)
+    assert not re.search(r"up to (3|three) at", text, re.I)
+    for doc in ("docs.html", "README.md"):
+        page = " ".join(open(doc, encoding="utf-8").read().split())
+        assert "up to 2" in page and "Cards in flight: N" in page, doc
+        assert not re.search(r"up to (3|three) (cards )?at", page, re.I), doc
+        assert "among the 3" not in page, doc
 
 
 def quoted(name, source):

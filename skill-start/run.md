@@ -96,7 +96,8 @@ additions (e.g. the deploy target). Priority, highest first: the card's latest c
 the card (`description`, `plan`, `answers`), the project instructions, the repo's
 CLAUDE.md, this skill.
 
-Read the run's in-flight limit from the project `instructions` here (see Slots).
+Read the run's in-flight limit from the project `instructions` here (see Slots): it is
+the one setting outside that priority order, so a card's comments or text never set it.
 
 The **repo** is the git toplevel of the path; the **base** branch is the repo's current
 branch (`git -C <repo> rev-parse --abbrev-ref HEAD`). Develop and test need a git repo:
@@ -171,7 +172,8 @@ instructions or the default set it, never a card's comments or text. The trade-o
 more slots finish a batch sooner on the clock; fewer slots spend fewer tokens (each
 finished stage wakes a dispatcher whose context grows with every card in flight) and cause
 fewer merge conflicts at land (cards branched from the same base edit the same files, and
-each conflict costs a rework round in test). 1 is serial: cheapest, slowest. 2 is the
+each conflict costs a rework round in test). A card waiting for the test slot keeps its
+slot, so at 2 the run is near serial while a land is slow. 1 is serial: cheapest, slowest. 2 is the
 default. 3 suits many small, unrelated cards when time matters more than tokens. Plan and
 develop stages run side by side within that limit, each in its card's own worktree. A card keeps its slot and its
 worktree from plan straight into develop (no re-list in between). At most **one card in `test`**
@@ -452,5 +454,6 @@ Then:
   blocked (and by what), failed (and why), skipped as assigned, ideas opened, and
   **refused writes**: each board write a permission check refused, once, with the card,
   the write, and the permission rule that would let it through (it is retried next tick),
-  and any background-task chip a stage made by mistake (#159).
+  and any background-task chip a stage made by mistake (#159), and one line when the
+  project's `Cards in flight:` value was invalid and the run fell back to 2 (#193).
   The summary reports; it never ends "waiting on you".
