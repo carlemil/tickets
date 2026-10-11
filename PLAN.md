@@ -712,7 +712,6 @@ no longer on the board.
 | 91 | #148 a card created during a late board load is not dropped: shown to need no new merge rule (a create reloads the board, so the held load is overtaken and dropped by #88) and pinned with held-load browser tests — a sheet create, an agent create, and a card archived or moved away elsewhere that a stale load does not bring back | done — 538 checks |
 
 Gate for every task: `uv run pytest -q` — 538 checks across core, HTTP, the MCP tools
-
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
