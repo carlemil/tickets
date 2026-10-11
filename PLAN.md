@@ -321,6 +321,17 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
 - **What only a person can do** (`## Blocked by`) becomes `todo` cards linked `blocks`.
   A failure is an `agent failed: …` comment, lane unchanged.
 - **Wrap-up:** follow-up ideas as `todo` cards, and a summary in the chat.
+- **Never wait to move cards (#147).** The owner's rule: the flow of cards is never held
+  for the user. A transient board-write failure (tools gone, HTTP error, timeout) is
+  retried, over HTTP if the tools failed. A write refused by Claude Code's permission
+  check is never retried in another form or through another tool (that would route
+  around the user's permission settings; the card's first scope asked for it and was
+  dropped): the run comments the refused write on the card, carries on with the queue,
+  and retries the same write first on the next tick (the comment is the record across
+  ticks); the summary names the permission rule that would let it through, once. A tick
+  never ends "waiting on you" to hold the queue — on 2026-10-11 a loop did that for 5 h
+  over one refused write while two built cards sat in `develop`. Briefs carry the rule
+  to subagents, which report a refusal instead of working around it.
 
 **No tools, no stop.** Claude Code connects MCP servers once, at session start, and never
 retries, so a session opened while the board was down has no `tickets` tools — and a
@@ -687,6 +698,7 @@ no longer on the board.
 | 86 | #138 the board's self-restart works: the spawn drops `DETACHED_PROCESS` (Windows PowerShell with no console exits without running its script), a test runs the real spawn against a stand-in of the script's -Delay branch, and a restart that does not happen shows on the settings sheet (`restart_failed`) | done — 517 checks |
 | 87 | #104 closing a new card while a link on it is still being checked waits for the check: the draft keeps its pending link checks and creates the card once they answer, with the link (a bad one is reported, a cancel drops it even after clicking out, an untitled draft asks for a title) | done — 522 checks |
 | 88 | #105 a board load answered after a write merges per card by `updated_at`: the just-written card (a sheet edit, a drag, a move to another project) is not flipped back to its old state, and a newer copy that left the tab is not drawn | done — 527 checks |
+| 89 | #147 runs never pause for the user over a card move: `run.md` retries a transient board-write failure (over HTTP if the tools fail), never retries a write a permission check refused in another form, notes it on the card, carries on and retries it next tick, names the permission rule once in the summary, and never ends a tick "waiting on you" | done — 527 checks (docs only) |
 
 Gate for every task: `uv run pytest -q` — 527 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
