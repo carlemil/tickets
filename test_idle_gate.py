@@ -1,5 +1,7 @@
 import importlib.util
 import re
+import socket
+import threading
 
 import pytest
 
@@ -108,10 +110,38 @@ def test_an_open_pull_request_lets_the_tick_through(server, proj, here):
     assert gate.idle_line(TICK, here, server) is None
 
 
-def test_only_ticks_from_a_known_folder_on_a_live_board_are_answered(server, proj, here):
+@pytest.fixture
+def dead_board():
+    """A board that is down: accepts each connection and hangs up without answering.
+    (A refused connect to a closed localhost port takes ~2 s on Windows.)"""
+    ls = socket.socket()
+    ls.bind(("127.0.0.1", 0))
+    ls.listen()
+    ls.settimeout(0.05)   # so the thread sees the stop flag (close() alone does not wake
+    stop = threading.Event()  # a blocked accept() on every platform)
+
+    def run():
+        while not stop.is_set():
+            try:
+                ls.accept()[0].close()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    yield f"http://127.0.0.1:{ls.getsockname()[1]}"
+    stop.set()
+    t.join()
+    ls.close()
+
+
+def test_only_ticks_from_a_known_folder_on_a_live_board_are_answered(server, proj, here,
+                                                                     dead_board):
     assert gate.idle_line("fix the bug", here, server) is None
     assert gate.idle_line(TICK, "D:/elsewhere", server) is None
-    assert gate.idle_line(TICK, here, "http://127.0.0.1:9") is None  # board down
+    assert gate.idle_line(TICK, here, dead_board) is None  # board down
 
 
 def test_the_brief_rules_require_the_no_chips_line():
