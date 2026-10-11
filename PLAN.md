@@ -339,7 +339,10 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   ticks); the summary names the permission rule that would let it through, once. A tick
   never ends "waiting on you" to hold the queue — on 2026-10-11 a loop did that for 5 h
   over one refused write while two built cards sat in `develop`. Briefs carry the rule
-  to subagents, which report a refusal instead of working around it.
+  to subagents, which report a refusal instead of working around it. Every brief also
+  carries the no-chips line (#159): no background-task chips (`spawn_task`), nothing
+  scheduled, never ask the user in chat; a chip made by mistake is dismissed, named in the
+  reply, and noted on the card and in the summary.
 
 **No tools, no stop.** Claude Code connects MCP servers once, at session start, and never
 retries, so a session opened while the board was down has no `tickets` tools — and a
@@ -721,9 +724,10 @@ no longer on the board.
 | 92 | #154 the test stage runs on `opus` (the review is never weaker than the `sonnet` that builds a develop card) and the deploy stage on `haiku` (mechanical); plan & develop keeps the session's model and develop `sonnet` — `run.md`, docs and README name the new models | done — 538 checks |
 | 93 | #155 plan and develop are separate stages: the plan stage (`opus`, pinned) plans, posts plan and checklist and with no questions moves the card to `develop`, building nothing (`STAGE: PLANNED`); the session starts the develop stage (`sonnet`) at once in the same slot and worktree, from a fresh brief (a person's move at the hand-off wins; a refused plan post is noted and retried next tick, the card still in `plan`) — the strong model thinks and checks, the cheaper one writes; `run.md`, docs and README follow | done — 538 checks |
 | 94 | #156 the deploy skips the test rerun when the landed tree is the tested one: the dispatcher checks `git merge-base --is-ancestor <base> card/<id>` (and that ship committed nothing) before the land merge and tells the deploy subagent whether to run the tests; the deploy comment's `tests:` line says which; repo `CLAUDE.md` Deploy line, `run.md`, docs and PLAN follow (text only) | done — 538 checks |
-| 95 | #164 the five slowest tests stop waiting on production timers: the no-projects test dismisses the 8 s toast, the other-actor test runs the real 5 s poll on `page.clock`, the restart tests set `RESTART_POLL_MS = 100`, the idle-gate test uses a local accept-and-close listener instead of a refused connect (~22 s to ~4 s) | done |
+| 95 | #159 every stage brief carries the no-chips line: `run.md`'s brief rules require that the subagent never creates background-task chips (`spawn_task`), never schedules anything and never asks the user (a chip made by mistake is dismissed and named in the reply); a `test_idle_gate.py` test pins the rule in `run.md`; docs and PLAN follow | done — 539 checks |
+| 96 | #164 the five slowest tests stop waiting on production timers: the no-projects test dismisses the 8 s toast, the other-actor test runs the real 5 s poll on `page.clock`, the restart tests set `RESTART_POLL_MS = 100`, the idle-gate test uses a local accept-and-close listener instead of a refused connect (~22 s to ~4 s) | done — 539 checks |
 
-Gate for every task: `uv run pytest -q` — 538 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 539 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip
