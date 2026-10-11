@@ -2608,9 +2608,94 @@ def test_move_to_done_shows_only_in_verify_and_ends_the_card(page):
     assert "move to done" not in head_parts(page), "gone in done"
 
 
-def test_a_draft_header_row_holds_the_title_cancel_and_close(page):
+def test_a_draft_header_row_holds_the_title_cancel_move_to_plan_and_close(page):
     page.click("#add")
-    assert head_parts(page) == ["new", "input:", "cancel", "close"]
+    assert head_parts(page) == ["new", "input:", "cancel", "move to plan", "close"]
+    assert page.get_attribute("#panel button:text-is('move to plan')", "title")
+
+
+# ---------- "move to plan" on a new card (#153) ----------
+
+def move_to_plan(page):
+    page.click("#panel button:text-is('move to plan')")
+
+
+def test_move_to_plan_creates_the_card_in_plan_and_closes(page):
+    page.click("#add")
+    page.fill("#panel input[type=text] >> nth=0", "  straight to plan  ")
+    page.fill("#panel textarea", "why and what")
+    move_to_plan(page)
+    c = core.get_card(created(page))
+    assert (c["title"], c["description"], c["lane"]) == ("straight to plan", "why and what", "plan"), c
+    assert [(e["actor"], e["kind"]) for e in c["events"]] == [("User", "created")], \
+        "created in plan, not created in todo and then moved"
+    assert page.locator("#panel.on").count() == 0, "the sheet closes"
+    page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{c["id"]}"]')
+
+
+def test_move_to_plan_keeps_a_title_still_being_typed(page):
+    page.click("#add")
+    page.type("#panel input[type=text] >> nth=0", "typed then plan")   # no blur
+    move_to_plan(page)
+    c = core.get_card(created(page))
+    assert (c["title"], c["lane"]) == ("typed then plan", "plan"), c
+
+
+def test_move_to_plan_wins_over_the_lane_select(page):
+    page.click("#add")
+    page.fill("#panel input[type=text] >> nth=0", "picked develop")
+    page.select_option("#panel select >> nth=2", "develop")
+    move_to_plan(page)
+    assert core.get_card(created(page))["lane"] == "plan"
+
+
+def test_move_to_plan_on_an_empty_draft_creates_nothing_and_closes(page):
+    page.click("#add")
+    move_to_plan(page)
+    assert page.locator("#panel.on").count() == 0
+    page.wait_for_timeout(300)
+    assert core.list_cards() == []
+    assert page.locator("#err.on").count() == 0, "nothing was lost, so nothing to say"
+
+
+def test_move_to_plan_without_a_title_keeps_the_sheet_and_its_lane(page):
+    page.click("#add")
+    page.fill("#panel textarea", "no title yet")
+    move_to_plan(page)
+    page.wait_for_selector("#err.on")
+    assert "needs a title" in page.text_content("#err")
+    assert page.locator("#panel.on").count() == 1, "the sheet stays"
+    assert page.evaluate("open.lane") == "todo", "a refused move to plan leaves the lane alone"
+    assert core.list_cards() == []
+    page.fill("#panel input[type=text] >> nth=0", "titled now")
+    close_sheet(page)                                   # a plain close: the lane select's todo
+    assert core.get_card(created(page))["lane"] == "todo"
+
+
+def test_a_double_click_on_move_to_plan_makes_one_card(page):
+    page.click("#add")
+    page.fill("#panel input[type=text] >> nth=0", "only once")
+    page.dblclick("#panel button:text-is('move to plan')")
+    created(page)
+    page.wait_for_function("() => window.__inflight === 0")
+    assert [(c["title"], c["lane"]) for c in core.list_cards()] == [("only once", "plan")]
+
+
+def test_a_failed_move_to_plan_leaves_the_draft_in_its_own_lane(page):
+    page.click("#add")
+    page.fill("#panel input[type=text] >> nth=0", "doomed")
+    core.update_project("Home", name="Moved")           # the draft's project is now gone
+    move_to_plan(page)
+    page.wait_for_selector("#err.on")
+    assert page.locator("#panel.on").count() == 1, "the sheet stays"
+    assert page.evaluate("open.lane") == "todo", "the override is not left on the draft"
+    assert page.input_value("#panel select >> nth=2") == "todo"
+    assert core.list_cards() == []
+
+
+def test_an_existing_cards_sheet_has_no_move_to_plan(page):
+    add_card(page, "already made")
+    assert "move to plan" not in head_parts(page)
 
 
 def test_the_header_row_stays_at_the_top_while_the_sheet_scrolls(page):
