@@ -152,7 +152,8 @@ next, and the test stage reviews work it did not write.
   a session on another model is respected.)
 - develop: `model: "sonnet"` — it follows a written plan.
 - test: `model: "opus"` — the owner's call (#154): the review runs on a tier at least as
-  strong as the one that wrote the code.
+  strong as the one that wrote a develop card (a plan & develop card is built on the
+  session's model, which may be stronger).
 - deploy: `model: "haiku"` — the owner's call (#154): mechanical: run the tests, push
   and restart per the deploy instructions.
 

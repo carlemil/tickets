@@ -323,7 +323,7 @@ so the code is read once. A card already in <code>develop</code>, and every card
 not write. The planning agent runs on your session's model, since planning is judgement,
 and so does the build it goes on to; the agent that builds a card already in
 <code>develop</code> runs on the cheaper Sonnet, the review in <code>test</code> on Opus,
-so it is never weaker than the model that wrote the code, and the deploy, which is
+so it is never weaker than that Sonnet build, and the deploy, which is
 mechanical, on Haiku. Each agent is handed the whole card: its
 description, plan, answers, checklist and comments, and the project's rules. Tests,
 the deploy and the merge into the base branch go one card after another. The status bar
