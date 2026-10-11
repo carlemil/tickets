@@ -170,8 +170,10 @@ def test_run_md_pins_the_docs_only_test_skip():
 def test_run_md_pins_the_built_check():
     text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
     for needle in ("**BUILT check (#176):**",
-                   "`Files changed:`",
-                   "diff --name-only <base>...card/<id>",
+                   "`Files changed:` section, one repo-relative path per line",  # the brief
+                   "BUILT → the BUILT check below first",  # runs before the comment and move
+                   "A brief carrying a `build check: MISMATCH` note (#176)",  # the test stage
+                   "diff --name-only --no-renames <base>...card/<id>",
                    "status --porcelain",
                    "build check: MISMATCH",
                    "build check: OK",

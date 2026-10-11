@@ -315,19 +315,23 @@ pushes, never switches branch — and replies with a short summary and the test 
 last line `STAGE: BUILT` (`STAGE: BLOCKED` with a `## Blocked by` section, `STAGE: FAILED`
 if it could not finish). Before the verdict line (after any `## Blocked by`) its reply
 ends with a `Files changed:` section, one repo-relative path per line exactly as
-`git diff --name-only <base>...card/<id>` prints it, test files included; a claim such as
-"added test_x" must name the test file there. Say so in the brief.
+`git diff --name-only --no-renames <base>...card/<id>` prints it (a renamed file is its
+old and new path; `<base>` is the ref the worktree step merged, named in the brief), test
+files included; a claim such as "added test_x" must name the test file there, and it
+commits before it writes the list. Say so in the brief.
 Its one board write (the plan stage's post came before): as it finishes a step it
 ticks that checklist item — `get_card`,
 flip that item's `done`, `update_card(checklist=<the full list>, actor="claude-agent")` —
 nothing else; tell it so in the brief.
-(you) After `get_card` (a person's move wins): BUILT → comment the summary plus the
-worktree path, move to `test` (it waits for the test slot); BLOCKED → the blocker cards
+(you) After `get_card` (a person's move wins): BUILT → the BUILT check below
+first, then comment the summary, its `build check:` line and the worktree path, move to
+`test` (it waits for the test slot); BLOCKED → the blocker cards
 (below); FAILED → failure. The worktree stays either way.
 
 **BUILT check (#176):** before the BUILT comment and the move, run in the worktree, with
 the same `<base>` ref the worktree step merged (`origin/<base>`, or `<base>` if the fetch
-failed): `git -C <tree> diff --name-only <base>...card/<id>` (the committed files),
+failed): `git -C <tree> diff --name-only --no-renames <base>...card/<id>` (the committed
+files, a rename as both paths),
 `git -C <tree> diff --stat <base>...card/<id>` (pasted into the comment) and
 `git -C <tree> status --porcelain` (uncommitted or untracked files). Compare the reply's
 `Files changed:` list with the committed files as sets, looking for: **claimed, not
