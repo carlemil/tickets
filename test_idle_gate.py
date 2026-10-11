@@ -167,6 +167,20 @@ def test_run_md_pins_the_docs_only_test_skip():
         assert needle in text, needle
 
 
+def test_run_md_pins_the_in_flight_setting():
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    for needle in ("**2 cards in flight** by default",
+                   "`Cards in flight: N`",
+                   "falls back to 2",
+                   "fewer slots spend fewer tokens",
+                   "fewer merge conflicts at land",
+                   "more slots finish a batch sooner on the clock",
+                   "developing (2 in flight)"):
+        assert needle in text, needle
+    assert "3 cards in flight" not in text
+    assert "up to three at a time" not in text
+
+
 def quoted(name, source):
     # the run.md grep, `["']([^"']*[/\\])?<name>["']`, in Python
     return re.search(r"""["']([^"']*[/\\])?""" + re.escape(name) + r"""["']""", source)

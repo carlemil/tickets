@@ -316,12 +316,14 @@ when a session starts, so a session opened before the board has none until
 ready card of that project in <code>plan</code>, <code>develop</code> and <code>test</code>
 through to <code>verify</code>, and writes what it does onto the board as
 <code>claude-agent</code>: the plan, comments, the moves, and a new idea card for any
-follow-up it finds. Cards in "No Project" are never worked. It works up to 3 cards at
-once, but only one in <code>test</code> at a time. A card in <code>plan</code> gets a
+follow-up it finds. Cards in "No Project" are never worked. It works up to 2 cards at
+once by default, but only one in <code>test</code> at a time. A project changes the limit with a
+line <code>Cards in flight: N</code> in its instructions. More at once finishes a batch sooner;
+fewer spends fewer tokens and causes fewer merge conflicts to rework. A card in <code>plan</code> gets a
 background agent that writes the plan and posts it with its checklist; unless the plan
 has open questions, it moves the card to <code>develop</code> and builds nothing. A new
 agent then builds the card straight away, in the same worktree and without giving up its
-place among the 3. Every stage gets a new agent with a clean context: a card already in
+place among the cards in flight. Every stage gets a new agent with a clean context: a card already in
 <code>develop</code> too, and every card in <code>test</code>, so the test reviews work
 it did not write. The strong model thinks and checks: the plan is written on Opus and the
 review in <code>test</code> runs on Opus. The cheaper Sonnet writes the code from the
