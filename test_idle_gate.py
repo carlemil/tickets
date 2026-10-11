@@ -167,6 +167,18 @@ def test_run_md_pins_the_docs_only_test_skip():
         assert needle in text, needle
 
 
+def test_run_md_pins_the_built_check():
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    for needle in ("**BUILT check (#176):**",
+                   "`Files changed:`",
+                   "diff --name-only <base>...card/<id>",
+                   "status --porcelain",
+                   "build check: MISMATCH",
+                   "build check: OK",
+                   "BUILT but card/<id> holds no changes"):
+        assert needle in text, needle
+
+
 def quoted(name, source):
     # the run.md grep, `["']([^"']*[/\\])?<name>["']`, in Python
     return re.search(r"""["']([^"']*[/\\])?""" + re.escape(name) + r"""["']""", source)

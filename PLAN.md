@@ -301,7 +301,10 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   `develop` and builds nothing, ending `STAGE: PLANNED`; open questions stop it in `plan`
   and the session removes the unused worktree; verdicts PLANNED, QUESTIONS, BLOCKED,
   MOVED, FAILED), develop (a fresh subagent that builds from the posted plan: started at
-  once on PLANNED, or for a card a person put in `develop`), test (always fresh: it reviews work it did not
+  once on PLANNED, or for a card a person put in `develop`; its reply ends with a `Files changed:` list, and before the
+  card moves to test the dispatcher checks it against `diff --name-only <base>...card/<id>` and `status --porcelain`, #176:
+  an empty build fails, any other gap is `build check: MISMATCH` on the BUILT comment and in the test brief, which then
+  verifies each claim of the develop reply), test (always fresh: it reviews work it did not
   write; `/code-review` on `<base>...card/<id>` plus a check against the card, #7; `RESULT: PASS` or the card stays), then
   ship (commit, push `card/<id>`), land (merge into the base when the repo is on it and
   clean; before it the dispatcher checks `git merge-base --is-ancestor <base> card/<id>`
@@ -737,8 +740,9 @@ no longer on the board.
 | 97 | #160 repo `CLAUDE.md` Deploy restarts the backend only when the push brings a file it loads at start (`git diff --name-only origin/master HEAD`, so a fast-forward counts too): board.html/docs.html/docs-card.png are served live, PLAN/README/CLAUDE.md/tests/docs_card.py/skill-* are unused (`DEPLOY: SKIPPED` when only these change), any other file (app.py, core.py, log-config.json, pyproject.toml/uv.lock, restart-backend.ps1, a new module) restarts (text only) | done — 539 checks |
 | 98 | #163 the test stage skips the suite for docs-only changes: every changed file is `*.md` (never a served page like `docs.html`) and no test file quotes a changed file's name; code-review still runs, comment `tests: skipped, docs-only (<files>)`; the tested-tree rule (#156) gets a third verdict, docs-only, for the deploy; `run.md`, repo `CLAUDE.md`, docs and PLAN follow | done — 541 checks |
 | 99 | #165 the flaky board tests: the idle-dot test read its nodes in two protocol steps (`evaluate_all`) and a re-render between them handed it the detached old dot; DOM reads after a re-rendering action are now one `page.evaluate` (`each()`/`shown()` in `test_board.py`); the page fixture switches the 5 s status-poll timer off (`--poll-ms N` sets it for stress runs, `@pytest.mark.real_poll` keeps the real timer), drains `__inflight` before closing the page, and names `#err` and any 5xx when no lane draws; board: a failed load is retried by the next status poll (`loadFailed`), so a transient first-load error no longer leaves the board empty | done — 542 checks |
+| 100 | #176 the dispatcher checks a BUILT commit holds the work it claims: the develop reply lists `Files changed:`; before the move to test `diff --name-only`/`--stat <base>...card/<id>` and `status --porcelain` are compared with it (claimed-not-committed, committed-not-claimed, uncommitted, no list); an empty build fails, any other gap is `build check: MISMATCH` in the BUILT comment and the test brief, a match is `build check: OK (<n> files)`; guard test `test_run_md_pins_the_built_check` | done — 543 checks |
 
-Gate for every task (except a docs-only test stage, #163): `uv run pytest -q` — 542 checks across core, HTTP, the MCP tools
+Gate for every task (except a docs-only test stage, #163): `uv run pytest -q` — 543 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

@@ -300,7 +300,10 @@ The subagent implements the card following `plan` and `answers` (later comments 
 works only inside the worktree, runs the project's tests, commits on `card/<id>` — never
 pushes, never switches branch — and replies with a short summary and the test result,
 last line `STAGE: BUILT` (`STAGE: BLOCKED` with a `## Blocked by` section, `STAGE: FAILED`
-if it could not finish).
+if it could not finish). Before the verdict line (after any `## Blocked by`) its reply
+ends with a `Files changed:` section, one repo-relative path per line exactly as
+`git diff --name-only <base>...card/<id>` prints it, test files included; a claim such as
+"added test_x" must name the test file there. Say so in the brief.
 Its one board write (the plan stage's post came before): as it finishes a step it
 ticks that checklist item — `get_card`,
 flip that item's `done`, `update_card(checklist=<the full list>, actor="claude-agent")` —
@@ -308,6 +311,22 @@ nothing else; tell it so in the brief.
 (you) After `get_card` (a person's move wins): BUILT → comment the summary plus the
 worktree path, move to `test` (it waits for the test slot); BLOCKED → the blocker cards
 (below); FAILED → failure. The worktree stays either way.
+
+**BUILT check (#176):** before the BUILT comment and the move, run in the worktree, with
+the same `<base>` ref the worktree step merged (`origin/<base>`, or `<base>` if the fetch
+failed): `git -C <tree> diff --name-only <base>...card/<id>` (the committed files),
+`git -C <tree> diff --stat <base>...card/<id>` (pasted into the comment) and
+`git -C <tree> status --porcelain` (uncommitted or untracked files). Compare the reply's
+`Files changed:` list with the committed files as sets, looking for: **claimed, not
+committed** (the #163 case: tests said to be added, none in the commit), **committed, not
+claimed**, **uncommitted** (a dirty status), and a reply with **no `Files changed:`
+section**. Outcomes:
+- empty diff and a clean tree (nothing was built) → failure: `agent failed: BUILT but
+  card/<id> holds no changes against <base>`; the card stays in `develop`;
+- any other gap → the BUILT comment gets a line `build check: MISMATCH` listing each gap
+  and the `--stat`; the card still moves to `test`, and the test brief carries the same
+  note (it does not fail the stage);
+- no gap → the BUILT comment gets `build check: OK (<n> files)`.
 
 ### test  (in the same worktree)
 
@@ -336,6 +355,9 @@ has the line `tests: skipped, docs-only (<files>)`. Otherwise it runs the suite 
 always. Either way its last commit comes first: the suite's last run, or the docs-only
 check, is on the tree that ships (the deploy may skip its own run on that, #156). What it cannot (unfinished
 work, a decision a person must make) it leaves alone.
+A brief carrying a `build check: MISMATCH` note (#176) makes it verify every claim of the
+develop reply (tests said to be added, results quoted) against the diff, and say in its
+reply what was missing and what it did about it.
 Its review names every checklist step still unticked (one skipped on purpose says why).
 Last line exactly `RESULT: PASS` or `RESULT: FAIL`. Comment its reply. FAIL → failure.
 
