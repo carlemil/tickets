@@ -9,8 +9,9 @@ One run takes every ready card of this folder's project, up to three at a time, 
 where it stands to `verify`, writing each step onto the board as it goes, and ends
 with ideas for what to do next. Work unattended: never stop to ask the user, never wait for an answer —
 what needs a person goes on the board (questions, blocker cards) and the run moves on.
-The flow of cards is never held for the user: a tick never ends "waiting on you" just to
-hold the queue, not even when a board write is refused (see "Board writes that fail").
+The flow of cards is never held for the user over a board write: a tick (one run) never ends
+"waiting on you" just to hold the queue, not even when a write is refused (see "Board
+writes that fail"). Questions and blocker cards work as below.
 
 Every board write uses `actor="claude-agent"`. Tools are the `tickets` MCP server's
 (`list_projects`, `list_cards`, `get_card`, `update_card`, `comment`, `create_card`,
@@ -49,7 +50,9 @@ A missing board never stops a run:
 
 The owner's rule: never wait for the user to move cards; the flow of cards must not be
 interrupted. Two kinds of failure, handled differently:
-- **Transient** — the `tickets` tools vanished mid-run, an HTTP error, a timeout, the
+- **Transient** — (only when the error is not a permission denial; a denial says so, e.g.
+  "permission denied" or "blocked by the permission check", and is never transient) the
+  `tickets` tools vanished mid-run, an HTTP error, a timeout, the
   backend restarting: retry the same write a few times, a few seconds apart, over HTTP
   (as in the table above) if the tool failed. Still failing → treat it like a refused
   write below (note it if you can, carry on, retry next tick).
@@ -61,16 +64,18 @@ interrupted. Two kinds of failure, handled differently:
   1. note it on the card if you can: `comment("board write refused by a permission
      check: <the write, e.g. move to test>; retried next tick")` (if the comment is
      refused too, the summary still names it);
-  2. carry on with the rest of the queue: the card keeps its slot only until then, it
-     is done for this run, and every other card moves as usual;
+  2. carry on with the rest of the queue: the card is done for this run, its slot is
+     freed at once for the next ready card, and every other card moves as usual; if the
+     note could not be posted, keep the refused write in your own session notes and in
+     the summary;
   3. on the next tick, try the **same** write again first: a card still in its old lane
-     whose latest `claude-agent` comment is such a note gets that write (e.g. the move to
+     whose latest `claude-agent` comment is such a note, with no
+     human comment or lane change after it, gets that write (e.g. the move to
      `test` of a card whose BUILT summary is already posted), not a new stage;
   4. the run's summary names each refused write **once**, with the permission rule that
      would let it through (e.g. allow `mcp__tickets__update_card`, or the exact `Bash(…)`
-     / `PowerShell(…)` command used), so the user can add it in `/permissions`. A later
-     tick whose retry is refused again names the rule only if this session has not
-     already; otherwise one short line ("still refused: #<id> <write>").
+     / `PowerShell(…)` command used), so the user can add it in `/permissions`. Each tick's summary
+     names the rule once; a retry refused again may use one short line ("still refused: #<id> <write>").
 - A tick never ends "still waiting on you" to hold the queue: a refused write is a line in
   the summary, never a reason to stop working the other cards or to idle the loop.
 
@@ -118,8 +123,8 @@ Never work the same card twice in one run — once it fails or waits, it is done
 run.
 
 A card whose latest `claude-agent` comment says a board write was refused (see "Board
-writes that fail") is not skipped and not restarted: its first step this run is that same
-write again. Refused again → note nothing new, carry on, name it in the summary.
+writes that fail") is not skipped and not restarted: its first step in the next tick's run is that same
+write again (a note followed by a human comment or a lane change is stale; ignore it). Refused again → note nothing new, carry on, name it in the summary.
 
 Before working the queue, catch up on pull requests: for each of the project's `verify` cards with
 `pr` set and `merged` false, `gh pr view <pr> --json state -q .state`; `MERGED` →
