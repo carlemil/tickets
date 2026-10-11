@@ -819,7 +819,7 @@ function closePanel() {
   }
   if (!c.title.trim()) {
     if (!c.description.trim() && !c.labels.length && !c.checklist.length
-        && !c.links.length) { hidePanel(); return true; }   // nothing to keep
+        && !c.links.length && !c.checks.size) { hidePanel(); return true; }   // nothing to keep
     showErr("a card needs a title — give it one, or cancel to throw it away");
     $("#panel input[type=text]").focus();
     return false;
@@ -830,7 +830,9 @@ function closePanel() {
 
 async function createDraft(c) {
   c.creating = true;
-  const { events, links, creating, ...fields } = c;
+  // a link still being checked goes with the card: wait for it, not past it (#104)
+  while (c.checks.size) await Promise.allSettled([...c.checks]);
+  const { events, links, creating, checks, ...fields } = c;
   let card;
   try {
     card = await api("POST", "/api/cards", { ...fields, title: c.title.trim() });
@@ -1079,13 +1081,17 @@ function renderPanel() {
   const lgo = Object.assign(document.createElement("button"), { textContent: "link" });
   lgo.onclick = async () => {
     if (!c.id) {
-      const to = Number(lid.value);
-      try { await api("GET", "/api/cards/" + to); }   // refuse a bad link now, not after create
-      catch (e) { return showErr(e.message); }
-      if (open !== c) return;
-      if (!c.links.some(l => l.to_id === to && l.kind === lkind.value))
-        c.links.push({ to_id: to, kind: lkind.value });
-      return renderPanel();
+      // Refuse a bad link now, not after create. The check stays on the draft while it
+      // runs: closing meanwhile waits for it, so the card is not created without it (#104).
+      const to = Number(lid.value), kind = lkind.value;
+      const check = api("GET", "/api/cards/" + to).then(() => {
+        if (open !== c && !c.creating) return;   // cancelled or switched meanwhile
+        if (!c.links.some(l => l.to_id === to && l.kind === kind))
+          c.links.push({ to_id: to, kind });
+        if (open === c) renderPanel();
+      }, e => showErr(e.message)).finally(() => c.checks.delete(check));
+      c.checks.add(check);
+      return check;
     }
     try {
       await api("POST", "/api/links",
@@ -1369,7 +1375,7 @@ $("#add").onclick = () => {
   const home = find(proj());
   open = { title: "", description: "", lane: "todo", assignee: null,
            labels: [], checklist: [], project: (home || projects[0]).name,
-           events: [], links: [] };
+           events: [], links: [], checks: new Set() };   // checks: links being checked (#104)
   renderPanel();
 };
 
