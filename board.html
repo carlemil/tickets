@@ -804,8 +804,10 @@ function hidePanel() { open = shown = null; $("#panel").classList.remove("on"); 
 // edit saves too -- and text left in the comment box is posted rather than thrown away.
 // A new card is created on the way out. Returns false when the sheet has to stay: a
 // draft with things typed into it but no title, which cannot be created or discarded
-// silently.
-function closePanel() {
+// silently. `lane` is where a new card lands instead of the lane select's pick: "move to
+// plan" passes "plan" (#153). It goes only into the POST body, so a draft that stays open
+// (untitled, or a failed create) keeps the lane it had and the select stays truthful.
+function closePanel(lane) {
   const c = open;
   if (!c) return true;
   document.activeElement?.blur();   // a draft's change lands synchronously, a card's PATCHes
@@ -824,11 +826,11 @@ function closePanel() {
     $("#panel input[type=text]").focus();
     return false;
   }
-  if (!c.creating) createDraft(c);   // a second click must not make two cards
+  if (!c.creating) createDraft(c, lane);   // a second click must not make two cards
   return true;
 }
 
-async function createDraft(c) {
+async function createDraft(c, lane) {
   c.creating = true;
   // a link still being checked goes with the card: wait for it, not past it (#104)
   while (c.checks.size) await Promise.allSettled([...c.checks]);
@@ -836,7 +838,7 @@ async function createDraft(c) {
   const { events, links, creating, checks, ...fields } = c;
   let card;
   try {
-    card = await api("POST", "/api/cards", { ...fields, title: c.title.trim() });
+    card = await api("POST", "/api/cards", { ...fields, title: c.title.trim(), ...(lane && { lane }) });
   } catch (e) {   // the sheet is still open with everything in it: fix and click out again
     c.creating = false;
     return showErr(e.message);
@@ -945,8 +947,13 @@ function renderPanel() {
       if (a && p.contains(a)) a.onchange = null;   // hiding the sheet blurs it: that must not save
       dismiss();
     };
+    // one click from a new card to the next agent run: created straight in plan (#153)
+    const toPlan = Object.assign(document.createElement("button"),
+      { className: "close", textContent: "move to plan",
+        title: "create the card in plan, where the next run takes it, and close" });
+    toPlan.onclick = () => closePanel("plan");
     head.append(Object.assign(document.createElement("span"), { className: "id", textContent: "new" }),
-                title, cancel, shut);
+                title, cancel, toPlan, shut);
     p.append(Object.assign(document.createElement("div"),
       { className: "sub", textContent: `new card · ${c.project} · created when you close it` }));
   }
