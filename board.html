@@ -1349,11 +1349,12 @@ function renderSettings(p, dismiss) {
 // Done when an answer no longer says the setting is pending, or says the restart failed
 // (the old backend still answering well after it should have gone); give up after a minute.
 // The last answer stays, so the sheet then says which.
+let RESTART_POLL_MS = 1000;   // tests shorten it
 async function waitForRestart() {
   restarting = true;
   const end = Date.now() + 60000;
   while (Date.now() < end) {
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, RESTART_POLL_MS));
     try {
       const s = await api("GET", "/api/settings");
       settings = s;
