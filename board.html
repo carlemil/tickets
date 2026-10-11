@@ -1377,14 +1377,30 @@ $("#add").onclick = () => {
 // arrives after a newer load started is older than what that load will show, so it is
 // dropped, and its caller waits for the newest load instead -- whoever renders after
 // `await load()` still sees the fresh board (#88).
+// A load that started before a write and is answered after it is not dropped -- it is the
+// newest load -- but it can hold a card older than the write's answer already shown. So it
+// merges per card, like replace(): a card whose copy on screen has a newer updated_at keeps
+// that copy, unless the copy has left the view this load asked for (archived, or moved to
+// another project), when its newer state says it is no longer on this board (#105).
 let loads = 0, loading = null;
+function mergeCards(fresh, archived, project) {
+  const shown = new Map(cards.map(c => [c.id, c]));
+  const here = c => !!c.archived === archived
+    && (!project || (c.project || "").toLowerCase() === project.toLowerCase());
+  return fresh.flatMap(c => {
+    const mine = shown.get(c.id);
+    if (!mine || !(mine.updated_at > c.updated_at)) return [c];
+    return here(mine) ? [mine] : [];
+  });
+}
 function load() { return loading = loadBoard(++loads); }
 async function loadBoard(call) {
   let got;
+  const project = proj(), archived = $("#showArch").checked;
   try {
     const q = new URLSearchParams();
-    if (proj()) q.set("project", proj());
-    if ($("#showArch").checked) q.set("archived", "1");
+    if (project) q.set("project", project);
+    if (archived) q.set("archived", "1");
     got = await Promise.all([
       api("GET", "/api/cards?" + q), api("GET", "/api/users"), api("GET", "/api/projects"),
     ]);
@@ -1393,7 +1409,7 @@ async function loadBoard(call) {
     return showErr("could not load the board: " + e.message);
   }
   if (call !== loads) return loading;
-  [cards, users, projects] = got;
+  [cards, users, projects] = [mergeCards(got[0], archived, project), got[1], got[2]];
   renderProj();
   renderBoard();
 }

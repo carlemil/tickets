@@ -469,7 +469,10 @@ its text fields has focus; that waits for a later poll. Writes that log no event
 pos-only reorder, project renames) do not trigger it. Board loads are numbered (#88): an
 answer that arrives after a newer load started is dropped and its caller waits for the
 newest load, so a slow reload (a poll's, say) can no longer put an older board back over a
-newer one.
+newer one. A load that started before a write and is answered after the write's response
+is still the newest, so it merges per card (#105): a card whose copy on screen has a newer
+`updated_at` keeps that copy — unless that copy has left the view the load asked for
+(archived flag or project tab), when it is not drawn at all.
 
 **On master, deployed (#41).** After the auto dot come two more, on the board card and in
 the sheet header: blue when `merged` (the card's branch is on the base branch, locally or
@@ -678,8 +681,9 @@ no longer on the board.
 | 84 | #87 an empty `pr` makes a verify blocker finished only when its project lands by `merge`: in a `pr` project a card reworked (pr cleared, #72) and dragged straight back to verify by hand, or a person's task card there, keeps blocking until its PR merges or it is `done` (core `_blocks`, so the board, the run and the idle gate agree) | done — 505 checks |
 | 85 | #88 flaky tests: a board load answered after a newer one is dropped (the idle-dot flake, a real board race), and the drag, failed-create and add-project tests wait for the board's own requests before reading the database or typing on | done — 506 checks |
 | 86 | #138 the board's self-restart works: the spawn drops `DETACHED_PROCESS` (Windows PowerShell with no console exits without running its script), a test runs the real spawn against a stand-in of the script's -Delay branch, and a restart that does not happen shows on the settings sheet (`restart_failed`) | done — 517 checks |
+| 87 | #105 a board load answered after a write merges per card by `updated_at`: the just-written card (a sheet edit, a drag, a move to another project) is not flipped back to its old state, and a newer copy that left the tab is not drawn | done — 520 checks |
 
-Gate for every task: `uv run pytest -q` — 517 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 520 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

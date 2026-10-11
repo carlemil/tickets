@@ -1766,6 +1766,87 @@ def test_a_board_load_answered_late_does_not_undo_a_newer_one(page):
     assert page.evaluate("cards.find(c => c.id === %d).merged" % cid) is True
 
 
+def hold_a_load(page):
+    """Start a board load now and hold its answer -- the board as the server has it at this
+    moment -- until `window.__release()`; `window.__older` is that load's promise. Returns
+    the load's number: a test asserts it is still the newest before releasing, because a
+    status poll's reload in between would drop the held answer and prove nothing."""
+    return page.evaluate("""() => {
+        const real = window.fetch;
+        window.fetch = (url, opts) => {
+            if (!String(url).startsWith("/api/cards?")) return real(url, opts);
+            window.fetch = real;
+            return real(url, opts).then(r => new Promise(ok => { window.__release = () => ok(r); }));
+        };
+        window.__older = load();
+        return loads;
+    }""")
+
+
+def release_the_load(page, call):
+    page.wait_for_function("() => window.__release")       # answered, held back
+    assert page.evaluate("loads") == call, "a newer load started: the held one would be dropped"
+    page.evaluate("window.__release(); window.__older")
+    page.wait_for_function("() => window.__inflight === 0")
+
+
+def test_a_load_answered_after_a_sheet_edit_does_not_put_the_old_card_back(page):
+    """A load that started before a write and is answered after the write's answer is the
+    newest load, so #88 keeps it -- but it holds the card from before the write. The board
+    keeps the newer copy it already shows (#105)."""
+    cid, = cards_in(page, "before")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    call = hold_a_load(page)
+    page.wait_for_function("() => window.__release")       # it holds "before"
+    type_into(page, "#panel input[type=text] >> nth=0", "after")
+    page.wait_for_function(f"() => cards.find(c => c.id === {cid}).title === 'after'")
+    release_the_load(page, call)
+    assert page.text_content(f'.card[data-id="{cid}"] .t') == "after", "the late load undid the edit"
+    assert page.evaluate(f"cards.find(c => c.id === {cid}).title") == "after"
+    assert core.get_card(cid)["title"] == "after"
+
+
+def test_a_load_answered_after_a_drag_keeps_the_card_where_it_was_dropped(page):
+    cid, = cards_in(page, "drag me")
+    call = hold_a_load(page)
+    page.wait_for_function("() => window.__release")       # it holds the card in todo
+    drag(page, cid, "develop")
+    for _ in range(100):   # the PATCH answer has replaced the optimistic copy
+        db = core.get_card(cid)
+        if db["lane"] == "develop" and page.evaluate(
+                f"cards.find(c => c.id === {cid}).updated_at") == db["updated_at"]:
+            break
+        page.wait_for_timeout(50)
+    else:
+        raise AssertionError("the drag's PATCH never answered")
+    release_the_load(page, call)
+    assert page.locator(f'.lane[data-lane="develop"] .card[data-id="{cid}"]').count() == 1, \
+        "the late load put the card back in todo"
+
+
+def test_a_load_answered_after_a_card_left_the_tab_does_not_bring_it_back(page):
+    """The newer copy is kept only while it still belongs to the board the load asked for:
+    a card moved to another project from the sheet is not drawn under the old tab (#105)."""
+    cid, = cards_in(page, "moving out")
+    core.create_project("Other")
+    page.evaluate("load()")
+    page.click('#proj button[value="Home"]')
+    page.wait_for_function("() => window.__inflight === 0 && proj() === 'Home'")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    call = hold_a_load(page)
+    page.wait_for_function("() => window.__release")       # it holds the card in Home
+    page.select_option("#panel div:has(> h3:text-is('project')) select", "Other")
+    page.wait_for_function(f"() => cards.find(c => c.id === {cid})?.project === 'Other'")
+    release_the_load(page, call)
+    assert page.locator(f'.card[data-id="{cid}"]').count() == 0, "the late load drew it under Home"
+    assert core.get_card(cid)["project"] == "Other"
+    page.evaluate("load()")                                  # and the next load agrees
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.locator(f'.card[data-id="{cid}"]').count() == 0
+
+
 def test_the_pulse_survives_a_board_reload(page):
     cid = core.create_card("busy", actor="ce", project="Home")["id"]
     core.set_activity("claude-agent", cid, "planning")
