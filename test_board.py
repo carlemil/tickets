@@ -2610,6 +2610,18 @@ def test_a_double_click_on_move_to_plan_makes_one_card(page):
     assert [(c["title"], c["lane"]) for c in core.list_cards()] == [("only once", "plan")]
 
 
+def test_a_failed_move_to_plan_leaves_the_draft_in_its_own_lane(page):
+    page.click("#add")
+    page.fill("#panel input[type=text] >> nth=0", "doomed")
+    core.update_project("Home", name="Moved")           # the draft's project is now gone
+    move_to_plan(page)
+    page.wait_for_selector("#err.on")
+    assert page.locator("#panel.on").count() == 1, "the sheet stays"
+    assert page.evaluate("open.lane") == "todo", "the override is not left on the draft"
+    assert page.input_value("#panel select >> nth=2") == "todo"
+    assert core.list_cards() == []
+
+
 def test_an_existing_cards_sheet_has_no_move_to_plan(page):
     add_card(page, "already made")
     assert "move to plan" not in head_parts(page)

@@ -551,8 +551,8 @@ counts as typed. A draft with
 content but no title stays open and says "a card needs a title". If the `POST` fails
 the sheet stays with everything in it and the next "close" retries; a double click makes one
 card. "cancel" discards the draft. "move to plan" closes the draft like "close" but
-creates the card in `plan`, whatever the lane select holds: `closePanel("plan")` sets the
-lane only on the way into `createDraft`, so it is one `created` event in plan, an empty
+creates the card in `plan`, whatever the lane select holds: `closePanel("plan")` passes the
+lane to `createDraft` for the `POST` body only, so it is one `created` event in plan, an empty
 draft still just closes, and an untitled one that has to stay keeps its lane (#153). An
 existing card's sheet has no such button. The draft re-renders only for checklist edits and
 queued links.
@@ -703,9 +703,9 @@ no longer on the board.
 | 87 | #104 closing a new card while a link on it is still being checked waits for the check: the draft keeps its pending link checks and creates the card once they answer, with the link (a bad one is reported, a cancel drops it even after clicking out, an untitled draft asks for a title) | done — 522 checks |
 | 88 | #105 a board load answered after a write merges per card by `updated_at`: the just-written card (a sheet edit, a drag, a move to another project) is not flipped back to its old state, and a newer copy that left the tab is not drawn | done — 527 checks |
 | 89 | #147 runs never pause for the user over a card move: `run.md` retries a transient board-write failure (over HTTP if the tools fail), never retries a write a permission check refused in another form, notes it on the card, carries on and retries it next tick, names the permission rule once in the summary, and never ends a tick "waiting on you" | done — 527 checks (docs only) |
-| 90 | #153 "move to plan" on the new-card sheet, next to "close": creates the card straight in `plan` (one `created` event, overriding the lane select) and closes; an empty draft just closes, an untitled one stays and keeps its lane; existing cards get no button | done — 534 checks |
+| 90 | #153 "move to plan" on the new-card sheet, next to "close": creates the card straight in `plan` (one `created` event, overriding the lane select) and closes; an empty draft just closes, an untitled one stays and keeps its lane; existing cards get no button | done — 535 checks |
 
-Gate for every task: `uv run pytest -q` — 527 checks across core, HTTP, the MCP tools
+Gate for every task: `uv run pytest -q` — 535 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own
 temp database, so `tickets.db` is never touched. The browser tests drive the real
 `board.html` through system Chrome (`channel="chrome"`, no browser download) and skip

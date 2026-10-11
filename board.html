@@ -805,8 +805,8 @@ function hidePanel() { open = shown = null; $("#panel").classList.remove("on"); 
 // A new card is created on the way out. Returns false when the sheet has to stay: a
 // draft with things typed into it but no title, which cannot be created or discarded
 // silently. `lane` is where a new card lands instead of the lane select's pick: "move to
-// plan" passes "plan" (#153). It is set only on the way into createDraft, so a draft that
-// has to stay open keeps the lane it had.
+// plan" passes "plan" (#153). It goes only into the POST body, so a draft that stays open
+// (untitled, or a failed create) keeps the lane it had and the select stays truthful.
 function closePanel(lane) {
   const c = open;
   if (!c) return true;
@@ -826,14 +826,11 @@ function closePanel(lane) {
     $("#panel input[type=text]").focus();
     return false;
   }
-  if (!c.creating) {   // a second click must not make two cards
-    if (lane) c.lane = lane;
-    createDraft(c);
-  }
+  if (!c.creating) createDraft(c, lane);   // a second click must not make two cards
   return true;
 }
 
-async function createDraft(c) {
+async function createDraft(c, lane) {
   c.creating = true;
   // a link still being checked goes with the card: wait for it, not past it (#104)
   while (c.checks.size) await Promise.allSettled([...c.checks]);
@@ -841,7 +838,7 @@ async function createDraft(c) {
   const { events, links, creating, checks, ...fields } = c;
   let card;
   try {
-    card = await api("POST", "/api/cards", { ...fields, title: c.title.trim() });
+    card = await api("POST", "/api/cards", { ...fields, title: c.title.trim(), ...(lane && { lane }) });
   } catch (e) {   // the sheet is still open with everything in it: fix and click out again
     c.creating = false;
     return showErr(e.message);
