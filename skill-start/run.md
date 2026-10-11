@@ -314,17 +314,41 @@ works only inside the worktree, runs the project's tests, commits on `card/<id>`
 pushes, never switches branch — and replies with a short summary and the test result,
 last line `STAGE: BUILT` (`STAGE: BLOCKED` with a `## Blocked by` section, `STAGE: FAILED`
 if it could not finish). Before the verdict line (after any `## Blocked by`) its reply
-ends with a `Files changed:` section, one repo-relative path per line exactly as
+ends with its `tests:` line (step 5 below) and then a `Files changed:` section, one
+repo-relative path per line exactly as
 `git diff --name-only --no-renames <base>...card/<id>` prints it (a renamed file is its
 old and new path; `<base>` is the ref the worktree step merged, named in the brief), test
 files included; a claim such as "added test_x" must name the test file there, and it
 commits before it writes the list. Say so in the brief.
+**Targeted tests (#192):** the subagent runs only the tests that cover what it changed; the
+test stage runs the full suite. After its last commit it takes its changed files from
+that same list, `git -C <tree> diff --name-only --no-renames <base>...card/<id>`, then:
+1. **Docs-only:** when the test stage's docs-only check (#163, see there) holds for them, it
+   runs no tests and its reply has `tests: skipped, docs-only (<files>)`.
+2. Otherwise it picks the test files. If the repo's `CLAUDE.md` has a test map (changed
+   files or folders → test files), it uses the map, which wins over the heuristics. With no
+   map: any test file that changed; the test file named after a changed module
+   (`test_<stem>.py`, `tests/test_<stem>.py`, `<stem>_test.*`, `<stem>.test.*`,
+   `<stem>.spec.*`); and any test file that imports the changed module or quotes its file
+   name (the #163 grep). A changed `*.md` that the docs-only check clears adds nothing.
+3. It runs the **full suite instead** when a changed file that is not docs-only maps to no
+   test file, when a shared fixture or config changed (`conftest.py`, the test config, the
+   dependency manifest or lockfile) or the map says "full suite" for a file, when the
+   project's test command cannot be narrowed to files, or when the picked files are most of
+   the suite anyway (all of its test files, or all but one).
+4. It runs the project's test command narrowed to those files (e.g.
+   `uv run pytest -q test_core.py test_app.py`); it may run targeted tests while it
+   iterates, but the run that counts is the last one, on the committed tree.
+5. Its reply has exactly one of `tests: targeted (<files>): <summary>`,
+   `tests: full suite (<why>): <summary>`, `tests: skipped, docs-only (<files>)`, just
+   before its `Files changed:` section; the BUILT comment carries it.
 Its one board write (the plan stage's post came before): as it finishes a step it
 ticks that checklist item — `get_card`,
 flip that item's `done`, `update_card(checklist=<the full list>, actor="claude-agent")` —
 nothing else; tell it so in the brief.
 (you) After `get_card` (a person's move wins): BUILT → the BUILT check below
-first, then comment the summary, its `build check:` line and the worktree path, move to
+first, then comment the summary, its `tests:` line, the `build check:` line and the
+worktree path, move to
 `test` (it waits for the test slot); BLOCKED → the blocker cards
 (below); FAILED → failure. The worktree stays either way.
 
@@ -369,7 +393,9 @@ file's base name, regex-escaped); exit 1 (no match) is no hit, exit 0 is a hit, 
 other exit (an error, a missing path) counts as a hit. A mention in a comment or
 docstring is no hit; a doubtful hit only runs the suite, which is safe. Then its reply
 has the line `tests: skipped, docs-only (<files>)`. Otherwise it runs the suite as
-always. Either way its last commit comes first: the suite's last run, or the docs-only
+always. **The test stage's full run stays mandatory (#192):** whatever develop ran
+(targeted, full or none), the test stage never skips or narrows its own run; its only
+exception is this docs-only check. Either way its last commit comes first: the suite's last run, or the docs-only
 check, is on the tree that ships (the deploy may skip its own run on that, #156). What it cannot (unfinished
 work, a decision a person must make) it leaves alone.
 A brief carrying a `build check: MISMATCH` note (#176) makes it verify every claim of the
