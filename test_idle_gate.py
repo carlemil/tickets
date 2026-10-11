@@ -121,3 +121,4 @@ def test_the_brief_rules_require_the_no_chips_line():
     rules = text[start:end]
     assert "spawn_task" in rules
     assert "background-task chips" in rules
+    assert "dismiss_task" in rules

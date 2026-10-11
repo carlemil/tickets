@@ -341,7 +341,8 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   over one refused write while two built cards sat in `develop`. Briefs carry the rule
   to subagents, which report a refusal instead of working around it. Every brief also
   carries the no-chips line (#159): no background-task chips (`spawn_task`), nothing
-  scheduled, never ask the user; a chip made by mistake is dismissed and named in the reply.
+  scheduled, never ask the user in chat; a chip made by mistake is dismissed, named in the
+  reply, and noted on the card and in the summary.
 
 **No tools, no stop.** Claude Code connects MCP servers once, at session start, and never
 retries, so a session opened while the board was down has no `tickets` tools — and a
