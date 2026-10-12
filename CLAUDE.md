@@ -23,6 +23,15 @@
   and appends its `#<id>` row to STATUS.md (rules in its header, #177).
 - **docs.html** is the user's manual: a change to how the board or the skill behaves
   updates it too.
+- **What a stage reads (#215):** this file whole. `PLAN.md`, `docs.html` and
+  `skill-start/run.md` only in the sections the change touches: find them by grepping the
+  headings, the `#<id>`s and key words, then read those ranges, not the whole file (a
+  whole file only when the change rewrites most of it). `STATUS.md` only its header (the
+  row rules) and its last lines, all a row append needs. Code files as the change needs.
+- **Guard tests** (`test_idle_gate.py`) pin behaviour the run relies on (verdict lines,
+  what a brief carries, gates, settings), not wording: a `run.md` wording change adds no
+  guard pinning its new phrasing, and a guard a rewording breaks is updated to the
+  behaviour it checks or dropped if it only pinned words (#215).
 - **Deploy:** merge the card into master and push. Run the tests (`uv run pytest -q`)
   after the merge and before the push unless the run's deploy verdict (in the brief or
   applied by the dispatcher itself, #189) says the test stage already ran them on this

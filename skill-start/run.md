@@ -199,7 +199,9 @@ full-card read per stage) and include, each under its own heading:
   with the linked cards' titles and lanes; every comment in order with author and time, but
   not a comment's `output`;
 - the project: name, instructions verbatim, `land`, the repo path and base branch, and that
-  the repo's `CLAUDE.md` holds its rules (read it first);
+  the repo's `CLAUDE.md` holds its rules (read it first) and that the stage reads long docs
+  such as `PLAN.md` and `STATUS.md` only in the sections its change touches, as that
+  `CLAUDE.md` says (#215);
 - where to work: the folder (absolute path; use absolute paths or `git -C`), and for plan,
   develop and test the worktree path and the `card/<id>` branch;
 - where not to write (#204): a plan, develop or test stage never writes in the base checkout

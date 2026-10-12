@@ -370,6 +370,16 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   assignee instead of the whole card with its event log; `tickets-stage.md` says the same
   in its body, and the dispatcher's own writes through MCP (a session without PowerShell)
   pass it too. The dispatcher's HTTP writes stay the trimmed `Select-Object` (#186).
+- **Stages read sections, not whole docs (#215).** Each plan, develop and test stage paid
+  a fixed read before touching code: `PLAN.md` (~14k tokens), `docs.html` (~9k),
+  `STATUS.md` (~7k), and for a `run.md` change `run.md` (~13k) plus a new wording guard.
+  The repo `CLAUDE.md` now says what a stage reads (that file whole; `PLAN.md`,
+  `docs.html`, `run.md` only the sections found by grepping headings, `#<id>`s and key
+  words; `STATUS.md` its header and last lines) and that guard tests pin behaviour, not
+  wording; the brief's project bullet points at it. Baseline to compare stage subagent
+  tokens with on the next comparable run (2026-10-12): #204 plan+build 142k (opus), #202
+  plan+build 142k (opus), #204 test 97k (opus), #203 plan 110k (opus), #203 develop 144k
+  (sonnet).
 - **What only a person can do** (`## Blocked by`) becomes `todo` cards linked `blocks`.
   A failure is an `agent failed: …` comment, lane unchanged.
 - **Wrap-up:** follow-up ideas as `todo` cards, and a summary in the chat.
