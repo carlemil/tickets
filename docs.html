@@ -348,7 +348,13 @@ files, no new module, schema, route or tool, and unsure means large) and says so
 first line, <code>Size: …</code>. Add the label before the card goes to <code>plan</code>; to
 change the path later, relabel and move the card back to <code>plan</code>. Before a built card goes to <code>test</code>, the dispatcher checks that
 the branch holds the files the build said it changed: a mismatch is noted on the card and
-handed to the test stage, and an empty build fails. Every stage gets a new agent with a clean context: a card already in
+handed to the test stage, and an empty build fails. Plan, develop and test agents work only in
+their card's worktree, never in the project's own checkout, and every stage keeps its scratch
+files in a folder of its own. After every
+stage the dispatcher checks that checkout for uncommitted changes: a file that is an exact copy
+of a card's committed work is put back at once (nothing is lost, the card's branch has it), so it
+cannot hold up the merge into the base branch; anything else is left alone and noted on the
+card. Every stage gets a new agent with a clean context: a card already in
 <code>develop</code> too, and every card in <code>test</code>, so the test reviews work
 it did not write. The strong model thinks and checks: the plan is written on Opus and the
 review in <code>test</code> runs on Opus. For a large card the cheaper Sonnet writes the
