@@ -19,7 +19,8 @@ password then, so only on a network you trust. Never host it online.
 - `todo` — you write the card: a title and what you want, and why.
 - `plan` — the agent writes a plan, and any open questions for you (Opus; with no
   questions it moves the card to `develop` and a new agent builds it at once; a card
-  labelled `small`, or judged small, is built by the same agent, `large` forces the split).
+  labelled `small`, or judged small, is built by the same agent, `large` forces the split;
+  a card labelled `small` is planned and built on Sonnet instead).
 - `develop` — the agent implements it from the posted plan on a `card/<id>` branch in
   its own worktree (Sonnet, whether the card was just planned or you put it here; a
   small card arrives already built by its plan agent and skips this lane).

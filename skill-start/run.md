@@ -166,12 +166,18 @@ or not loaded: `/tickets-start` in a new session".
 **Model per stage (#83).** Each stage's Agent call sets its model on purpose — the
 `model` parameter, or none — so the tokens go where they pay:
 - plan: `model: "opus"` — the owner's call (#155): planning is judgement, so the strong
-  model writes the plan (pinned, no longer the session's model).
+  model writes the plan (pinned, no longer the session's model). The one exception (#187,
+  the owner's call after a 5-card run took the 5-hour limit to 86%): a card labelled
+  `small` (Card size) gets `model: "sonnet"`, which plans and builds it. The model is
+  picked before the plan subagent starts, so only the labels decide it (the judged size
+  comes later): `small` → `sonnet`; `large`, both labels or no label → `opus`. Not a git
+  repo → `opus` (no one-agent path, so the agent only plans).
 - develop: `model: "sonnet"` — the owner's call (#155): it writes code from a written
   plan, for every large card, whether the plan stage just moved it or a person put it in
   `develop`. Splitting plan from develop trades one extra read of the code (develop
   starts fresh) for a cheaper writer; for a small card that read costs more than the
-  cheaper model saves, so its plan subagent (`opus`) builds it (Card size, #190).
+  cheaper model saves, so its plan subagent builds it (Card size, #190): on `sonnet` when
+  labelled `small`, on `opus` when judged small.
 - test: `model: "opus"` — the owner's call (#154): the review is never weaker than the
   `sonnet` that wrote the code. The strong model thinks (plan) and checks (test).
 - deploy: no model for a mechanical deploy (the dispatcher runs it itself, #189); a
@@ -190,9 +196,11 @@ that the plan/develop split costs; a large card keeps the split. One definition 
   the change touches at most ~5 files (PLAN.md, docs and tests included), adds no new
   module, and changes no database schema, HTTP route or MCP tool. Anything else is
   large. When unsure: large.
-- the labels are the only signal known before planning, the judged rule only after. #187
-  reuses this paragraph as is (the `small` label picks the plan model); this card changes
-  no model.
+- the labels are the only signal known before planning, the judged rule only after, so
+  the labels alone pick the plan model (#187, Model per stage): `small` → `sonnet`, else
+  `opus`. A card judged small was spawned on `opus` and is built there. No guess from the
+  description: the label is the per-card override (add `small` for Sonnet, `large` or no
+  label for Opus).
 - a person forces a path by adding the label `small` or `large` to the card before its
   plan stage starts; you read the labels from the `get_card` right before spawning. No
   label: the agent judges. The posted plan's first line says which path it took:
@@ -271,7 +279,9 @@ On a card's way out: `update_card(assignee="")` unless a person had it before yo
 (you) `git -C <repo> pull --ff-only` first; if it fails, tell the subagent the code may
 be behind. Then set up the card's worktree as under develop below, before spawning; note
 whether `card/<id>` already existed. Not a git repo → no pull, no worktree: the subagent
-plans in the folder. The subagent gets `model: "opus"`. Its brief carries the card's
+plans in the folder. The subagent gets `model: "sonnet"` when the `get_card` right before
+spawning shows the label `small` (any case, and not `large`) and the project is a git repo
+(the one-agent path), else `model: "opus"` (Model per stage, #187). Its brief carries the card's
 labels and the Card size rule; unless a label is `large` (or it is not a git repo), it also carries the develop
 stage's rules (build from the plan, targeted tests, commit on `card/<id>`, never push,
 tick checklist items, the `tests:` line and `Files changed:` section, all below), so it
