@@ -146,9 +146,10 @@ stage of a card runs as (a mechanical deploy runs in the dispatcher itself and n
 none). A <code>general-purpose</code> subagent loads every tool and MCP
 server of the session, and most of a stage's cost is that fixed start (a haiku deploy ended
 at about 63k tokens after 5-7 commands); <code>tickets-stage</code> carries only the shell,
-file, search, <code>Skill</code> (for <code>code-review</code>) and board tools.
+file, search, <code>Skill</code> (for <code>code-review</code>), <code>Monitor</code> and board tools.
 <code>/tickets-start</code> installs it as a copy at <code>~/.claude/agents/tickets-stage.md</code>
-and refreshes it when the repo's file changes. Claude Code reads agent definitions when a
+and each <code>/tickets-start</code> refreshes it when the repo's file differs (a run
+never does: after a change to the agent file, run <code>/tickets-start</code> again). Claude Code reads agent definitions when a
 session starts, so open a new session after the first install; until then runs fall back to
 <code>general-purpose</code> (same brief, same model) and the summary says so once.</p>
 <p>Without <code>/tickets-start</code>, give Claude Code the board's tools by hand, at user
