@@ -307,6 +307,16 @@ full-card read per stage, Lean board calls) and include, each under its own head
   that the repo's `CLAUDE.md` holds its rules (read it first);
 - where to work: the folder (absolute path — tell it to use absolute paths or `git -C`),
   and for plan, develop and test the worktree path and the `card/<id>` branch;
+- where not to write (#204): a plan, develop or test stage never writes in the base
+  checkout `<repo>` (no edits, no scratch files, no git command that changes it; it may
+  read it if it must), and every stage keeps scratch files (patch scripts, temp output)
+  only in its own scratch folder `<scratchpad>/card-<id>-<stage>` (`plan`, `develop`,
+  `test`, `deploy`), which it creates: one folder per stage, so two stages' scratch
+  scripts never overwrite each other. `<scratchpad>` is your session's scratchpad
+  directory (Claude Code names it in your environment; with none,
+  `<system temp>/tickets-<session id>`). Its reply ends with the output of
+  `git -C <repo> status --porcelain` (empty is good); you check the checkout anyway (Base
+  checkout check, below);
 - the stage's rules below, the `## Blocked by` request, and the verdict line it must end
   with;
 - that a board write refused by a permission check is never retried in another form or
@@ -325,6 +335,34 @@ exceptions are the plan subagent posting its plan (and moving the card to `devel
 the develop subagent ticking checklist items.
 
 On a card's way out: `update_card(assignee="")` unless a person had it before you.
+
+**Base checkout check (#204).** Stages work only in their worktree, yet in the #193 run
+two left copies of their card's edits in the base checkout `<repo>`, and the land (step 3
+after a test PASS, which needs that checkout clean) was skipped over them for hours. So
+after every stage reply (any verdict, a crash too; only in a git repo), before that card's
+other steps (the trimmed check, the verdict's writes, a worktree clean-up, ship and land),
+run `git -C <repo> status --porcelain --untracked-files=no`. Empty → nothing to do.
+Otherwise each listed path (both paths of a rename) is a **stray copy** of a card's work
+only when all three hold, tried against each card in flight in this run, the replying
+card first (with 2 slots the other card's stage may have written it):
+1. the card's branch changed it:
+   `git -C <repo> diff --name-only --no-renames <base>...card/<id>` lists it;
+2. the checkout's file is exactly the branch's:
+   `git -C <repo> diff --quiet card/<id> -- <path>` exits 0 (a file deleted on both counts);
+3. its index entry is HEAD's or the branch's:
+   `git -C <repo> diff --cached --quiet HEAD -- <path>` or
+   `git -C <repo> diff --cached --quiet card/<id> -- <path>` exits 0.
+
+Stray copies are reverted at once, without asking (the owner's standing call: nothing is
+lost, the branch holds the same content):
+`git -C <repo> restore --source=HEAD --staged --worktree -- <paths>`, then comment on the
+card whose branch matched `base checkout: reverted stray copies of card/<id>: <paths>`.
+Any other path is never touched (a person's edit, a half-made copy, work not yet
+committed): comment on the replying card `base checkout: uncommitted changes that are not
+a copy of a card's committed edits, left alone: <their status lines>`, each path once per
+run, and the summary names them. A revert refused by a permission check is not retried
+another way: note it as under "Board writes that fail" and carry on. Untracked files are
+not checked (the land ignores them too).
 
 ### plan  (in the card's worktree)
 
@@ -674,5 +712,6 @@ Then:
   **refused writes**: each board write a permission check refused, once, with the card,
   the write, and the permission rule that would let it through (it is retried next tick),
   and any background-task chip a stage made by mistake (#159), and one line when the
-  project's `Cards in flight:` value was invalid and the run fell back to 2 (#193).
+  project's `Cards in flight:` value was invalid and the run fell back to 2 (#193), and
+  each base-checkout path left alone (#204: not a stray copy, so a person decides).
   The summary reports; it never ends "waiting on you".
