@@ -142,7 +142,8 @@ tick finds no card a run would take, it answers "nothing to do" before the model
 an idle tick costs no tokens. It needs a system <code>python</code> on PATH; without one
 <code>/tickets-start</code> says so and skips it, and idle ticks still work, just not for free.</p>
 <p>The <b>stage agent</b> (<code>skill-start/agents/tickets-stage.md</code>) is what each
-stage of a card runs as. A <code>general-purpose</code> subagent loads every tool and MCP
+stage of a card runs as (a mechanical deploy runs in the dispatcher itself and needs
+none). A <code>general-purpose</code> subagent loads every tool and MCP
 server of the session, and most of a stage's cost is that fixed start (a haiku deploy ended
 at about 63k tokens after 5-7 commands); <code>tickets-stage</code> carries only the shell,
 file, search, <code>Skill</code> (for <code>code-review</code>) and board tools.

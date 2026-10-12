@@ -53,9 +53,10 @@ ended at ~63k tokens after 5-7 commands). `${CLAUDE_SKILL_DIR}/agents/tickets-st
 defines `tickets-stage`, limited to the tools a stage needs. Install it as a **copy** (a
 file symlink on Windows needs developer mode, a hardlink cannot cross drives) at
 `~/.claude/agents/tickets-stage.md`: create the folder, write the file when it is missing
-or its content differs from the repo's. Claude Code reads agent definitions when a
-session starts, so say in the summary that a new session is needed before runs use it
-(until then they fall back to `general-purpose`).
+or its content differs from the repo's, else leave it. Claude Code reads agent definitions
+when a session starts, so when this wrote the file, say in the summary that a new session
+is needed before runs use it (until then they fall back to `general-purpose`); unchanged →
+one line "stage agent: up to date".
 
 ## 2. The board's tools
 
