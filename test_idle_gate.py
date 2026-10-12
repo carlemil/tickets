@@ -239,6 +239,7 @@ def test_the_docs_only_grep_finds_the_files_the_tests_read():
     # built from parts: a quoted full name here would itself be a hit
     assert not quoted("PLAN" + ".md", tests)  # only named in comments
     assert not quoted("README" + ".md", tests)
+    assert not quoted("STATUS" + ".md", tests)  # every card's row stays docs-only (#177)
     assert not quoted("run.md", TICK)         # a mention inside a longer string is no hit
     assert quoted("run.md", 'open(r"skill-start\\run.md")')  # a Windows path
 

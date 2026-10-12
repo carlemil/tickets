@@ -146,4 +146,4 @@ docstring at the top of `conftest.py`).
 
 - `http://127.0.0.1:8123/docs` — the full manual: the board, the agent, the workflow,
   using it from other MCP clients, and its limits. Needs the server running.
-- `PLAN.md` — the design: schema, operations, decisions and change log.
+- `PLAN.md` — the design: schema, operations and decisions (the change log is `STATUS.md`).

@@ -7,7 +7,8 @@ below are what keep it safe:
 
 - A card appends exactly one row, `| #<id> | <change> | <state> |`, as the file's last line.
 - Never renumber, never edit another card's row, never edit this header or the frozen
-  rows: a later change to old work adds its own row. (Union would keep both versions of an
+  rows: a later card's change to old work adds a row under that later card's own id.
+  (Union would keep both versions of an
   edited line. If a key shows up twice after a merge, such an edit happened: keep the
   newer row.)
 - State is `done`, plus the checks the card added as a delta (`+N checks`), so parallel
