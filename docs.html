@@ -97,7 +97,7 @@ board</a> has the details.</p>
     works. A card assigned to a person is never taken by an agent.</li>
   <li data-field="lane"><b>lane</b>: the stage it is in, the same as dragging it to another
     column.</li>
-  <li data-field="labels"><b>labels</b>: free tags, comma separated. <code>small</code> and <code>large</code> steer how the agent works the card (see The agent).</li>
+  <li data-field="labels"><b>labels</b>: free tags, comma separated. <code>small</code> and <code>large</code> steer how the agent works the card and which model plans it (see The agent).</li>
   <li data-field="checklist"><b>checklist</b>: steps to tick off. The agent ticks its plan's
     steps as it finishes them, and the board card shows done/total.</li>
   <li data-field="links"><b>links</b>: this card's parent, and the cards it blocks. A
@@ -354,7 +354,12 @@ it did not write. The strong model thinks and checks: the plan is written on Opu
 review in <code>test</code> runs on Opus. For a large card the cheaper Sonnet writes the
 code from the posted plan, whether the card was just planned or you put it in <code>develop</code>
 yourself; reading the code a second time costs less than building on Opus. A small card is
-built on Opus by its plan agent, where that second read would cost more than Sonnet saves. When
+built by its plan agent, where that second read would cost more than a separate Sonnet build saves. The one
+exception to planning on Opus: a card labelled <code>small</code> is planned and built on
+Sonnet, since short, mechanical plans do not need the strong model. The model is picked
+before the plan agent starts, so only the label counts: a card judged small without the
+label is planned and built on Opus. The label is your per-card switch: add
+<code>small</code> for Sonnet, leave it off (or add <code>large</code>) for Opus. When
 the project's deploy instructions are mechanical (a push, fixed restart commands, a file
 classification), the dispatcher deploys it itself and no agent is spawned; only a deploy that
 needs judgement (a phone install, a script whose output decides the next step) goes to a
