@@ -247,6 +247,22 @@ path and instructions, but configuring projects is left to the board) · `set_ac
 That leaves no way to spell "clear it", which matters for exactly one field: pass
 `assignee=""` to unassign.
 
+**Slim replies (#203).** `update_card` and `comment` answer with the whole card, `events`
+log and `links` included, so a plan post or a checklist tick echoed the plan several times
+over (the field, the checklist, the events that set them) into every stage's context; the
+dispatcher's own board calls were already trimmed over HTTP (#186). Both tools take an
+opt-in `slim: bool = False`: `slim=True` answers only `{"id", "lane", "assignee"}` of the
+card as written (the three fields the dispatcher's trimmed writes print), one helper
+(`_reply`) for both. The write itself, the `deployed` path of a claude-agent deploy comment
+and the `ToolError` mapping are the same either way; the default stays the whole card, so
+other MCP clients, the HTTP routes (board.html) and existing callers are unchanged.
+`get_card` and the other write tools (`create_card`, `link_cards`, `unlink_cards`: only the
+dispatcher uses them) take no `slim`; a stage still reads one whole card before a post or a
+tick. An older backend drops the unknown argument (the SDK's argument model ignores extra
+keys, the schemas set no `additionalProperties: false`), so `slim=True` sent before the
+restart just gets the whole card back, and a session sees the argument in the schema after
+`/mcp` reconnects or in a new session.
+
 Docstrings state the lane order and that `actor` identifies the caller — they are the
 agent's only instruction manual, so they carry more weight than the code around them.
 **An f-string is not a docstring**: written that way, `__doc__` is `None` and the tools
@@ -348,6 +364,12 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   items (new texts only, existing items kept); the subagent that builds ticks each as it
   finishes — its one board write besides the plan stage's plan post — so the board card's `☑ done/total` chip moves while it
   works, and the test review names any step left unticked.
+- **Stage board writes are slim (#203).** Every brief carries the line that the stage's
+  board writes (`update_card`, `comment`: the plan post and its MOVED comment, the
+  checklist ticks) pass `slim=True`, so each answers with only the card's id, lane and
+  assignee instead of the whole card with its event log; `tickets-stage.md` says the same
+  in its body, and the dispatcher's own writes through MCP (a session without PowerShell)
+  pass it too. The dispatcher's HTTP writes stay the trimmed `Select-Object` (#186).
 - **What only a person can do** (`## Blocked by`) becomes `todo` cards linked `blocks`.
   A failure is an `agent failed: …` comment, lane unchanged.
 - **Wrap-up:** follow-up ideas as `todo` cards, and a summary in the chat.

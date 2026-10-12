@@ -55,6 +55,13 @@ def tool(fn):
     return wrapper
 
 
+def _reply(card: dict, slim: bool) -> dict:
+    """A write tool's answer: the whole card, or with `slim` only the three fields a stage
+    checks after a write (#203). Every stage write echoed the card with its event log, a
+    long plan several times over; the write itself is the same either way."""
+    return {k: card[k] for k in ("id", "lane", "assignee")} if slim else card
+
+
 async def body(request):
     data = await request.json()
     if not data.get("actor"):
@@ -388,7 +395,7 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
                 plan: str | None = None, questions: str | None = None,
                 answers: str | None = None, merged: bool | None = None,
                 deployed: bool | None = None, session: str | None = None,
-                pr: str | None = None) -> dict:
+                pr: str | None = None, slim: bool = False) -> dict:
     """Change a card: this is how you move it between lanes, assign it, and tick checklist items.
 
     `actor` is you — every change is logged under that name. Pass only the fields you are
@@ -419,6 +426,10 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
     the board offers them as radio buttons. Pass ""
     once none are open. `answers` is the person's reply to `questions`: read it, do not
     write it. Results of development or testing go in a comment, not in these fields.
+
+    The reply is the whole card, `events` log and all, which a long plan makes costly. Pass
+    `slim=True` when you do not need the card back: the reply is then only
+    {"id", "lane", "assignee"} of the card as written, and the write is the same.
     """
     fields = {k: v for k, v in dict(
         title=title, description=description, lane=lane, assignee=assignee,
@@ -429,7 +440,7 @@ def update_card(id: int, actor: str, title: str | None = None, description: str 
         if v is not None}
     if fields.get("assignee") == "":
         fields["assignee"] = None   # None already means "not passed", so "" is how you unassign
-    return core.update_card(id, actor, **fields)
+    return _reply(core.update_card(id, actor, **fields), slim)
 
 
 @tool
@@ -472,12 +483,16 @@ def set_activity(actor: str, card_id: int | None = None, doing: str = "") -> lis
 
 
 @tool
-def comment(id: int, actor: str, text: str, output: str = "") -> dict:
+def comment(id: int, actor: str, text: str, output: str = "", slim: bool = False) -> dict:
     """Add a comment to a card's activity log. `actor` is you — it is who the comment is from.
 
     `output` is optional: the raw CLI transcript of the run this comment reports, which the
-    board shows under the comment in a box that starts closed."""
-    return core.comment(id, actor, text, output)
+    board shows under the comment in a box that starts closed.
+
+    The reply is the whole card, `events` log and all. Pass `slim=True` when you do not need
+    the card back: the reply is then only {"id", "lane", "assignee"}, and the comment is
+    added all the same."""
+    return _reply(core.comment(id, actor, text, output), slim)
 
 
 @tool

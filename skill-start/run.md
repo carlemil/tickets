@@ -91,8 +91,13 @@ fresh shell, so no variable carries over:
 
 The MCP tools stay for stage subagents (their context ends with the stage) and for a
 session without PowerShell; there, use them as before and the summary says once that the
-run read full cards. HTTP is your first route now, not a fallback: a write it refused by
-a permission check is still never retried through the MCP tool (below), and the summary
+run read full cards. Their writes are slim (#203): `update_card` and `comment` take
+`slim=True`, which answers only `id`, `lane` and `assignee`, so a stage's plan post, MOVED
+comment and checklist ticks no longer echo the card (the brief carries the line, below).
+Your own writes through MCP do not echo it either: the MCP fallback writes pass
+`slim=True` too (HTTP has no such option: it is the trimmed `Select-Object` above). Reads
+stay whole (`get_card`). HTTP is your first route now, not a fallback: a write it refused
+by a permission check is still never retried through the MCP tool (below), and the summary
 names the `PowerShell(…)` rule. How this is measured: verify compares the dispatcher
 session's context on the next comparable run with the 2026-10-11 run (STATUS.md, #186).
 
@@ -329,7 +334,12 @@ full-card read per stage, Lean board calls) and include, each under its own head
   made a chip by accident; #156 with this line in the brief did not). A chip made by
   mistake is dismissed at once (`dismiss_task`) and named in the reply; you note it on
   the card's comment and in the summary. Every stage brief carries this line, whichever
-  stage builds it.
+  stage builds it;
+- that its board writes (`update_card`, `comment`) pass `slim=True` (#203), so the reply is
+  only the card's `id`, `lane` and `assignee`, not the whole card with its `events`; it
+  reads the card with `get_card` when it needs it. Every stage brief carries this line too
+  (a backend not yet restarted ignores the argument and answers with the whole card, as
+  before).
 
 You — not the subagent — write to the board and run the git steps marked (you); the
 exceptions are the plan subagent posting its plan (and moving the card to `develop`), and
@@ -398,18 +408,18 @@ Last line `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
 
 **Post.** The subagent writes the plan to the board itself (`actor="claude-agent"`):
 - `get_card` first: **a person's move wins** — lane no longer `plan` or assignee no
-  longer `claude-agent` → `comment` the plan saying the card was moved during the run,
-  end `STAGE: MOVED`.
+  longer `claude-agent` → `comment(…, slim=True)` the plan saying the card was moved during
+  the run, end `STAGE: MOVED`.
 - Cut the verdict line and the `## Open questions` section off; empty plan → post
   nothing, end `STAGE: FAILED`. The steps become the card's checklist, its live task
   list: the existing items as they are, plus one `{"text": <step>, "done": false}` per
   step whose text is not already on it (so a replan adds only new steps).
-- OPEN → `update_card(plan=…, questions=<the cut section>, checklist=…)`, end
+- OPEN → `update_card(plan=…, questions=<the cut section>, checklist=…, slim=True)`, end
   `STAGE: QUESTIONS`.
-- A `## Blocked by` → `update_card(plan=…, checklist=…)` (plus `questions=…` if OPEN),
-  lane unchanged, end with the section and `STAGE: BLOCKED`.
-- NONE → `update_card(plan=…, checklist=…, lane="develop")`, so a person sees the plan
-  in `develop`. Size large → end `STAGE: PLANNED`. Size small → **build in the same
+- A `## Blocked by` → `update_card(plan=…, checklist=…, slim=True)` (plus `questions=…` if
+  OPEN), lane unchanged, end with the section and `STAGE: BLOCKED`.
+- NONE → `update_card(plan=…, checklist=…, lane="develop", slim=True)`, so a person sees
+  the plan in `develop`. Size large → end `STAGE: PLANNED`. Size small → **build in the same
   context** (the one-agent path) following the develop rules below, ticking checklist
   items as it finishes them; its reply is the plan followed by the develop reply (summary,
   `tests:` line, `Files changed:`), last line `STAGE: BUILT` (`STAGE: BLOCKED` with a
@@ -503,8 +513,8 @@ that same list, `git -C <tree> diff --name-only --no-renames <base>...card/<id>`
    before its `Files changed:` section; the BUILT comment carries it.
 Its one board write (the plan stage's post came before): as it finishes a step it
 ticks that checklist item — `get_card`,
-flip that item's `done`, `update_card(checklist=<the full list>, actor="claude-agent")` —
-nothing else; tell it so in the brief.
+flip that item's `done`, `update_card(checklist=<the full list>, actor="claude-agent",
+slim=True)` — nothing else; tell it so in the brief.
 (you) After the trimmed check (a person's move wins): BUILT → the BUILT check below
 first, then comment the summary, its `tests:` line, the `build check:` line and the
 worktree path, move to

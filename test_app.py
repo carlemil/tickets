@@ -302,6 +302,117 @@ def test_every_tool_has_a_real_docstring():
     assert all(t.__doc__ and t.__doc__.strip() for t in tools)
 
 
+# ---------- MCP write tools: the slim reply (#203) ----------
+
+SLIM_KEYS = {"id", "lane", "assignee"}
+
+
+def test_slim_update_card_answers_id_lane_assignee_and_the_write_lands():
+    c = app.create_card(title="x", actor="ann", project="Home", assignee="bob")
+    r = app.update_card(c["id"], "bot", lane="plan", plan="the plan",
+                        checklist=[{"text": "one", "done": False}], slim=True)
+    assert r == {"id": c["id"], "lane": "plan", "assignee": "bob"}, r
+    got = core.get_card(c["id"])
+    assert (got["lane"], got["plan"], got["checklist"]) == (
+        "plan", "the plan", [{"text": "one", "done": False}]), "the write is the same"
+    kinds = [e["kind"] for e in got["events"]]
+    assert "moved" in kinds and kinds.count("edited") >= 1, got["events"]
+
+
+def test_the_default_update_card_reply_is_still_the_whole_card():
+    c = app.create_card(title="x", actor="ann", project="Home")
+    for r in (app.update_card(c["id"], "bot", lane="plan"),
+              app.update_card(c["id"], "bot", lane="develop", slim=False)):
+        assert r["events"] and "links" in r and "plan" in r and "title" in r, r
+        assert SLIM_KEYS < set(r), "id, lane and assignee ride along in the whole card"
+
+
+def test_slim_comment_answers_id_lane_assignee_and_the_comment_lands():
+    c = app.create_card(title="x", actor="ann", project="Home", assignee="bob")
+    r = app.comment(c["id"], "bot", "MOVED: develop -> test", slim=True)
+    assert r == {"id": c["id"], "lane": "todo", "assignee": "bob"}, r
+    last = core.get_card(c["id"])["events"][-1]
+    assert (last["kind"], last["detail"]) == ("comment", {"text": "MOVED: develop -> test"})
+    full = app.comment(c["id"], "bot", "again")
+    assert full["events"][-1]["detail"] == {"text": "again"}, "the default is the whole card"
+    assert app.comment(c["id"], "bot", "with output", output="raw", slim=True) == r
+    assert core.get_card(c["id"])["events"][-1]["detail"] == {"text": "with output",
+                                                              "output": "raw"}
+
+
+def test_a_slim_no_op_update_records_nothing_and_answers_the_same_three_keys():
+    c = app.create_card(title="x", actor="ann", project="Home", assignee="bob")
+    before = core.get_card(c["id"])["events"]
+    r = app.update_card(c["id"], "bot", lane="todo", assignee="bob", slim=True)
+    assert r == {"id": c["id"], "lane": "todo", "assignee": "bob"}, r
+    assert core.get_card(c["id"])["events"] == before, "a field passed unchanged records nothing"
+    assert app.update_card(c["id"], "bot", slim=True) == r, "no field at all is a no-op too"
+
+
+def test_a_slim_unassign_answers_assignee_none():
+    c = app.create_card(title="x", actor="ann", project="Home", assignee="bob")
+    r = app.update_card(c["id"], "ann", assignee="", slim=True)
+    assert r == {"id": c["id"], "lane": "todo", "assignee": None}, r
+    assert core.get_card(c["id"])["assignee"] is None
+    assert [e["kind"] for e in core.get_card(c["id"])["events"]].count("assigned") == 1
+
+
+def test_a_slim_deploy_comment_still_sets_the_deployed_dot():
+    c = app.create_card(title="x", actor="ann", project="Home", assignee="claude-agent")
+    r = app.comment(c["id"], core.AGENT, "deployed: restarted the backend", slim=True)
+    assert r == {"id": c["id"], "lane": "todo", "assignee": "claude-agent"}, r
+    got = core.get_card(c["id"])
+    assert got["deployed"] is True, "the deployed path runs whether or not the reply is slim"
+    assert got["events"][-2]["kind"] == "comment", got["events"]
+    r = app.comment(c["id"], core.AGENT, "deploy failed: tests red", slim=True)
+    assert set(r) == SLIM_KEYS and core.get_card(c["id"])["deployed"] is False
+
+
+def test_slim_errors_reach_the_agent_as_a_toolerror_like_any_other():
+    with pytest.raises(ToolError, match="no card 999"):
+        app.update_card(999, "bot", lane="plan", slim=True)
+    with pytest.raises(ToolError, match="no card 999"):
+        app.comment(999, "bot", "hi", slim=True)
+    c = app.create_card(title="x", actor="ann", project="Home")
+    with pytest.raises(ToolError, match="lane must be one of"):
+        app.update_card(c["id"], "bot", lane="backlog", slim=True)
+    assert core.get_card(c["id"])["lane"] == "todo", "a refused slim write changes nothing"
+
+
+def test_the_write_tools_document_slim_and_the_other_tools_do_not_take_it():
+    for t in (app.update_card, app.comment):
+        assert "slim=True" in t.__doc__ and '"id", "lane"' in t.__doc__, t.__name__
+        assert t.__wrapped__.__annotations__["slim"] is bool
+    for t in (app.get_card, app.create_card, app.link_cards, app.unlink_cards):
+        assert "slim" not in t.__wrapped__.__annotations__, t.__name__
+
+
+def test_the_mcp_schemas_carry_slim_and_a_slim_call_replies_without_events():
+    c = app.create_card(title="x", actor="ann", project="Home", assignee="bob")
+
+    async def go():
+        async with Client(app.mcp) as cl:
+            tools = {t.name: t for t in (await cl.list_tools()).tools}
+            for name in ("update_card", "comment"):
+                props = tools[name].input_schema["properties"]
+                assert props["slim"]["type"] == "boolean" and props["slim"]["default"] is False
+                assert "slim" not in tools[name].input_schema.get("required", [])
+            assert "slim" not in tools["get_card"].input_schema["properties"]
+            slim = await cl.call_tool("update_card", {"id": c["id"], "actor": "bot",
+                                                      "lane": "plan", "slim": True})
+            note = await cl.call_tool("comment", {"id": c["id"], "actor": "bot",
+                                                  "text": "hello", "slim": True})
+            whole = await cl.call_tool("comment", {"id": c["id"], "actor": "bot", "text": "hi"})
+            return slim, note, whole
+    slim, note, whole = asyncio.run(go())
+    for r in (slim, note):
+        assert not r.is_error and "events" not in r.content[0].text, r.content[0].text
+        assert set(json.loads(r.content[0].text)) == SLIM_KEYS, r.content[0].text
+    assert json.loads(slim.content[0].text)["lane"] == "plan"
+    assert "events" in whole.content[0].text, "without slim the reply is the whole card"
+    assert core.get_card(c["id"])["lane"] == "plan"
+
+
 # ---------- the real MCP transport, once ----------
 
 def test_the_mcp_endpoint_serves_the_tools(db):
@@ -331,7 +442,11 @@ def test_the_mcp_endpoint_serves_the_tools(db):
             assert r.status_code == 200, r.text
             return json.loads(r.text.split("data: ", 1)[1])["result"]
 
-        listed = {t["name"] for t in call({"method": "tools/list"})["tools"]}
+        tools = call({"method": "tools/list"})["tools"]
+        for t in tools:   # #203: the write tools offer the slim reply, the others do not
+            assert ("slim" in t["inputSchema"]["properties"]) == (
+                t["name"] in ("update_card", "comment")), t["name"]
+        listed = {t["name"] for t in tools}
         assert listed == {"list_cards", "get_card", "create_card", "update_card", "list_projects",
                           "create_user", "comment", "link_cards", "unlink_cards",
                           "set_activity"}, listed
@@ -354,6 +469,16 @@ def test_the_mcp_endpoint_serves_the_tools(db):
                                 "arguments": {"id": cid, "actor": "agent", "archived": True}}})
         assert done["isError"] is False, done
         assert core.get_card(cid)["archived"] is True and core.list_cards() == []
+
+        # #203: a slim call over the wire answers three keys, no events; the write lands
+        slim = call({"method": "tools/call",
+                     "params": {"name": "comment",
+                                "arguments": {"id": cid, "actor": "agent", "text": "slim over mcp",
+                                              "slim": True}}})
+        assert slim["isError"] is False, slim
+        text = slim["content"][0]["text"]
+        assert "events" not in text and set(json.loads(text)) == {"id", "lane", "assignee"}, text
+        assert core.get_card(cid)["events"][-1]["detail"] == {"text": "slim over mcp"}
 
 
 def test_archived_query_param_switches_the_list(client):
