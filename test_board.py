@@ -12,6 +12,7 @@ on `window`, so page.evaluate can drive the page's own code rather than re-imple
 import pytest
 
 import core
+from conftest import POLL_INIT
 
 
 def drag(page, card_id, lane, y=None):
@@ -3268,8 +3269,13 @@ def test_a_slow_retry_load_is_not_dropped_by_the_next_poll(browser, server):
     start another load and drop the one in flight, so the board never drew; load() now
     clears loadFailed (#165, pinned by #178)."""
     pg = browser.new_page()
+    # the real 5 s poll stubbed out, as the page fixture does: a poll firing on its own
+    # between the steps below would retry the load unheld and race the test's loadStatus()
+    pg.add_init_script(POLL_INIT % 0)
     errors = []
     pg.on("pageerror", lambda e: errors.append(str(e)))   # as the page fixture does
+    pg.on("console", lambda m: errors.append(m.text)
+          if m.type == "error" and not m.text.startswith("Failed to load resource") else None)
     try:
         pg.route("**/api/cards?*", lambda route: route.fulfill(
             status=500, body='{"detail": "boom"}', content_type="application/json"))
@@ -3300,6 +3306,7 @@ def test_a_slow_retry_load_is_not_dropped_by_the_next_poll(browser, server):
         pg.evaluate("window.__release(); loading")
         pg.wait_for_selector("#board .lane", timeout=5000)
         assert pg.evaluate("loadFailed") is False
+        assert pg.evaluate("window.__pollStubbed === true"), "POLL_INIT no longer matches the poll"
     finally:
         pg.close()
     assert not errors, errors
