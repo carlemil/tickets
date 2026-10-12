@@ -374,7 +374,10 @@ def test_run_md_pins_the_base_checkout_check():
                  text.index("On a card's way out")]
     for needle in ("where not to write (#204)", "never writes in the base checkout `<repo>`",
                    "`<scratchpad>/card-<id>-<stage>`", "one folder per stage",
-                   "never overwrite each other", "`git -C <repo> status --porcelain`"):
+                   "never overwrite each other", "`git -C <repo> status --porcelain`",
+                   # the verdict stays the reply's last line, as every stage's rules say
+                   "before any `tests:` line, `Files changed:` section and the verdict line,"
+                   " which stay last"):
         assert needle in brief, needle
     start = text.index("**Base checkout check (#204).**")
     check = text[start:text.index("### plan", start)]
@@ -393,11 +396,18 @@ def test_run_md_pins_the_base_checkout_check():
         assert needle in check, needle
     # before the land and the worktree clean-up, so the land finds the checkout clean
     assert "before that card's other steps" in check and "ship and land" in check
+    # and again at the land itself, which a running stage of another card may have dirtied
+    assert "the land runs this check once more when it finds the checkout dirty" in check
+    land = text[text.index("3. **Land:**"):text.index("4. **Deploy:**")]
+    assert "not empty → run the Base checkout check (#204) once more, then look again" in land
+    # untracked files are skipped, but not because the merge would ignore them: it refuses
+    assert "`git merge` refuses to overwrite an untracked copy of a file the card adds" in check
     wrap = text[text.index("## 4. Wrap up"):]
     assert "each base-checkout path left alone (#204" in wrap
     # docs.html only: a test reading the README would make README edits non-docs-only (#163)
     page = " ".join(open("docs.html", encoding="utf-8").read().split())
-    assert "each with a scratch folder of its own" in page
+    assert "Plan, develop and test agents work only in their card's worktree" in page
+    assert "every stage keeps its scratch files in a folder of its own" in page
     assert "exact copy of a card's committed work is put back at once" in page
     assert "anything else is left alone and noted on the card" in page
 

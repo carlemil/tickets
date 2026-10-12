@@ -314,9 +314,10 @@ full-card read per stage, Lean board calls) and include, each under its own head
   `test`, `deploy`), which it creates: one folder per stage, so two stages' scratch
   scripts never overwrite each other. `<scratchpad>` is your session's scratchpad
   directory (Claude Code names it in your environment; with none,
-  `<system temp>/tickets-<session id>`). Its reply ends with the output of
-  `git -C <repo> status --porcelain` (empty is good); you check the checkout anyway (Base
-  checkout check, below);
+  `<system temp>/tickets-<session id>`). Its reply reports the output of
+  `git -C <repo> status --porcelain` (empty is good) before any `tests:` line,
+  `Files changed:` section and the verdict line, which stay last; you check the checkout
+  anyway (Base checkout check, below);
 - the stage's rules below, the `## Blocked by` request, and the verdict line it must end
   with;
 - that a board write refused by a permission check is never retried in another form or
@@ -336,12 +337,15 @@ the develop subagent ticking checklist items.
 
 On a card's way out: `update_card(assignee="")` unless a person had it before you.
 
-**Base checkout check (#204).** Stages work only in their worktree, yet in the #193 run
-two left copies of their card's edits in the base checkout `<repo>`, and the land (step 3
-after a test PASS, which needs that checkout clean) was skipped over them for hours. So
-after every stage reply (any verdict, a crash too; only in a git repo), before that card's
-other steps (the trimmed check, the verdict's writes, a worktree clean-up, ship and land),
-run `git -C <repo> status --porcelain --untracked-files=no`. Empty → nothing to do.
+**Base checkout check (#204).** Plan, develop and test stages work only in their
+worktree, yet in the #193 run two left copies of their card's edits in the base checkout
+`<repo>`, and the land (step 3 after a test PASS, which needs that checkout clean) was
+skipped over them for hours. So after every stage reply (any verdict, a crash too; only
+in a git repo), before that card's other steps (the trimmed check, the verdict's writes, a
+worktree clean-up, ship and land), run
+`git -C <repo> status --porcelain --untracked-files=no`; the land runs this check once
+more when it finds the checkout dirty (another card's stage may have written since).
+Empty → nothing to do.
 Otherwise each listed path (both paths of a rename) is a **stray copy** of a card's work
 only when all three hold, tried against each card in flight in this run, the replying
 card first (with 2 slots the other card's stage may have written it):
@@ -362,7 +366,9 @@ committed): comment on the replying card `base checkout: uncommitted changes tha
 a copy of a card's committed edits, left alone: <their status lines>`, each path once per
 run, and the summary names them. A revert refused by a permission check is not retried
 another way: note it as under "Board writes that fail" and carry on. Untracked files are
-not checked (the land ignores them too).
+not checked, as the land's clean test skips them too; but `git merge` refuses to overwrite
+an untracked copy of a file the card adds ("untracked working tree files would be
+overwritten"), so such a land fails with nothing merged and the deploy comment says so.
 
 ### plan  (in the card's worktree)
 
@@ -602,7 +608,8 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    **docs-only**, **tested** or **not tested**, in the deploy step.
 3. **Land:** only when `land` is `merge` — with `pr`, skip it and say "landing by pull
    request" in the deploy comment. Only if the repo is on `<base>` with nothing uncommitted
-   (`git status --porcelain --untracked-files=no` empty):
+   (`git status --porcelain --untracked-files=no` empty; not empty → run the Base checkout
+   check (#204) once more, then look again):
    `git -C <repo> merge --no-ff card/<id> -m "Merge #<id> <title>"`; a conflict →
    `merge --abort`. Say which happened (or why it was skipped) in the deploy comment.
    Do not push yet.
