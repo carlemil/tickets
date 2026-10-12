@@ -5,7 +5,9 @@ parallel merge cleanly (#177). `.gitattributes` merges this file with `merge=uni
 keeps both sides' lines of a conflicting hunk and never reports a conflict, so the rules
 below are what keep it safe:
 
-- A card appends exactly one row, `| #<id> | <change> | <state> |`, as the file's last line.
+- A card appends exactly one row, `| #<id> | <change> | <state> |`, at the end of the file.
+  Rows are keyed by `#<id>`, so their order does not matter: after a union merge a parallel
+  card's row may sit after yours, and that order is accepted as is (nobody moves rows back).
 - Never renumber, never edit another card's row, never edit this header or the frozen
   rows: a later card's change to old work adds a row under that later card's own id.
   (Union would keep both versions of an
@@ -141,3 +143,4 @@ below are what keep it safe:
 | #215 | stages read sections, not whole docs: the repo `CLAUDE.md` says what a stage reads (`CLAUDE.md` whole; `PLAN.md`, `docs.html`, `run.md` only the sections a grep of headings, `#<id>`s and key words finds; `STATUS.md` its header and last lines) and that `test_idle_gate.py` guards pin behaviour, not wording (a `run.md` rewording adds no wording guard); the brief's project bullet in `run.md` points at it; PLAN.md (The run) records the rule and the 2026-10-12 baseline stage tokens to compare on the next comparable run; `docs.html` follows; no new guard | done — +0 checks |
 | #216 | `run.md` trimmed to the rules (736 lines / 53,281 chars → 539 / 39,147, -27%; the ~400-line aim was not reached without cutting rules): history and rationale (dated owner's calls, the #186 cost and measurement, #188 agent cost, model and split reasons, the #193 slot trade-off detail, the #159 chips, the #204 and #147 incidents, #163/#191 whys) move to PLAN.md, new "Why run.md says what it says (#216)"; repeated rules stated once (the plan model only in Model per stage; the refused-write retry only in Board writes that fail); no behaviour change; `test_idle_gate.py` follows the reworded model sentence, new guard `test_run_md_holds_rules_not_history` (under 40,000 chars, no dates, no "owner's call") | done — +1 check |
 | #218 | plan model: only the `large` label (or both labels) plans on `opus`; `small` or no label plans (and, when small, builds) on `sonnet`; `run.md` Model per stage and Card size, `docs.html`, PLAN.md (Models) and the `test_idle_gate.py` model guards follow; develop and test models unchanged | done — +0 checks |
+| #233 | STATUS.md rows need not be the last line: the header and PLAN.md Status now say a card appends its row at the end and rows are keyed by `#<id>`, so the order a union merge leaves is accepted as is; no guard pinned the last-line rule | done — +0 checks |
