@@ -267,13 +267,16 @@ def test_run_md_pins_the_dispatcher_deploy():
                    "deployed by: dispatcher (mechanical)", "deployed by: subagent (",
                    "`tests: skipped, docs-only`", "`tests: run in test stage, skipped`",
                    "`tests: <count> passed`", "`tests: none in the deploy rules`",
-                   '`model: "haiku"`'):
+                   '`model: "haiku"`', "Missing deploy instructions are not judgement",
+                   "non-zero exit", "The dispatcher applies the same rule itself",
+                   "never one hidden behind a pipe",
+                   "The one exception is a mechanical deploy"):
         assert needle in text, needle
     assert '4. **Deploy:** a subagent (`model: "haiku"`) deploys per the project' not in text
     # docs.html only: a test reading the README would make README edits non-docs-only (#163)
     page = " ".join(open("docs.html", encoding="utf-8").read().split())
     assert "the dispatcher deploys it itself" in page and "needs judgement" in page
-    assert not re.search(r"is mechanical, runs on Haiku", page)
+    assert "is mechanical, runs on Haiku" not in page
 
 
 def test_claude_md_test_map_is_complete():

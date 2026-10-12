@@ -343,11 +343,12 @@ it did not write. The strong model thinks and checks: the plan is written on Opu
 review in <code>test</code> runs on Opus. For a large card the cheaper Sonnet writes the
 code from the posted plan, whether the card was just planned or you put it in <code>develop</code>
 yourself; reading the code a second time costs less than building on Opus. A small card is
-built on Opus by its plan agent, where that second read would cost more than Sonnet saves. The deploy
-is done by the dispatcher itself when the project's deploy instructions are mechanical (a push,
-listed restart commands, a file classification), so the dispatcher deploys it itself and no agent
-is spawned; only a deploy that needs judgement (a phone install, a multi-step script) goes to a
-Haiku subagent. The deploy comment says who deployed it. It skips the full test rerun when the tested
+built on Opus by its plan agent, where that second read would cost more than Sonnet saves. When
+the project's deploy instructions are mechanical (a push, fixed restart commands, a file
+classification), the dispatcher deploys it itself and no agent is spawned; only a deploy that
+needs judgement (a phone install, a script whose output decides the next step) goes to a
+Haiku subagent, and the deploy comment says who deployed it. Either way the deploy skips the
+full test rerun when the tested
 tree is the landed tree: the base branch had not moved since the test stage merged it
 in, shipping committed nothing and the merge into the base was not skipped. Otherwise
 it runs the tests the project's deploy instructions call for before it pushes, and a

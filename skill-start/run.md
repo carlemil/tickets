@@ -146,7 +146,8 @@ fresh re-list. A card in `plan` gets a **plan** subagent: it plans, posts the pl
 with no questions — moves the card to `develop`; a large card it builds nothing (you then
 start its **develop** subagent at once), a small one (Card size) it then builds itself
 in the same context. A card already in `develop` gets a develop subagent too;
-`test` always a fresh one. Never
+`test` always a fresh one. The one exception is a mechanical deploy, which you run
+yourself (ship, step 4, #189). Never
 continue a finished subagent (no SendMessage): every stage starts from a clean context
 holding only the card, so nothing an earlier stage assumed or got wrong leaks into the
 next, and the test stage reviews work it did not write.
@@ -529,10 +530,14 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    exactly as before (`model: "haiku"`, the brief rules with the no-chips line, the #156
    line). Missing deploy instructions are not judgement: they mean deploy nothing
    (`deploy skipped:`), no subagent. The dispatcher's own deploy applies the #156
-   verdict directly (below), reads only the test summary line so the run's output does
-   not fill its context, and treats any failing command (git, test, push, restart: a
-   non-zero exit) as `deploy failed:` with the error. It runs a restart command as
-   given: a delayed one returns at once. It never creates chips or schedules anything.
+   verdict directly (below). It runs a test command with the longest tool timeout (or in
+   the background, waiting for it), its output redirected to a file; it judges the run by
+   the command's own exit code (never one hidden behind a pipe such as `| tail`) and
+   reads only the file's summary line, so the run's output does not fill its context. It
+   treats any failing command (git, test, push, restart: a non-zero exit) as `deploy
+   failed:` with the error. It runs a restart command as given and last: a delayed one
+   returns at once, and it posts the deploy comment right after, before the clean-up. It
+   never creates chips or schedules anything.
 
    **Tests in the deploy (#156).** Whoever deploys follows the verdict. For a subagent,
    besides the brief rules (with the no-chips line), put
