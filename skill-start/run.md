@@ -93,11 +93,11 @@ The MCP tools stay for stage subagents (their context ends with the stage) and f
 session without PowerShell; there, use them as before and the summary says once that the
 run read full cards. Their writes are slim (#203): `update_card` and `comment` take
 `slim=True`, which answers only `id`, `lane` and `assignee`, so a stage's plan post, MOVED
-comment and checklist ticks no longer echo the card (the brief carries the line, below),
-and so does every write of yours through MCP: the MCP fallback writes pass `slim=True`
-too (HTTP has no such option: it is the trimmed `Select-Object` above). Reads stay
-whole (`get_card`). HTTP is your first route now, not a fallback: a write it refused by
-a permission check is still never retried through the MCP tool (below), and the summary
+comment and checklist ticks no longer echo the card (the brief carries the line, below).
+Your own writes through MCP do not echo it either: the MCP fallback writes pass
+`slim=True` too (HTTP has no such option: it is the trimmed `Select-Object` above). Reads
+stay whole (`get_card`). HTTP is your first route now, not a fallback: a write it refused
+by a permission check is still never retried through the MCP tool (below), and the summary
 names the `PowerShell(…)` rule. How this is measured: verify compares the dispatcher
 session's context on the next comparable run with the 2026-10-11 run (STATUS.md, #186).
 

@@ -395,7 +395,8 @@ def test_run_md_pins_slim_stage_board_writes():
     # the stage agent's body says it; no new tool, so its tools list is the server's as before
     agent = " ".join(open("skill-start/agents/tickets-stage.md", encoding="utf-8").read().split())
     body = agent.split("---", 2)[2]
-    assert "Board writes (`update_card`, `comment`) pass `slim=True`" in body
+    assert ("The board writes your brief gives you (`update_card`, `comment`; none if it gives "
+            "none) pass `slim=True`") in body
     assert "Read the card with `get_card` when you need it" in body
     # docs.html only: the manual says it in the run section and in the MCP section
     page = " ".join(open("docs.html", encoding="utf-8").read().split())

@@ -466,8 +466,10 @@ The card stays in its lane, marked blocked, and runs skip it until those cards r
   <li><code>update_card</code> and <code>comment</code> answer with the whole card, its
     <code>events</code> log included, which a long plan makes costly to read back. Pass
     <code>slim=True</code> when you do not need the card back: the answer is then only
-    <code>{"id", "lane", "assignee"}</code>, and the write is the same. An unknown or older
-    backend just answers with the whole card; <code>get_card</code> reads one in full.</li>
+    <code>{"id", "lane", "assignee"}</code>, and the write is the same. This board's backend
+    from before the option ignores the argument and answers with the whole card (another
+    MCP server may refuse an argument it does not know); <code>get_card</code> reads one in
+    full.</li>
 </ul>
 
 <h2 id="limits">7. Limits</h2>
