@@ -1449,6 +1449,12 @@ async function loadBoard(call) {
     return showErr("could not load the board: " + e.message);
   }
   if (call !== loads) return loading;
+  // An answer landing mid-drag would redraw the board and swap out the dragged card, so the
+  // drop finds no card to move (#242): it draws once the drag is over (a newer load wins).
+  while ($(".card.dragging")) {
+    await new Promise(ok => setTimeout(ok, 100));
+    if (call !== loads) return loading;
+  }
   loadPending = loadFailed = false;   // before drawing: a render that throws leaves none pending
   [cards, users, projects] = [mergeCards(got[0], archived, project), got[1], got[2]];
   renderProj();

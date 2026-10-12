@@ -635,7 +635,9 @@ retry (#165), which waits for a released pointer too. Any load started meanwhile
 write's, a tab pick) clears it, since that load asks after the change. A fetch has no
 timeout, so the sixth poll that wants a reload while one load is still pending
 (`LOST_AFTER`, half a minute) takes that load for lost and starts a new one; the lost
-answer, should it still come, is dropped (#88). A load that started before a write and is
+answer, should it still come, is dropped (#88). An answer that lands during a drag draws
+only once the drag is over (#242): drawing would swap out the dragged card and the drop
+would find nothing, so the card stayed where it was. A load that started before a write and is
 answered after the write's response
 is still the newest, so it merges per card (#105): a card whose copy on screen has a newer
 `updated_at` keeps that copy — unless that copy has left the view the load asked for

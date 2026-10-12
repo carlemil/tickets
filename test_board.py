@@ -1930,6 +1930,40 @@ def test_a_load_answered_after_a_drag_keeps_the_card_where_it_was_dropped(page):
         "the late load put the card back in todo"
 
 
+def test_a_load_answered_mid_drag_draws_after_the_drop_and_the_drop_still_moves_the_card(page):
+    """The answer used to redraw the board under the drag: the dragged card was swapped out,
+    the drop found no `.card.dragging` and the card stayed where it was (#242)."""
+    cid, = cards_in(page, "drag me")
+    call = hold_a_load(page)
+    page.wait_for_function("() => window.__release")
+    page.evaluate("""id => {
+        window.__dt = new DataTransfer();
+        document.querySelector(`.card[data-id="${id}"]`)
+            .dispatchEvent(new DragEvent("dragstart", {bubbles: true, dataTransfer: window.__dt}));
+    }""", cid)
+    assert page.locator(".card.dragging").count() == 1
+    assert page.evaluate("loads") == call
+    page.evaluate("window.__release()")
+    page.wait_for_timeout(400)                       # several of the load's waits
+    assert page.locator(".card.dragging").count() == 1, "the load redrew the board under the drag"
+    page.evaluate("""() => {
+        const col = document.querySelector('.lane[data-lane="develop"]');
+        const y = col.getBoundingClientRect().bottom;
+        const fire = (el, type) => el.dispatchEvent(new DragEvent(type,
+            {bubbles: true, cancelable: true, dataTransfer: window.__dt, clientY: y}));
+        fire(col, "dragover"); fire(col, "drop");
+    }""")
+    for _ in range(100):
+        if core.get_card(cid)["lane"] == "develop":
+            break
+        page.wait_for_timeout(50)
+    assert core.get_card(cid)["lane"] == "develop", "the drop was lost"
+    page.evaluate(f"""document.querySelector('.card[data-id="{cid}"]')
+        .dispatchEvent(new DragEvent("dragend", {{bubbles: true}}))""")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.locator(f'.lane[data-lane="develop"] .card[data-id="{cid}"]').count() == 1
+
+
 def test_a_load_answered_after_a_card_left_the_tab_does_not_bring_it_back(page):
     """The newer copy is kept only while it still belongs to the board the load asked for:
     a card moved to another project from the sheet is not drawn under the old tab (#105)."""
