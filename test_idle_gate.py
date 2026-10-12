@@ -292,3 +292,21 @@ def test_claude_md_test_map_is_complete():
                                          and "`skill-*/`" in mapped), item
     for name in re.findall(r"`(test_\w+\.py)`", mapped):
         assert os.path.exists(name), name
+
+
+def test_run_md_pins_the_small_card_path():
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    for needle in ("**Card size (#190):**", "Both labels → `large`",
+                   "Labels match case-insensitively",
+                   "Not a git repo → never the one-agent path",
+                   "at most 5 steps", "When unsure: large", "`Size: small (label)`",
+                   "planning and building", "#187 reuses this paragraph",
+                   "for every large card", "unless a label is `large`"):
+        assert needle in text, needle
+    plan = text[text.index("### plan"):text.index("### develop")]
+    assert "`STAGE: BUILT`" in plan and "build in the same context" in plan
+    assert "BUILT check (#176)" in plan and "No develop subagent" in plan
+    assert "builds nothing** unless the card is small" in plan
+    docs = open("docs.html", encoding="utf-8").read()
+    assert "<code>small</code>" in docs and "<code>large</code>" in docs
+    assert "built on Opus by its plan agent" in " ".join(docs.split())
