@@ -303,13 +303,28 @@ def test_run_md_pins_the_small_card_path():
                    "Labels match case-insensitively",
                    "Not a git repo → never the one-agent path",
                    "at most 5 steps", "When unsure: large", "`Size: small (label)`",
-                   "planning and building", "#187 reuses this paragraph",
+                   "planning and building", "the labels alone pick the plan model",
                    "for every large card", "unless a label is `large`"):
         assert needle in text, needle
+    # #187: the small label picks the plan model before spawning; judged small stays on opus
+    for needle in ('a card labelled `small` (Card size) gets `model: "sonnet"`',
+                   "`large`, both labels or no label → `opus`",
+                   'The subagent gets `model: "sonnet"` when the `get_card` right before '
+                   'spawning shows the label `small` (and not `large`), else `model: "opus"`',
+                   "A card judged small was spawned on `opus` and is built there",
+                   "the label is the per-card override",
+                   'test: `model: "opus"`'):
+        assert needle in text, needle
+    assert "this card changes no model" not in text
+    assert 'The subagent gets `model: "opus"`. Its brief' not in text
     plan = text[text.index("### plan"):text.index("### develop")]
     assert "`STAGE: BUILT`" in plan and "build in the same context" in plan
     assert "BUILT check (#176)" in plan and "No develop subagent" in plan
     assert "builds nothing** unless the card is small" in plan
     docs = open("docs.html", encoding="utf-8").read()
     assert "<code>small</code>" in docs and "<code>large</code>" in docs
-    assert "built on Opus by its plan agent" in " ".join(docs.split())
+    page = " ".join(docs.split())
+    assert "built by its plan agent" in page
+    assert "a card labelled <code>small</code> is planned and built on Sonnet" in page
+    assert "a card judged small without the label is planned and built on Opus" in page
+    assert "built on Opus by its plan agent" not in page
