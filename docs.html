@@ -384,7 +384,9 @@ only what it needs (a card's lane, assignee and labels) and trims the answer of 
 board writes, so it loads a whole card only to brief an agent, which keeps a long run's
 context and its tokens down. The stage agents' board writes (the plan post, a checklist
 tick, a comment) pass <code>slim=True</code>, so each answers with only the card's id,
-lane and assignee, not the whole card with its event log. Tests,
+lane and assignee, not the whole card with its event log. A stage agent reads the
+repo's <code>CLAUDE.md</code> whole but the long plan, manual and status files only in the
+sections its change touches, found by search, so each stage starts on fewer tokens. Tests,
 the deploy and the merge into the base branch go one card after another. The status bar
 shows the card it started last and how many are in flight. A card that passes its tests
 is pushed as <code>card/&lt;id&gt;</code> and then lands the project's way: merged locally
