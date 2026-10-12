@@ -239,6 +239,7 @@ def test_the_docs_only_grep_finds_the_files_the_tests_read():
     # built from parts: a quoted full name here would itself be a hit
     assert not quoted("PLAN" + ".md", tests)  # only named in comments
     assert not quoted("README" + ".md", tests)
+    assert not quoted("STATUS" + ".md", tests)  # every card's row stays docs-only (#177)
     assert not quoted("run.md", TICK)         # a mention inside a longer string is no hit
     assert quoted("run.md", 'open(r"skill-start\\run.md")')  # a Windows path
 
@@ -395,3 +396,44 @@ def test_stage_agent_is_pinned():
     assert "~/.claude/agents/tickets-stage.md" in skill
     assert "a new session is needed before runs use it" in skill
     assert "tickets-stage" in open("docs.html", encoding="utf-8").read()
+
+
+def test_status_rows_merge_by_union(tmp_path):
+    # #177: the change-log rows live in their own append-only file, merged with `union`, so
+    # parallel cards' rows never conflict; the design document keeps a normal merge.
+    # Names built from parts: a quoted full name would make every status row non-docs-only (#163).
+    status = "STATUS" + ".md"
+    plan = "PLAN" + ".md"
+    out = subprocess.run(["git", "check-attr", "merge", "--", status, plan],
+                         capture_output=True, text=True, check=True).stdout.splitlines()
+    assert f"{status}: merge: union" in out
+    assert f"{plan}: merge: unspecified" in out
+
+    env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+
+    def git(*args, check=True):
+        return subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.com",
+                               "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false",
+                               *args], cwd=tmp_path, env=env, capture_output=True,
+                              text=True, check=check)
+
+    git("init", "-q", "-b", "main")
+    with open(".gitattributes", "rb") as f:
+        (tmp_path / ".gitattributes").write_bytes(f.read())
+    (tmp_path / status).write_text("# Status\n\n| Card | Change | State |\n|---|---|---|\n"
+                                   "| #1 | first | done |\n", newline="\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    for branch, row in (("one", "| #2 | second | done \u2014 +1 check |\n"),
+                        ("two", "| #3 | third | done \u2014 +1 check |\n")):
+        git("checkout", "-q", "-b", branch, "main")
+        with open(tmp_path / status, "a", encoding="utf-8", newline="\n") as f:
+            f.write(row)
+        git("commit", "-q", "-am", branch)
+    git("checkout", "-q", "one")
+    merged = git("merge", "--no-edit", "two", check=False)
+    assert merged.returncode == 0, merged.stdout + merged.stderr
+    text = (tmp_path / status).read_text(encoding="utf-8")
+    assert "| #2 |" in text and "| #3 |" in text and "| #1 |" in text
+    assert not re.search(r"^(<<<<<<<|=======|>>>>>>>)", text, re.M)
+    assert text.endswith("\n")

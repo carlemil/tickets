@@ -94,7 +94,7 @@ session without PowerShell; there, use them as before and the summary says once 
 run read full cards. HTTP is your first route now, not a fallback: a write it refused by
 a permission check is still never retried through the MCP tool (below), and the summary
 names the `PowerShell(…)` rule. How this is measured: verify compares the dispatcher
-session's context on the next comparable run with the 2026-10-11 run (PLAN.md, #186).
+session's context on the next comparable run with the 2026-10-11 run (STATUS.md, #186).
 
 ### Board writes that fail (#147)
 
@@ -521,7 +521,7 @@ the full suite before its last commit. It runs the full suite again only after a
 it then fixed (on the new commit) or after a fix it committed after the run; the run that
 counts is the last, on the tree that ships (#156). The one full run stays mandatory. A
 failing test is rerun unchanged (once, that test alone) only when it is a known flake:
-named as a current flake in the repo's `CLAUDE.md` or `PLAN.md`, or marked so in the test
+named as a current flake in the repo's `CLAUDE.md`, `PLAN.md` or `STATUS.md`, or marked so in the test
 code; a flake recorded as fixed (e.g. #165) no longer counts. Any
 other failure is real: fix it or `RESULT: FAIL`, no rerun and hope. The reply names any
 flake rerun. The `<level>` comes from the committed diff (`git -C <tree> diff --name-only
