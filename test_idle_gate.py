@@ -322,14 +322,15 @@ def test_run_md_pins_the_small_card_path():
                    "for every large card", "unless a label is `large`"):
         assert needle in text, needle
     # #187: the small label picks the plan model before spawning; judged small stays on opus
-    for needle in ('a card labelled `small` (Card size) gets `model: "sonnet"`',
-                   "`large`, both labels or no label → `opus`",
+    # #218: only `large` (or both labels) plans on opus; small or no label plans on sonnet
+    for needle in ('a card labelled `large` (any case; both labels counts as `large`) gets '
+                   '`model: "opus"`',
+                   "`small` or no label → `sonnet`",
                    "the labels alone pick the plan model, read from the `get_card` right "
                    "before spawning",
                    "Labels match case-insensitively. Not a git repo → never the one-agent path",
                    "Not a git repo → `opus` (no one-agent path, so the agent only plans)",
-                   "A card judged small was spawned on `opus` and is built there",
-                   "the label is the per-card override",
+                   "A card judged small is built on `sonnet`",
                    'test: `model: "opus"`'):
         assert needle in text, needle
     assert "this card changes no model" not in text
@@ -342,8 +343,8 @@ def test_run_md_pins_the_small_card_path():
     assert "<code>small</code>" in docs and "<code>large</code>" in docs
     page = " ".join(docs.split())
     assert "built by its plan agent" in page
-    assert "a card labelled <code>small</code> is planned and built on Sonnet" in page
-    assert "a card judged small without the label is planned and built on Opus" in page
+    assert "only a card labelled <code>large</code> is planned on Opus" in page
+    assert "a card judged small without the label is planned and built on Sonnet" in page
     assert "built on Opus by its plan agent" not in page
 
 

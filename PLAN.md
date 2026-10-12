@@ -445,7 +445,10 @@ here:
   cheaper `sonnet`, which trades one extra read of the code for a cheaper writer. #187, the
   owner's call after the same 86% run: a card labelled `small` plans and builds on `sonnet`;
   the model is picked before the plan subagent starts, so only labels can decide it, and a
-  card judged small stays on `opus`. A judgement deploy runs on `haiku` (push and restart).
+  card judged small stays on `opus`. #218 (2026-10-12 quota review: unlabelled #204 and #202, judged
+  small, cost ~142k tokens each on opus): only the `large` label (or both) keeps the plan stage on
+  `opus`; `small` or no label plans, and when small builds, on `sonnet`; a no-label card judged large
+  is planned on `sonnet`, accepted. A judgement deploy runs on `haiku` (push and restart).
 - *Card size (#190).* For a small card the second read of the code that the plan/develop
   split costs is more than the cheaper model saves, so one agent plans and builds it; one
   that turns out bigger still finishes, since its code is already read and a handoff would

@@ -151,9 +151,9 @@ When the fallback was used (either way), the run's summary says so once: "ticket
 `/tickets-start` in a new session".
 
 **Model per stage (#83).** Each stage's Agent call sets its model:
-- plan: `model: "opus"`, except that a card labelled `small` (Card size) gets
-  `model: "sonnet"` (any case, and not also `large`), which plans and builds it; `large`,
-  both labels or no label → `opus`.
+- plan: `model: "sonnet"`, which plans and, when small (Card size), builds it, except that a
+  card labelled `large` (any case; both labels counts as `large`) gets `model: "opus"`;
+  `small` or no label → `sonnet`.
   Not a git repo → `opus` (no one-agent path, so the agent only plans).
 - develop: `model: "sonnet"`, for every large card, however it reached `develop`.
 - test: `model: "opus"`.
@@ -168,7 +168,8 @@ one-agent path); a large card is planned, then built by a fresh develop subagent
   at most ~5 files (PLAN.md, docs and tests included), adds no new module, and changes no
   database schema, HTTP route or MCP tool. Anything else is large. When unsure: large.
 - the labels alone pick the plan model, read from the `get_card` right before spawning. A card
-  judged small was spawned on `opus` and is built there; the label is the per-card override.
+  judged small is built on `sonnet`; one with no label judged large was planned on `sonnet`
+  and goes to a develop subagent; the label `large` is the per-card override.
 - the plan's first line says the path: `Size: small (label)`, `Size: small (judged: 3 steps, 2
   files)` or `Size: large (…)`; relabel and move the card back to `plan` to replan.
 - a one-agent build bigger than judged still finishes on the develop rules and says so; one
