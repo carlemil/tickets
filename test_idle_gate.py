@@ -1,3 +1,4 @@
+import asyncio
 import importlib.util
 import os
 import re
@@ -313,3 +314,35 @@ def test_run_md_pins_the_small_card_path():
     docs = open("docs.html", encoding="utf-8").read()
     assert "<code>small</code>" in docs and "<code>large</code>" in docs
     assert "built on Opus by its plan agent" in " ".join(docs.split())
+
+
+def test_stage_agent_is_pinned():
+    agent = open("skill-start/agents/tickets-stage.md", encoding="utf-8").read()
+    front = agent.split("---")[1]
+    fields = dict(l.split(":", 1) for l in front.strip().splitlines() if ":" in l)
+    assert fields["name"].strip() == "tickets-stage"
+    tools = [t.strip() for t in fields["tools"].split(",")]
+    # The board's tools are named one by one, exactly the server's set: a new MCP tool
+    # fails here until the stage agent lists it too.
+    from mcp import Client
+    import app
+
+    async def listed():
+        async with Client(app.mcp) as c:
+            return sorted("mcp__tickets__" + t.name for t in (await c.list_tools()).tools)
+    # its own thread: in the full suite the Chrome tests leave a loop running in this one
+    worker = threading.Thread(target=lambda: server_tools.extend(asyncio.run(listed())))
+    server_tools = []
+    worker.start()
+    worker.join()
+    assert tools == ["Bash", "PowerShell", "Read", "Edit", "Write", "Grep", "Glob",
+                     "Skill", "ToolSearch", "Monitor"] + server_tools
+    assert "model" not in fields and "Agent" not in tools and "spawn_task" not in agent
+    run = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    assert 'subagent_type: "tickets-stage"' in run
+    assert "available agent types, else `general-purpose`" in run
+    assert "retried once as `general-purpose`" in run
+    skill = " ".join(open("skill-start/SKILL.md", encoding="utf-8").read().split())
+    assert "~/.claude/agents/tickets-stage.md" in skill
+    assert "a new session is needed before runs use it" in skill
+    assert "tickets-stage" in open("docs.html", encoding="utf-8").read()

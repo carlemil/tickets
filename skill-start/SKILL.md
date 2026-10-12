@@ -47,6 +47,17 @@ the whole session to say so (hundreds of thousands of tokens in a long one).
 to `hooks.UserPromptSubmit`, merging with what is there, never replacing it. It needs a
 `python` on PATH (stdlib only); none → say so and skip it.
 
+**The stage agent (#188).** Every stage of a card runs as a subagent, and a
+`general-purpose` one loads every tool and MCP server of the session (a haiku deploy
+ended at ~63k tokens after 5-7 commands). `${CLAUDE_SKILL_DIR}/agents/tickets-stage.md`
+defines `tickets-stage`, limited to the tools a stage needs. Install it as a **copy** (a
+file symlink on Windows needs developer mode, a hardlink cannot cross drives) at
+`~/.claude/agents/tickets-stage.md`: create the folder, write the file when it is missing
+or its content differs from the repo's, else leave it. Claude Code reads agent definitions
+when a session starts, so when this wrote the file, say in the summary that a new session
+is needed before runs use it (until then they fall back to `general-purpose`); unchanged →
+one line "stage agent: up to date".
+
 ## 2. The board's tools
 
 - `claude mcp get tickets`. Missing → `claude mcp add --scope user --transport http
