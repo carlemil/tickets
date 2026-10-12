@@ -311,7 +311,9 @@ def test_run_md_pins_the_small_card_path():
     for needle in ('a card labelled `small` (Card size) gets `model: "sonnet"`',
                    "`large`, both labels or no label → `opus`",
                    'The subagent gets `model: "sonnet"` when the `get_card` right before '
-                   'spawning shows the label `small` (and not `large`), else `model: "opus"`',
+                   'spawning shows the label `small` (any case, and not `large`) and the '
+                   'project is a git repo (the one-agent path), else `model: "opus"`',
+                   "Not a git repo → `opus` (no one-agent path, so the agent only plans)",
                    "A card judged small was spawned on `opus` and is built there",
                    "the label is the per-card override",
                    'test: `model: "opus"`'):

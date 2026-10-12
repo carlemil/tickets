@@ -170,7 +170,8 @@ or not loaded: `/tickets-start` in a new session".
   the owner's call after a 5-card run took the 5-hour limit to 86%): a card labelled
   `small` (Card size) gets `model: "sonnet"`, which plans and builds it. The model is
   picked before the plan subagent starts, so only the labels decide it (the judged size
-  comes later): `small` → `sonnet`; `large`, both labels or no label → `opus`.
+  comes later): `small` → `sonnet`; `large`, both labels or no label → `opus`. Not a git
+  repo → `opus` (no one-agent path, so the agent only plans).
 - develop: `model: "sonnet"` — the owner's call (#155): it writes code from a written
   plan, for every large card, whether the plan stage just moved it or a person put it in
   `develop`. Splitting plan from develop trades one extra read of the code (develop
@@ -279,7 +280,8 @@ On a card's way out: `update_card(assignee="")` unless a person had it before yo
 be behind. Then set up the card's worktree as under develop below, before spawning; note
 whether `card/<id>` already existed. Not a git repo → no pull, no worktree: the subagent
 plans in the folder. The subagent gets `model: "sonnet"` when the `get_card` right before
-spawning shows the label `small` (and not `large`), else `model: "opus"` (Model per stage, #187). Its brief carries the card's
+spawning shows the label `small` (any case, and not `large`) and the project is a git repo
+(the one-agent path), else `model: "opus"` (Model per stage, #187). Its brief carries the card's
 labels and the Card size rule; unless a label is `large` (or it is not a git repo), it also carries the develop
 stage's rules (build from the plan, targeted tests, commit on `card/<id>`, never push,
 tick checklist items, the `tests:` line and `Files changed:` section, all below), so it
