@@ -125,7 +125,8 @@ plan is posted, nothing is built) but fail in develop/test.
 - **assigned to a person:** `assignee` set to anyone but `claude-agent`;
 - **already in flight** in this run.
 
-Re-list whenever a slot frees. Plan then develop of one card is one piece of work; otherwise
+Re-list whenever a slot frees (a card planned without questions goes straight on to its
+develop stage, then to test). Plan then develop of one card is one piece of work; otherwise
 never work a card twice in one run: once it fails or waits, it is done for this run. A card
 with a live refused-write note (the trimmed refused-write check) gets that same write first,
 not a new stage ("Board writes that fail", 3.); refused again → note nothing new, carry on.
@@ -145,13 +146,14 @@ step 4, #189). Never continue a finished subagent (no SendMessage).
 
 **Stage agent (#188).** Every stage's Agent call uses `subagent_type: "tickets-stage"` when
 that type is in the Agent tool's list of available agent types, else `general-purpose`. A call
-refused for an unknown agent type is retried once as `general-purpose`, same brief and model;
-the summary then says once: "tickets-stage agent not installed or not loaded:
+refused for an unknown agent type is retried once as `general-purpose`, same brief and model.
+When the fallback was used (either way), the run's summary says so once: "tickets-stage agent not installed or not loaded:
 `/tickets-start` in a new session".
 
 **Model per stage (#83).** Each stage's Agent call sets its model:
 - plan: `model: "opus"`, except that a card labelled `small` (Card size) gets
-  `model: "sonnet"`, which plans and builds it: `large`, both labels or no label → `opus`.
+  `model: "sonnet"` (any case, and not also `large`), which plans and builds it; `large`,
+  both labels or no label → `opus`.
   Not a git repo → `opus` (no one-agent path, so the agent only plans).
 - develop: `model: "sonnet"`, for every large card, however it reached `develop`.
 - test: `model: "opus"`.
@@ -176,7 +178,8 @@ one-agent path); a large card is planned, then built by a fresh develop subagent
 `Cards in flight: N` in its `instructions` (N a whole number from 1 up; case-insensitive, the
 first match wins, no cap); a missing, non-numeric or below-1 value falls back to 2 and the
 summary says so in one line. (For the person setting it: more slots finish a batch sooner on
-the clock; fewer slots spend fewer tokens and cause fewer merge conflicts at land.) A card
+the clock; fewer slots spend fewer tokens and cause fewer merge conflicts at land.) Plan and
+develop stages run side by side within that limit, each in its card's own worktree. A card
 keeps its slot while it waits for the test slot, and keeps slot and worktree from plan into
 develop. At most **one card in `test`** at a time, from the test stage through ship, land,
 deploy and clean-up to `verify`; the next waits, with no subagent. Land merges and pushes of
@@ -431,9 +434,10 @@ PASS → (you) ship, land, deploy, clean up, in this order:
    card/<id> --state open --json url -q ".[0].url"`; only an OPEN PR is reused; no http(s) URL
    back → failure, card stays in test), `update_card(pr=<url>)`, comment the URL. gh missing or
    failing → failure, card stays in test.
-2. **Tested tree (#156):** before any merge, rerun the test stage's docs-only check (#163) on
-   `<base>...card/<id>` against the base's current tests: if it holds, the verdict is
-   **docs-only**. Otherwise run `git -C <repo> merge-base --is-ancestor <base> card/<id>`: the
+2. **Tested tree (#156):** first, in either land mode and before any merge, rerun the test
+   stage's docs-only check (#163) on `<base>...card/<id>` against the base's current tests:
+   if it holds, the verdict is **docs-only**. Otherwise run, also before any merge,
+   `git -C <repo> merge-base --is-ancestor <base> card/<id>`: the
    verdict is **tested** only if it exits 0 **and** ship committed nothing **and** (with `land`
    `merge`) the land is not skipped (the repo off `<base>` or dirty); anything else is **not
    tested**, and a test reply with `tests: skipped, docs-only` is always **not tested**. Hand
@@ -449,7 +453,8 @@ PASS → (you) ship, land, deploy, clean up, in this order:
    install on a connected phone: check `adb devices`, none → skip the phone), never production,
    a public server or an app store unless the instructions clearly say so. Changed neither
    backend nor app → deploy nothing. Merge, push or restart only as the instructions say; no
-   other edits or commits. With `land` `pr` it never merges into the base. Last line
+   other edits or commits. With `land` `pr` it never merges into the base, whatever the
+   rules say: the PR does that. Last line
    (subagent) or decision (you) `DEPLOY: OK`, `DEPLOY: SKIPPED` or `DEPLOY: FAILED`. (you)
    Comment it headed exactly `deployed: `, `deploy skipped: ` or `deploy failed: ` (the board
    lights the purple dot from that head), with one line `deployed by: dispatcher (mechanical)`
@@ -472,7 +477,7 @@ PASS → (you) ship, land, deploy, clean up, in this order:
    doubt, use the subagent (`model: "haiku"`, the brief rules with the no-chips line, the #156
    line). Missing deploy instructions are not judgement: deploy nothing (`deploy skipped:`), no
    subagent. Your own deploy runs a test command with the longest tool timeout (or in the
-   background), output redirected to a file, judged by the command's own exit code (never one
+   background, waiting for it), output redirected to a file, judged by the command's own exit code (never one
    hidden behind a pipe such as `| tail`), reading only the summary line. Any failing command
    (a non-zero exit) is `deploy failed:` with the error. A restart command runs as given and
    last, and the deploy comment follows right after, before the clean-up. Never chips or

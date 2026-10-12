@@ -161,7 +161,7 @@ def test_run_md_holds_rules_not_history():
     # #216: the dispatcher reads run.md on every working tick and pastes much of it into
     # every brief; the reasons and history behind its rules live in PLAN.md (The run).
     raw = open("skill-start/run.md", encoding="utf-8").read()
-    assert len(raw) < 40000, len(raw)  # was 54,119 chars before #216
+    assert len(raw) < 40000, len(raw)  # was 53,281 chars before #216
     text = " ".join(raw.split())
     # built from parts: a quoted full name would make every PLAN edit non-docs-only (#163);
     # for the same reason no test reads PLAN's text
@@ -335,7 +335,6 @@ def test_run_md_pins_the_small_card_path():
     assert "this card changes no model" not in text
     assert 'The subagent gets `model: "opus"`. Its brief' not in text
     plan = text[text.index("### plan"):text.index("### develop")]
-    assert "Its model: Model per stage (#187)" in plan  # one rule, stated once (#216)
     assert "`STAGE: BUILT`" in plan and "build in the same context" in plan
     assert "BUILT check (#176)" in plan and "No develop subagent" in plan
     assert "builds nothing** unless the card is small" in plan

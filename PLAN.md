@@ -419,7 +419,7 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
 
 **Why run.md says what it says (#216).** The dispatcher reads `run.md` on every working tick
 and pastes much of it into every stage brief, so its size is paid many times per run. It
-holds the rules only (734 lines / 54,119 chars before #216, 532 / 38,818 after; a guard keeps
+holds the rules only (736 lines / 53,281 chars before #216, 539 / 39,147 after; a guard keeps
 it under 40,000 chars and free of dated history); the reasons and history behind them live
 here:
 - *Lean board calls (#186).* The owner's call on 2026-10-11, after a 5-card run took the
