@@ -207,7 +207,7 @@ the sheet there says so.</p>
   <dt>test</dt><dd>The agent reviews the changes and runs the full test suite, whatever the develop lane ran, fixing what it can. The
     review is Claude Code's own <code>/code-review</code> on the card's branch, its depth
     follows the size of the change (low for text only, medium for small code, high otherwise;
-    lines of Markdown and of this manual do not count, only code lines set it),
+    lines of Markdown, plain text and this manual do not count, only code lines set it),
     plus a check against the card's request, plan, answers and checklist. When every changed file is a
     Markdown file (not a page the app serves, like this manual) and no test names it, the suite
     is skipped and the comment says <code>tests: skipped, docs-only (&lt;files&gt;)</code>.

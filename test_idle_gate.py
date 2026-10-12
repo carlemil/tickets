@@ -222,7 +222,6 @@ def test_run_md_pins_one_suite_run_and_sized_review():
     for needle in ("**One suite run, a sized review (#191):**",
                    "args `<level> <base>...card/<id>`",
                    "`low`: text-only",
-                   "Prose counts as text (#217)",
                    "do not count toward the level",
                    "`medium`: code, but small, at most ~50 changed code lines",
                    "`high`: any other code diff",

@@ -417,13 +417,14 @@ unchanged (once, alone) only when it is a known flake: named as a current flake 
 hope. The reply names any flake rerun. The `<level>` comes from the committed diff (`git -C
 <tree> diff --numstat --no-renames <base>...card/<id>`). Prose counts as text (#217): lines of
 `*.md`, `*.txt` and a manual page with no script such as `docs.html` do not count toward the
-level, so only the code lines set it; tests, config and pages with script (`board.html`) are code:
+level, so only the code lines set it; tests, config and pages with script (`board.html`) are code,
+and a binary file (`-` in `--numstat`, e.g. `docs-card.png`) is code with 0 lines:
 - `low`: text-only, every changed file is prose;
 - `medium`: code, but small, at most ~50 changed code lines (insertions + deletions, prose
   files left out);
 - `high`: any other code diff.
-Its reply has one line `review: <level> (<n> files, +<a>/-<b>, text-only|code)`, the
-`+<a>/-<b>` the code lines the level came from.
+Its reply has one line `review: <level> (<n> files, +<a>/-<b>, text-only|code)`, `<n>` all
+changed files, `+<a>/-<b>` the code lines the level came from.
 A brief carrying a `build check: MISMATCH` note (#176) makes it verify every claim of the
 develop reply against the diff and say what was missing and what it did about it.
 Its review names every checklist step still unticked (one skipped on purpose says why).
