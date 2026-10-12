@@ -657,7 +657,7 @@ async function move(id, lane, pos) {
     if (open && open.id === id) openCard(id);
   } catch (e) {
     Object.assign(c, was);       // put it back where it came from
-    renderBoard();
+    drawAfterDrag();             // not under a drag started since (#265)
     showErr("could not move #" + id + ": " + e.message);
   }
 }

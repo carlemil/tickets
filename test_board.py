@@ -1972,7 +1972,7 @@ def test_a_card_write_answered_mid_drag_draws_after_the_drop_and_the_drop_still_
         window.__dt = new DataTransfer();
         document.querySelector(`.card[data-id="${id}"]`)
             .dispatchEvent(new DragEvent("dragstart", {bubbles: true, dataTransfer: window.__dt}));
-        replace({...cards.find(c => c.id === id), updated_at: "9999"});
+        replace({...cards.find(c => c.id === id)});
     }""", cid)
     page.wait_for_timeout(300)
     assert page.locator(".card.dragging").count() == 1, "the answer redrew the board under the drag"
@@ -1990,6 +1990,28 @@ def test_a_card_write_answered_mid_drag_draws_after_the_drop_and_the_drop_still_
     assert core.get_card(cid)["lane"] == "develop", "the drop was lost"
     page.wait_for_function("() => window.__inflight === 0")
     assert page.locator(f'.lane[data-lane="develop"] .card[data-id="{cid}"]').count() == 1
+
+
+def test_card_writes_answered_mid_drag_draw_once_the_drag_ends_without_a_drop(page):
+    """A drag given up (Esc: a dragend, no drop) still draws what was answered meanwhile:
+    several answers wait for one drawing, the newest copy wins (#265)."""
+    cid, = cards_in(page, "drag me")
+    page.evaluate("""id => {
+        document.querySelector(`.card[data-id="${id}"]`)
+            .dispatchEvent(new DragEvent("dragstart", {bubbles: true, dataTransfer: new DataTransfer()}));
+        const c = cards.find(c => c.id === id);
+        replace({...c, title: "first answer"});
+        replace({...c, title: "second answer"});
+    }""", cid)
+    page.wait_for_timeout(300)
+    assert page.locator(".card.dragging").count() == 1, "an answer redrew the board under the drag"
+    assert "drag me" in page.locator(f'.card[data-id="{cid}"]').inner_text()
+    page.evaluate(f"""document.querySelector('.card[data-id="{cid}"]')
+        .dispatchEvent(new DragEvent("dragend", {{bubbles: true}}))""")
+    page.wait_for_function(f"""() => document.querySelector('.card[data-id="{cid}"]')
+        .innerText.includes("second answer")""", timeout=3000)
+    assert page.locator(".card.dragging").count() == 0
+    assert page.evaluate("drawWaits") is False
 
 
 def test_a_load_answered_after_a_card_left_the_tab_does_not_bring_it_back(page):
