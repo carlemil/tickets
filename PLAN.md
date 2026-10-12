@@ -329,7 +329,7 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   full suite for an unmapped file, a changed fixture/config/lockfile, an un-narrowable command
   or most of the suite; reply line `tests: targeted|full suite|skipped, docs-only` before its
   `Files changed:` list; the test stage's full run stays mandatory), test (always fresh: it reviews work it did not
-  write; `/code-review <level> <base>...card/<id>` with the level sized to the diff (low text-only, medium small code, high other, #191) plus a check against the card, #7; one full suite run after the last commit, again only after a failure or fix, rerun only for a known flake; `RESULT: PASS` or the card stays), then
+  write; `/code-review <level> <base>...card/<id>` with the level sized to the diff (low text-only, medium small code, high other, #191; prose lines in `*.md` and `docs.html` do not count toward it, only code lines do, #217) plus a check against the card, #7; one full suite run after the last commit, again only after a failure or fix, rerun only for a known flake; `RESULT: PASS` or the card stays), then
   ship (commit, push `card/<id>`), land (merge into the base when the repo is on it and
   clean; before it the dispatcher checks `git merge-base --is-ancestor <base> card/<id>`
   and that ship committed nothing and the land was not skipped, #156; the test stage's
@@ -476,7 +476,9 @@ here:
   A `DEPLOY: SKIPPED` deploy keeps its `tests:` line because a deploy may merge, test and
   push yet skip the rest, as the Tickets repo's does for a docs-only change (#160).
 - *Test stage (#191).* `code-review` gets a ref range so it reviews committed work whatever
-  the cwd, and does not know the card, hence the separate check against the request.
+  the cwd, and does not know the card, hence the separate check against the request. #217:
+  prose lines (`*.md`, `*.txt`, `docs.html`) do not count toward the level, so a run.md change
+  with one guard test is `medium`, not `high` (#204 cost 97k tokens on wording findings).
 
 **No tools, no stop.** Claude Code connects MCP servers once, at session start, and never
 retries, so a session opened while the board was down has no `tickets` tools — and a

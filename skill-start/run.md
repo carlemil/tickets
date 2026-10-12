@@ -415,12 +415,15 @@ unchanged (once, alone) only when it is a known flake: named as a current flake 
 `CLAUDE.md`, `PLAN.md` or `STATUS.md`, or marked so in the test code; a flake recorded as fixed
 (e.g. #165) no longer counts. Any other failure is real: fix it or `RESULT: FAIL`, no rerun and
 hope. The reply names any flake rerun. The `<level>` comes from the committed diff (`git -C
-<tree> diff --name-only --no-renames <base>...card/<id>` and `--shortstat`):
-- `low`: text-only, every changed file is prose (`*.md`, `*.txt`, or a manual page with no
-  script such as `docs.html`); tests, config and pages with script (`board.html`) are code;
-- `medium`: code, but small, at most ~50 changed lines (insertions + deletions) in total;
+<tree> diff --numstat --no-renames <base>...card/<id>`). Prose counts as text (#217): lines of
+`*.md`, `*.txt` and a manual page with no script such as `docs.html` do not count toward the
+level, so only the code lines set it; tests, config and pages with script (`board.html`) are code:
+- `low`: text-only, every changed file is prose;
+- `medium`: code, but small, at most ~50 changed code lines (insertions + deletions, prose
+  files left out);
 - `high`: any other code diff.
-Its reply has one line `review: <level> (<n> files, +<a>/-<b>, text-only|code)`.
+Its reply has one line `review: <level> (<n> files, +<a>/-<b>, text-only|code)`, the
+`+<a>/-<b>` the code lines the level came from.
 A brief carrying a `build check: MISMATCH` note (#176) makes it verify every claim of the
 develop reply against the diff and say what was missing and what it did about it.
 Its review names every checklist step still unticked (one skipped on purpose says why).
