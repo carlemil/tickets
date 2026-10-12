@@ -294,3 +294,20 @@ def test_run_md_pins_the_small_card_path():
     docs = open("docs.html", encoding="utf-8").read()
     assert "<code>small</code>" in docs and "<code>large</code>" in docs
     assert "built on Opus by its plan agent" in " ".join(docs.split())
+
+
+def test_stage_agent_is_pinned():
+    agent = open("skill-start/agents/tickets-stage.md", encoding="utf-8").read()
+    front = agent.split("---")[1]
+    fields = dict(l.split(":", 1) for l in front.strip().splitlines() if ":" in l)
+    assert fields["name"].strip() == "tickets-stage"
+    tools = [t.strip() for t in fields["tools"].split(",")]
+    assert tools == ["Bash", "PowerShell", "Read", "Edit", "Write", "Grep", "Glob",
+                     "Skill", "ToolSearch", "mcp__tickets"]
+    assert "model" not in fields
+    run = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    assert 'subagent_type: "tickets-stage"' in run and "`general-purpose`" in run
+    assert "retried once as `general-purpose`" in run
+    skill = " ".join(open("skill-start/SKILL.md", encoding="utf-8").read().split())
+    assert "~/.claude/agents/tickets-stage.md" in skill and "new session" in skill
+    assert "tickets-stage" in open("docs.html", encoding="utf-8").read()

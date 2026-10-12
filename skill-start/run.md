@@ -138,8 +138,19 @@ Before working the queue, catch up on pull requests: for each of the project's `
 ## 3. Work the cards, several at once
 
 You are the dispatcher. Each stage of a card runs in its own **background** subagent
-(Agent tool, `general-purpose`, `run_in_background: true`), so several cards move at
-once and a long run does not fill this session's context. When one finishes you are
+(Agent tool, `run_in_background: true`), so several cards move at
+once and a long run does not fill this session's context.
+
+**Stage agent (#188).** Every stage's Agent call uses `subagent_type: "tickets-stage"`
+when that type is in the Agent tool's list of available agent types, else
+`general-purpose`. `tickets-stage` (`skill-start/agents/tickets-stage.md`, installed by
+`/tickets-start` setup) carries only the tools a stage needs, because a `general-purpose`
+agent loads every tool and MCP server of the session and most of a stage's cost is that
+fixed start (a haiku deploy ended at ~63k tokens after 5-7 commands). A call refused for
+an unknown agent type is retried once as `general-purpose`, same brief, same model. When
+the fallback was used, the run's summary says so once: "tickets-stage agent not installed
+or not loaded: `/tickets-start` in a new session".
+ When one finishes you are
 notified: do that card's (you) steps for the stage, then start its next stage in a
 **new** subagent, or, when the card is out of your hands, fill the freed slot from a
 fresh re-list. A card in `plan` gets a **plan** subagent: it plans, posts the plan and —
@@ -415,7 +426,7 @@ section**. Outcomes:
 `card/<id>` branch fails ("nothing was built: move it back to develop").
 
 The subagent (`model: "opus"`) commits anything uncommitted in the worktree on
-`card/<id>`, then runs the Skill tool with skill `code-review` and args `<level> <base>...card/<id>` (a ref range: committed
+`card/<id>`, then runs the Skill tool (the `tickets-stage` agent has it, #188) with skill `code-review` and args `<level> <base>...card/<id>` (a ref range: committed
 work only, whatever the cwd; the level is always named, see below). It fixes the findings it agrees with on the branch, in the
 worktree, and lists those it rejects in its reply with a one-line reason each. No Skill
 tool, no `code-review`, or an error → it reviews `git -C <tree> diff <base>...HEAD` itself
