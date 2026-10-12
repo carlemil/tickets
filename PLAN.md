@@ -345,9 +345,10 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   production; the comment head lights the purple dot; it skips the full test rerun when
   the landed tree is the tested one, else runs the tests, and its `tests:` line says
   which; a failing deploy test run leaves the merge unpushed, #156), `merged=True` from git, remove the worktree, move to `verify`.
-  Each stage sets its model (#83): plan `opus` (pinned, no longer the session's:
-  planning is judgement; a card labelled `small` (in a git repo) is planned and built on `sonnet`, #187 —
-  the labels alone pick it, since the model is set before the judged size is known),
+  Each stage sets its model (#83): plan `sonnet` (pinned, no longer the session's), and it
+  builds a small card too; a card labelled `large` (or both labels), or one not in a git repo,
+  is planned on `opus` (#187, #218 — the labels alone pick it, since the model is set before
+  the judged size is known),
   develop `sonnet` (it writes code from a written plan), test
   `opus` (never weaker than the `sonnet` that builds) and deploy none when mechanical
   (the dispatcher runs it, #189) or `haiku` for a judgement deploy's subagent (it reruns the tests
@@ -440,7 +441,9 @@ here:
 - *Stage agent (#188).* A `general-purpose` agent loads every tool and MCP server of the
   session, and most of a stage's cost is that fixed start (a haiku deploy ended at ~63k
   tokens after 5-7 commands); `tickets-stage` carries only the tools a stage needs.
-- *Models (#83, #154, #155, #187).* The strong model thinks (plan) and checks (test: never
+- *Models (#83, #154, #155, #187, #218).* The strong model checks (test: never
+  weaker than the `sonnet` that wrote the code) and plans only a card labelled `large`
+  (since #218, below). History: the strong model thought (plan) and checked (test: never
   weaker than the `sonnet` that wrote the code); develop writes from a written plan on the
   cheaper `sonnet`, which trades one extra read of the code for a cheaper writer. #187, the
   owner's call after the same 86% run: a card labelled `small` plans and builds on `sonnet`;

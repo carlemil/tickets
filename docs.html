@@ -356,8 +356,9 @@ of a card's committed work is put back at once (nothing is lost, the card's bran
 cannot hold up the merge into the base branch; anything else is left alone and noted on the
 card. Every stage gets a new agent with a clean context: a card already in
 <code>develop</code> too, and every card in <code>test</code>, so the test reviews work
-it did not write. The strong model thinks and checks: the plan is written on Opus and the
-review in <code>test</code> runs on Opus. For a large card the cheaper Sonnet writes the
+it did not write. The strong model checks: the review in <code>test</code> runs on Opus.
+The plan is written on Sonnet unless you ask for Opus with a label (below). For a large card
+the cheaper Sonnet writes the
 code from the posted plan, whether the card was just planned or you put it in <code>develop</code>
 yourself; reading the code a second time costs less than building on Opus. A small card is
 built by its plan agent, where that second read would cost more than a separate Sonnet build saves. The one

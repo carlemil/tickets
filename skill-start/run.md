@@ -152,9 +152,9 @@ When the fallback was used (either way), the run's summary says so once: "ticket
 
 **Model per stage (#83).** Each stage's Agent call sets its model:
 - plan: `model: "sonnet"`, which plans and, when small (Card size), builds it, except that a
-  card labelled `large` (any case; both labels counts as `large`) gets `model: "opus"`;
+  card labelled `large` (any case; both labels count as `large`) gets `model: "opus"`;
   `small` or no label → `sonnet`.
-  Not a git repo → `opus` (no one-agent path, so the agent only plans).
+  Not a git repo → `opus` whatever the labels (no one-agent path, so the agent only plans).
 - develop: `model: "sonnet"`, for every large card, however it reached `develop`.
 - test: `model: "opus"`.
 - deploy: none when mechanical (you run it); a judgement deploy's subagent `model: "haiku"`.
