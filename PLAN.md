@@ -465,6 +465,18 @@ here:
 - *Fresh subagents (#61).* Never continuing a finished subagent keeps what an earlier stage
   assumed or got wrong out of the next, and the test stage reviews work it did not write;
   the brief is its whole world because it starts as empty as a session after `/clear`.
+- *One agent for all stages? (#234).* The owner's call 2026-10-12: keep the split. One
+  agent plans and builds only a small card (#190, #187, #218); the test stage is always a
+  fresh agent. Considered and dropped: one agent for docs-only/text-only cards (left to
+  #217), one agent for plan+build of every card (saves the develop reread, ~110k on the
+  #203 pair, but builds large cards on opus), one agent for all stages (saves the test
+  stage's start and reread, an estimate of 35-70k of its 97k, but loses the independent
+  review and the opus/sonnet mix). Why it stays: the fresh test stage changed the code on
+  nearly every card it reviewed (16 review fix commits since 2026-09-25, some real
+  defects), a builder shares its own blind spots, and a longer context is re-read on
+  every turn (#68). The savings above are estimates, not measured. To revisit: compare the
+  next comparable run's per-stage tokens with the #215 baseline (above), remembering #218
+  moved unlabelled plans to sonnet and #217 may lighten the test review.
 - *No-chips line (#159).* Two haiku agents, #154 and #155, each made a background-task chip
   by accident; #156, with the line in its brief, did not.
 - *Base checkout check (#204).* In the #193 run two stages left copies of their card's edits
