@@ -1403,6 +1403,11 @@ $("#add").onclick = () => {
 // answered, so its snapshot is newer. That ordering is causal, so no clocks are compared.
 let loads = 0, loading = null;
 let loadFailed = false;   // the last load failed: the next status poll retries it (#165)
+// the newest load is not answered yet; a status poll wanted a reload meanwhile (#202);
+// how many polls wanted a reload while that load was pending, and at which of them it is
+// taken for lost (~30 s of polls)
+let loadPending = false, reloadDue = false, heldPolls = 0;
+const LOST_AFTER = 6;
 function mergeCards(fresh, archived, project) {
   const shown = new Map(cards.map(c => [c.id, c]));
   const here = c => !!c.archived === archived
@@ -1413,8 +1418,20 @@ function mergeCards(fresh, archived, project) {
     return here(mine) ? [mine] : [];
   });
 }
-// a new load clears loadFailed, so a retry never cancels a slow load still on its way
-function load() { loadFailed = false; return loading = loadBoard(++loads); }
+// A new load clears loadFailed, so a retry never cancels a slow load still on its way.
+// A status poll starts no load while one is pending (#202): it would drop that load's
+// answer, and on a backend slower than the poll no load would ever draw. The poll's reload
+// is due instead (the pending load may have been asked before the change the poll saw) and
+// starts once that load has drawn: one load for any number of held polls, no change lost.
+// A fetch has no timeout, so a load still unanswered when the LOST_AFTER-th poll wants a
+// reload is taken for lost and that poll starts a new one: a hung request cannot stop the
+// board from following other writers for good.
+function load() {
+  loadFailed = reloadDue = false;
+  loadPending = true;
+  heldPolls = 0;
+  return loading = loadBoard(++loads);
+}
 async function loadBoard(call) {
   let got;
   const project = proj(), archived = $("#showArch").checked;
@@ -1427,14 +1444,18 @@ async function loadBoard(call) {
     ]);
   } catch (e) {
     if (call !== loads) return loading;
-    loadFailed = true;
+    loadPending = false;
+    loadFailed = true;   // a due reload waits for the next poll's retry, at the poll's pace
     return showErr("could not load the board: " + e.message);
   }
   if (call !== loads) return loading;
-  loadFailed = false;
+  loadPending = loadFailed = false;   // before drawing: a render that throws leaves none pending
   [cards, users, projects] = [mergeCards(got[0], archived, project), got[1], got[2]];
   renderProj();
   renderBoard();
+  // The due reload starts now, unless a pointer is held: a quick answer would rebuild the
+  // card under the press, so the next poll starts it once the pointer is up, as with a change.
+  if (reloadDue && !pointerHeld) load();
 }
 
 // ---------- status bar: what agents are doing right now ----------
@@ -1492,7 +1513,14 @@ async function loadStatus() {
   const dragging = !!$(".card.dragging");
   const finished = busy !== null && now !== busy && !dragging;
   const changed = version !== null && ver.event !== version && !dragging && !pointerHeld;
-  if (finished || changed || (loadFailed && !dragging)) load();
+  // With a load still pending the reload waits for its answer instead (until the LOST_AFTER-th
+  // such poll). A failed load's retry and a due reload wait for a released pointer, as a
+  // change does: a due reload behind a failed load is retried with it (#202, see load()).
+  const due = (loadFailed || reloadDue) && !dragging && !pointerHeld;
+  if (finished || changed || due) {
+    if (loadPending && ++heldPolls < LOST_AFTER) reloadDue = true;
+    else load();
+  }
   if (changed) recheck = true;
   if (version === null || changed) version = ver.event;
   busy = now;
