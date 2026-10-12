@@ -536,9 +536,14 @@ newer one. A poll starts no load while one is pending (#202): that would drop th
 load's answer, and on a backend slower than the poll no load would ever draw. The poll
 marks its reload as due instead (`reloadDue`), because the pending load may have been asked
 before the change the poll saw. The due reload starts as soon as the pending load has drawn,
-so any number of held polls cost one load. A pending load that fails leaves the reload to
-the next poll's retry (#165). Any load started meanwhile (a write's, a tab pick) clears it,
-since that load asks after the change. A load that started before a write and is answered after the write's response
+so any number of held polls cost one load; while a pointer is held it waits for the next
+poll, as a change does. A pending load that fails leaves the reload to the next poll's
+retry (#165), which waits for a released pointer too. Any load started meanwhile (a
+write's, a tab pick) clears it, since that load asks after the change. A fetch has no
+timeout, so the sixth poll that wants a reload while one load is still pending
+(`LOST_AFTER`, half a minute) takes that load for lost and starts a new one; the lost
+answer, should it still come, is dropped (#88). A load that started before a write and is
+answered after the write's response
 is still the newest, so it merges per card (#105): a card whose copy on screen has a newer
 `updated_at` keeps that copy — unless that copy has left the view the load asked for
 (archived flag or project tab), when it is not drawn at all. A card on screen but missing
