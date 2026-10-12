@@ -46,6 +46,44 @@ A missing board never stops a run:
   run used HTTP and that `/mcp` (or a new session) brings the tools back; if the server
   is not registered at all, `/tickets-start` registers it.
 
+### Lean board calls (#186)
+
+The owner's call (2026-10-11, a 5-card run took the 5-hour limit to 86%): the `tickets`
+MCP tools answer with the **whole card**: `get_card` and every write (`update_card`,
+`comment`) echo it with its full `events` log, and `list_cards` lists every card's text.
+A card's plan then lands in your context several times (the `plan` field, the checklist,
+the `detail` of the events that set them; ~12k tokens for one comment on #159), and every
+later wake re-reads it. So **you, the dispatcher, read and write the board over its HTTP
+API and print only the fields you need**; in PowerShell only what the command prints
+reaches your context:
+- **check** (lane, assignee, labels before a stage, a person's move, the land fields):
+  `(Invoke-RestMethod http://127.0.0.1:8123/api/cards/<id>) | Select-Object
+  id,lane,assignee,labels,merged,pr`;
+- **queue** (step 2): `(Invoke-RestMethod "http://127.0.0.1:8123/api/cards?project=<name>")
+  | Where-Object lane -in 'plan','develop','test' | Select-Object id,title,lane,assignee,
+  labels,blocked_by,@{n='questions';e={[bool]$_.questions}},@{n='answers';e={[bool]$_.answers}}`
+  (keep the parentheses: without them the array reaches `Where-Object` as one object);
+  `verify` cards for the PR catch-up likewise with `id,pr,merged`;
+- **writes** (assign and `session`, lane moves, unassign, `merged`, `deployed`, `pr`,
+  comments): the UTF-8 `Invoke-RestMethod -Method Patch|Post` of §0 with `"actor":
+  "claude-agent"`, piped to `| Select-Object id,lane,assignee` (a comment to `| Select-Object
+  id`), so the echoed card never prints;
+- **the refused-write check** (step 2): only the last comments, e.g. `$c.events |
+  Where-Object kind -eq 'comment' | Select-Object -Last 2 actor,at,@{n='text';e={$t =
+  $_.detail.text; $t.Substring(0, [Math]::Min(300, $t.Length))}}`, plus the check above for
+  a lane change since.
+- **a full card only to build a brief**: the `get_card` right before spawning a stage
+  (step 3) stays whole, because the brief pastes the card verbatim (MCP `get_card` or a plain
+  `Invoke-RestMethod` without a `Select-Object`, either is fine). A stage's verdict needs no
+  full card: its reply is already in your context.
+
+The MCP tools stay for stage subagents (their context ends with the stage) and for a
+session without PowerShell; there, use them as before and the summary says once that the
+run read full cards. HTTP is your first route now, not a fallback: a write it refused by
+a permission check is still never retried through the MCP tool (below), and the summary
+names the `PowerShell(…)` rule. How this is measured: verify compares the dispatcher
+session's context on the next comparable run with the 2026-10-11 run (PLAN.md, #186).
+
 ### Board writes that fail (#147)
 
 The owner's rule: never wait for the user to move cards; the flow of cards must not be
@@ -106,8 +144,8 @@ built) but fail in develop/test.
 
 ## 2. Build the queue
 
-`list_cards(project=…)` and keep the cards in `plan`, `develop`, `test` (with a
-card id: just that card, wherever it is among those lanes). Order: `plan` first (their
+`list_cards(project=…)` (the trimmed queue call, Lean board calls) and keep the cards
+in `plan`, `develop`, `test` (with a card id: just that card, wherever it is among those lanes). Order: `plan` first (their
 questions reach a person sooner), then `develop`, then `test`; within
 a lane, the board's order. Skip, and name in the
 final summary:
@@ -128,7 +166,7 @@ Never work the same card twice in one run — once it fails or waits, it is done
 run.
 
 A card whose latest `claude-agent` comment says a board write was refused (see "Board
-writes that fail") is not skipped and not restarted: its first step in the next tick's run is that same
+writes that fail"; read it with the trimmed refused-write check) is not skipped and not restarted: its first step in the next tick's run is that same
 write again (a note followed by a human comment or a lane change is stale; ignore it). Refused again → note nothing new, carry on, name it in the summary.
 
 Before working the queue, catch up on pull requests: for each of the project's `verify` cards with
@@ -224,20 +262,22 @@ works in its own worktree (below); do not use the Agent tool's `isolation: "work
 the `card/<id>` branch and its worktree path are the record.
 
 Starting a card: `update_card(assignee="claude-agent", session="<session id>")`
-(the board's link back to this session's transcript). `set_activity` holds one entry
+(the board's link back to this session's transcript). Every board read and write of yours
+here goes through the trimmed calls (Lean board calls, §0), not the full-card echo. `set_activity` holds one entry
 for you, so point it at the card you started last and say how many are in flight:
 `set_activity(card_id=…, doing="developing (2 in flight)")` (`planning`,
 `planning and building` for a plan stage that may build, `developing`, `testing`); clear it (`set_activity` with no card) when the last card
 leaves your hands.
-Before every board write after a stage, `get_card` again: **a person's move wins** — if
+Before every board write after a stage, check the card again (the trimmed check; a
+full card only for a brief): **a person's move wins** — if
 the lane changed under you (other than by your own move, or the plan stage's move to
 `develop`), post your output as a comment saying it was moved during the
 run, and leave the card where they put it.
 
 **The brief is the subagent's whole world** — it starts empty, like a session after
 `/clear`, so paste everything in; never summarize the person's words and never say "see
-the card". `get_card` right before spawning (so earlier stages' writes are in) and
-include, each under its own heading:
+the card". `get_card` right before spawning (so earlier stages' writes are in; your one
+full-card read per stage, Lean board calls) and include, each under its own heading:
 - the card: `#<id> <title>`, lane, labels; the description, plan, questions and answers
   **verbatim**; the checklist with each item's done state; links (parent, blocks, blocked
   by) with the linked cards' titles and lanes; every comment in order with its author and

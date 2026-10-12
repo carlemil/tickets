@@ -316,6 +316,31 @@ def test_run_md_pins_the_small_card_path():
     assert "built on Opus by its plan agent" in " ".join(docs.split())
 
 
+def test_run_md_pins_lean_board_calls():
+    # #186: the MCP tools echo the whole card with its events; the dispatcher prints only
+    # the fields it needs and loads a full card only to build a brief.
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    lean = text[text.index("### Lean board calls (#186)"):
+                text.index("### Board writes that fail (#147)")]
+    for needle in ("print only the fields you need",
+                   "Select-Object id,lane,assignee,labels,merged,pr",
+                   "keep the parentheses", "[bool]$_.questions",
+                   "piped to `| Select-Object id,lane,assignee`",
+                   "a full card only to build a brief", "verbatim",
+                   "still never retried through the MCP tool",
+                   "The MCP tools stay for stage subagents"):
+        assert needle in lean, needle
+    queue = text[text.index("## 2. Build the queue"):text.index("## 3. Work the cards")]
+    assert "the trimmed queue call" in queue and "trimmed refused-write check" in queue
+    work = text[text.index("## 3. Work the cards"):text.index("### plan")]
+    assert "check the card again (the trimmed check" in work
+    assert "your one full-card read per stage" in work
+    docs = " ".join(open("docs.html", encoding="utf-8").read().split())
+    assert "loads a whole card only to brief an agent" in docs
+    plan = open("PLAN.md", encoding="utf-8").read()
+    assert "| 108 | #186" in plan and "test_run_md_pins_lean_board_calls" in plan
+
+
 def test_stage_agent_is_pinned():
     agent = open("skill-start/agents/tickets-stage.md", encoding="utf-8").read()
     front = agent.split("---")[1]
