@@ -366,6 +366,52 @@ def test_run_md_pins_lean_board_calls():
     assert "loads a whole card only to brief an agent" in docs
 
 
+def test_run_md_pins_the_base_checkout_check():
+    # #204: stages left copies of their card's edits in the base checkout and a land sat
+    # skipped for hours; briefs keep stages out of it, the dispatcher checks after each reply.
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    brief = text[text.index("**The brief is the subagent's whole world**"):
+                 text.index("On a card's way out")]
+    for needle in ("where not to write (#204)", "never writes in the base checkout `<repo>`",
+                   "`<scratchpad>/card-<id>-<stage>`", "one folder per stage",
+                   "never overwrite each other", "`git -C <repo> status --porcelain`",
+                   # the verdict stays the reply's last line, as every stage's rules say
+                   "before any `tests:` line, `Files changed:` section and the verdict line,"
+                   " which stay last"):
+        assert needle in brief, needle
+    start = text.index("**Base checkout check (#204).**")
+    check = text[start:text.index("### plan", start)]
+    for needle in ("after every stage reply",
+                   "`git -C <repo> status --porcelain --untracked-files=no`",
+                   "each card in flight in this run, the replying card first",
+                   "`git -C <repo> diff --name-only --no-renames <base>...card/<id>`",
+                   "`git -C <repo> diff --quiet card/<id> -- <path>` exits 0",
+                   "`git -C <repo> diff --cached --quiet HEAD -- <path>`",
+                   "`git -C <repo> diff --cached --quiet card/<id> -- <path>`",
+                   "reverted at once, without asking",
+                   "`git -C <repo> restore --source=HEAD --staged --worktree -- <paths>`",
+                   "base checkout: reverted stray copies of card/<id>",
+                   "Any other path is never touched", "each path once per run",
+                   "not retried another way"):
+        assert needle in check, needle
+    # before the land and the worktree clean-up, so the land finds the checkout clean
+    assert "before that card's other steps" in check and "ship and land" in check
+    # and again at the land itself, which a running stage of another card may have dirtied
+    assert "the land runs this check once more when it finds the checkout dirty" in check
+    land = text[text.index("3. **Land:**"):text.index("4. **Deploy:**")]
+    assert "not empty → run the Base checkout check (#204) once more, then look again" in land
+    # untracked files are skipped, but not because the merge would ignore them: it refuses
+    assert "`git merge` refuses to overwrite an untracked copy of a file the card adds" in check
+    wrap = text[text.index("## 4. Wrap up"):]
+    assert "each base-checkout path left alone (#204" in wrap
+    # docs.html only: a test reading the README would make README edits non-docs-only (#163)
+    page = " ".join(open("docs.html", encoding="utf-8").read().split())
+    assert "Plan, develop and test agents work only in their card's worktree" in page
+    assert "every stage keeps its scratch files in a folder of its own" in page
+    assert "exact copy of a card's committed work is put back at once" in page
+    assert "anything else is left alone and noted on the card" in page
+
+
 def test_stage_agent_is_pinned():
     agent = open("skill-start/agents/tickets-stage.md", encoding="utf-8").read()
     front = agent.split("---")[1]

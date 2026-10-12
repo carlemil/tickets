@@ -365,6 +365,25 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   carries the no-chips line (#159): no background-task chips (`spawn_task`), nothing
   scheduled, never ask the user in chat; a chip made by mistake is dismissed, named in the
   reply, and noted on the card and in the summary.
+- **The base checkout stays clean (#204).** Plan, develop and test stages never write in
+  the base checkout (`<repo>`, e.g. `D:/source/Tickets` on `master`), and every stage keeps
+  its scratch files in its own folder, `<session scratchpad>/card-<id>-<stage>`, so two
+  stages' scripts never overwrite each other; its reply reports `git status --porcelain`
+  of the base checkout before its `tests:` line, `Files changed:` and verdict, which stay
+  last. Briefs said so before run.md did, and in the #193 run two stages
+  still left copies of their card's edits there and the land (it needs a clean checkout)
+  was skipped for hours. So the dispatcher runs `git -C <repo> status --porcelain
+  --untracked-files=no` after every stage reply, before anything else for that card, and
+  the land runs the check once more when it finds the checkout dirty. A
+  listed path is a stray copy, reverted at once with `git restore --source=HEAD --staged
+  --worktree` and commented on the card, only when a card in flight changed it on its branch
+  (`diff --name-only --no-renames <base>...card/<id>`), the checkout's file is exactly the
+  branch's (`diff --quiet card/<id> -- <path>`) and its index entry is HEAD's or the
+  branch's: nothing is lost, the branch holds the content (the owner's standing call). Any
+  other path (a person's edit, a half-made copy) is never touched, only noted on the
+  replying card once per run and in the summary. Untracked files are not checked, as by
+  the land's clean test; an untracked copy of a file the card adds still makes `git merge`
+  refuse, and the deploy comment says so.
 
 **No tools, no stop.** Claude Code connects MCP servers once, at session start, and never
 retries, so a session opened while the board was down has no `tickets` tools — and a
