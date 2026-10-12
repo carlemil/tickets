@@ -1964,6 +1964,34 @@ def test_a_load_answered_mid_drag_draws_after_the_drop_and_the_drop_still_moves_
     assert page.locator(f'.lane[data-lane="develop"] .card[data-id="{cid}"]').count() == 1
 
 
+def test_a_card_write_answered_mid_drag_draws_after_the_drop_and_the_drop_still_moves_the_card(page):
+    """replace() (the answer to a PATCH or a comment) redrew the board under the drag too:
+    the dragged card was swapped out and the drop found no `.card.dragging` (#265)."""
+    cid, = cards_in(page, "drag me")
+    page.evaluate("""id => {
+        window.__dt = new DataTransfer();
+        document.querySelector(`.card[data-id="${id}"]`)
+            .dispatchEvent(new DragEvent("dragstart", {bubbles: true, dataTransfer: window.__dt}));
+        replace({...cards.find(c => c.id === id), updated_at: "9999"});
+    }""", cid)
+    page.wait_for_timeout(300)
+    assert page.locator(".card.dragging").count() == 1, "the answer redrew the board under the drag"
+    page.evaluate("""() => {
+        const col = document.querySelector('.lane[data-lane="develop"]');
+        const y = col.getBoundingClientRect().bottom;
+        const fire = (el, type) => el.dispatchEvent(new DragEvent(type,
+            {bubbles: true, cancelable: true, dataTransfer: window.__dt, clientY: y}));
+        fire(col, "dragover"); fire(col, "drop");
+    }""")
+    for _ in range(100):
+        if core.get_card(cid)["lane"] == "develop":
+            break
+        page.wait_for_timeout(50)
+    assert core.get_card(cid)["lane"] == "develop", "the drop was lost"
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.locator(f'.lane[data-lane="develop"] .card[data-id="{cid}"]').count() == 1
+
+
 def test_a_load_answered_after_a_card_left_the_tab_does_not_bring_it_back(page):
     """The newer copy is kept only while it still belongs to the board the load asked for:
     a card moved to another project from the sheet is not drawn under the old tab (#105)."""

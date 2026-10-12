@@ -681,7 +681,21 @@ function replace(card) {
     cards[i] = card;
     if (ripple) return load();
   }
-  renderBoard();
+  drawAfterDrag();
+}
+// An answer landing mid-drag must not redraw the board either (#265): the card is already
+// updated in `cards`, only the drawing waits for the drop (which redraws) or the drag's end.
+let drawWaits = false;
+function drawAfterDrag() {
+  if (!$(".card.dragging")) return renderBoard();
+  if (drawWaits) return;
+  drawWaits = true;
+  const wait = () => {
+    if ($(".card.dragging")) return setTimeout(wait, 100);
+    drawWaits = false;
+    renderBoard();
+  };
+  setTimeout(wait, 100);
 }
 
 // ---------- detail panel ----------
