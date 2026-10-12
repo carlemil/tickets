@@ -382,7 +382,9 @@ comment has a <code>tests:</code> line that says which. Each agent is handed the
 description, plan, answers, checklist and comments, and the project's rules. Between stages the dispatcher reads
 only what it needs (a card's lane, assignee and labels) and trims the answer of its own
 board writes, so it loads a whole card only to brief an agent, which keeps a long run's
-context and its tokens down. Tests,
+context and its tokens down. The stage agents' board writes (the plan post, a checklist
+tick, a comment) pass <code>slim=True</code>, so each answers with only the card's id,
+lane and assignee, not the whole card with its event log. Tests,
 the deploy and the merge into the base branch go one card after another. The status bar
 shows the card it started last and how many are in flight. A card that passes its tests
 is pushed as <code>card/&lt;id&gt;</code> and then lands the project's way: merged locally
@@ -461,6 +463,11 @@ The card stays in its lane, marked blocked, and runs skip it until those cards r
   <li>Every write passes <code>actor</code>, the caller's name, so the log says who did
     what.</li>
   <li>Plans go in <code>plan</code>, never over the person's <code>description</code>.</li>
+  <li><code>update_card</code> and <code>comment</code> answer with the whole card, its
+    <code>events</code> log included, which a long plan makes costly to read back. Pass
+    <code>slim=True</code> when you do not need the card back: the answer is then only
+    <code>{"id", "lane", "assignee"}</code>, and the write is the same. An unknown or older
+    backend just answers with the whole card; <code>get_card</code> reads one in full.</li>
 </ul>
 
 <h2 id="limits">7. Limits</h2>

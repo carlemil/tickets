@@ -366,6 +366,46 @@ def test_run_md_pins_lean_board_calls():
     assert "loads a whole card only to brief an agent" in docs
 
 
+def test_run_md_pins_slim_stage_board_writes():
+    # #203: the MCP write tools answer the whole card with its events unless `slim=True`;
+    # every stage board write passes it, and the brief, the agent file and the docs say so.
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    brief = text[text.index("**The brief is the subagent's whole world**"):
+                 text.index("On a card's way out")]
+    for needle in ("that its board writes (`update_card`, `comment`) pass `slim=True` (#203)",
+                   "only the card's `id`, `lane` and `assignee`, not the whole card",
+                   "it reads the card with `get_card` when it needs it",
+                   "Every stage brief carries this line too"):
+        assert needle in brief, needle
+    # the plan post: all three update_card forms and the MOVED comment
+    post = text[text.index("**Post.**"):text.index("It **builds nothing**")]
+    forms = re.findall(r"`update_card\(plan=[^`]*`", post)
+    assert len(forms) == 3 and all("slim=True)`" in f for f in forms), forms
+    assert 'lane="develop", slim=True)`' in post
+    assert "`comment(…, slim=True)` the plan saying the card was moved during the run" in post
+    # the develop stage's one board write, the checklist tick
+    tick = text[text.index("Its one board write (the plan stage's post came before)"):
+                text.index("(you) After the trimmed check (a person's move wins): BUILT")]
+    assert 'update_card(checklist=<the full list>, actor="claude-agent", slim=True)' in tick
+    # the dispatcher's MCP fallback writes are slim too; its HTTP writes stay the trimmed ones
+    lean = text[text.index("### Lean board calls (#186)"):text.index("### Board writes that fail (#147)")]
+    for needle in ("Their writes are slim (#203)", "`slim=True`, which answers only `id`, `lane` and `assignee`",
+                   "the MCP fallback writes pass `slim=True` too", "Reads stay whole (`get_card`)"):
+        assert needle in lean, needle
+    # the stage agent's body says it; no new tool, so its tools list is the server's as before
+    agent = " ".join(open("skill-start/agents/tickets-stage.md", encoding="utf-8").read().split())
+    body = agent.split("---", 2)[2]
+    assert "Board writes (`update_card`, `comment`) pass `slim=True`" in body
+    assert "Read the card with `get_card` when you need it" in body
+    # docs.html only: the manual says it in the run section and in the MCP section
+    page = " ".join(open("docs.html", encoding="utf-8").read().split())
+    assert ("The stage agents' board writes (the plan post, a checklist tick, a comment) pass "
+            "<code>slim=True</code>, so each answers with only the card's id, lane and assignee") in page
+    mcp = page[page.index('<h2 id="mcp">'):page.index('<h2 id="limits">')]
+    assert "Pass <code>slim=True</code> when you do not need the card back" in mcp
+    assert '<code>{"id", "lane", "assignee"}</code>' in mcp
+
+
 def test_run_md_pins_the_base_checkout_check():
     # #204: stages left copies of their card's edits in the base checkout and a land sat
     # skipped for hours; briefs keep stages out of it, the dispatcher checks after each reply.
