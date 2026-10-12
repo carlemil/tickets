@@ -127,7 +127,9 @@ in `verify` looks right, click "move to done".
     conftest.py    fixtures: temp DB, TestClient, uvicorn thread, Chrome page
     test_*.py      the suite: core, app, board, end-to-end, idle gate (test_idle_gate.py)
     skill*/        the Claude Code skills, one folder each (see Skills);
-                   skill-start/idle_gate.py is the idle gate hook
+                   skill-start/idle_gate.py is the idle gate hook;
+                   skill-start/agents/ holds the tickets-stage agent definition
+                   that /tickets-start copies to ~/.claude/agents/ (new session needed)
     CLAUDE.md      this repo's own rules for Claude Code sessions
     PLAN.md        the design document
 
