@@ -321,14 +321,16 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   the reply says `tests: skipped, docs-only (<files>)`; the dispatcher reruns that check
   before land and hands the deploy a third verdict, docs-only, so it runs no tests and its
   line is `tests: skipped, docs-only` (kept on `DEPLOY: SKIPPED` too); if the recheck fails
-  the verdict is not tested), deploy (local unless the instructions say
+  the verdict is not tested), deploy (done by the dispatcher itself when the project's deploy instructions are
+  mechanical, by a `haiku` subagent when they need judgement, #189; local unless the instructions say
   production; the comment head lights the purple dot; it skips the full test rerun when
   the landed tree is the tested one, else runs the tests, and its `tests:` line says
   which; a failing deploy test run leaves the merge unpushed, #156), `merged=True` from git, remove the worktree, move to `verify`.
   Each stage sets its model (#83): plan `opus` (pinned, no longer the session's:
   planning is judgement), develop `sonnet` (it writes code from a written plan), test
-  `opus` (never weaker than the `sonnet` that builds) and deploy `haiku` (mechanical;
-  it reruns the tests only when the base moved since the test stage, #156) —
+  `opus` (never weaker than the `sonnet` that builds) and deploy none when mechanical
+  (the dispatcher runs it, #189) or `haiku` for a judgement deploy's subagent (it reruns the tests
+  only when the base moved since the test stage, #156) —
   the owner's calls, #154 and #155: the strong model thinks and checks, the cheaper one
   writes; the split trades one extra read of the code for a cheaper writer.
 - **Landing by pull request (#6).** A project's `land` is `merge` (the default, above) or
@@ -749,6 +751,7 @@ no longer on the board.
 | 101 | #176 the dispatcher checks a BUILT commit holds the work it claims: the develop reply lists `Files changed:`; before the move to test `diff --name-only --no-renames`/`--stat <base>...card/<id>` and `status --porcelain` are compared with it (claimed-not-committed, committed-not-claimed, uncommitted, no list); an empty build fails, any other gap is `build check: MISMATCH` in the BUILT comment and the test brief, a match is `build check: OK (<n> files)`; guard test `test_run_md_pins_the_built_check` | done — 544 checks |
 | 102 | #192 the develop stage runs only the tests that cover its change (subsumes #180): `run.md` has it list `diff --name-only --no-renames <base>...card/<id>`, skip tests when the #163 docs-only check holds, else use the repo `CLAUDE.md` test map (or heuristics), falling back to the full suite for an unmapped file, a changed fixture/config/lockfile, an un-narrowable command or most of the suite; reply `tests: targeted (<files>)` / `full suite (<why>)` / `skipped, docs-only`; the test stage's full run stays mandatory; the Tickets test map is in `CLAUDE.md`; two `test_idle_gate.py` tests pin run.md and the map's completeness; docs follow | done — 546 checks |
 | 103 | #191 the test stage runs the full suite once, after the last commit (again only after a fixed failure or a later fix; a rerun unchanged only for a current known flake, not one recorded as fixed) and sizes `code-review` to the diff: `low` text-only, `medium` small code (~50 lines), `high` other code, always named; reply line `review: <level> (...)`; `docs.html` follows; guard test `test_run_md_pins_one_suite_run_and_sized_review` | done — 547 checks |
+| 105 | #189 the dispatcher deploys itself instead of a haiku subagent when the project's deploy instructions are mechanical (git push/diff, the test command as the #156 verdict allows, restart commands spelled out verbatim, a file classification): `run.md` step 4 has a **Mechanical deploy (#189)** paragraph, a judgement deploy (phone/adb, build, remote, vague instructions, when in doubt) still spawns the `haiku` subagent; the comment carries exactly one `tests:` line plus `deployed by: dispatcher (mechanical)` / `deployed by: subagent (<why>)`; "Tests in the deploy (#156)" and "Model per stage" are deployer-neutral; Tickets deploys run in the dispatcher; #179 still covers the judgement-deploy subagent and other stages' stray chips, its trigger is gone for Tickets deploys; `CLAUDE.md` says "deploy verdict", `docs.html` follows; guard test `test_run_md_pins_the_dispatcher_deploy` | done — 548 checks |
 
 Gate for every task (except a docs-only test stage, #163; the develop stage runs the targeted files, #192, the test stage the full suite): `uv run pytest -q` — 547 checks across core, HTTP, the MCP tools
 and wire, the board in Chrome, and the two-surface end-to-end. Every test gets its own

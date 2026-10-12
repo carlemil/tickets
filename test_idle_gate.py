@@ -260,6 +260,22 @@ def test_run_md_pins_the_targeted_develop_tests():
     assert "The test stage's full run stays mandatory (#192)" in text
 
 
+def test_run_md_pins_the_dispatcher_deploy():
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    for needle in ("**Mechanical deploy (#189):**", "spelled out verbatim",
+                   "file classification", "When in doubt", "phone", "never production",
+                   "deployed by: dispatcher (mechanical)", "deployed by: subagent (",
+                   "`tests: skipped, docs-only`", "`tests: run in test stage, skipped`",
+                   "`tests: <count> passed`", "`tests: none in the deploy rules`",
+                   '`model: "haiku"`'):
+        assert needle in text, needle
+    assert '4. **Deploy:** a subagent (`model: "haiku"`) deploys per the project' not in text
+    # docs.html only: a test reading the README would make README edits non-docs-only (#163)
+    page = " ".join(open("docs.html", encoding="utf-8").read().split())
+    assert "the dispatcher deploys it itself" in page and "needs judgement" in page
+    assert not re.search(r"is mechanical, runs on Haiku", page)
+
+
 def test_claude_md_test_map_is_complete():
     claude = open("CLAUDE.md", encoding="utf-8").read()
     rows = [line.strip() for line in claude.splitlines()
