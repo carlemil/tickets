@@ -309,7 +309,9 @@ full-card read per stage, Lean board calls) and include, each under its own head
   time — but not a comment's `output` (the CLI transcript: long, and the comment says
   what it did);
 - the project: name, instructions verbatim, `land`, the repo path and base branch, and
-  that the repo's `CLAUDE.md` holds its rules (read it first);
+  that the repo's `CLAUDE.md` holds its rules (read it first) and that the stage reads
+  long docs such as `PLAN.md` and `STATUS.md` only in the sections its change touches, as
+  that `CLAUDE.md` says (#215);
 - where to work: the folder (absolute path — tell it to use absolute paths or `git -C`),
   and for plan, develop and test the worktree path and the `card/<id>` branch;
 - where not to write (#204): a plan, develop or test stage never writes in the base
