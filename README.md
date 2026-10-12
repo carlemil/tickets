@@ -139,7 +139,7 @@ in `verify` looks right, click "move to done".
     PLAN.md        the design document
     README.md      this file
     .gitattributes `STATUS.md merge=union`: parallel cards' rows merge without a conflict
-    .gitignore     files git leaves out (databases, caches, screenshots, restart log)
+    .gitignore     files git leaves out (databases, settings.json, .venv, caches, screenshots, restart log)
     STATUS.md      the change log, one row per card (merged with union, see .gitattributes)
 
 ## Tests
