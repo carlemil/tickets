@@ -3261,3 +3261,45 @@ def test_a_failed_first_load_is_retried_by_the_next_status_poll(browser, server)
     finally:
         pg.close()
     assert not errors, errors
+
+
+def test_a_slow_retry_load_is_not_dropped_by_the_next_poll(browser, server):
+    """With a backend slower than the 5 s poll, every poll used to see loadFailed still set,
+    start another load and drop the one in flight, so the board never drew; load() now
+    clears loadFailed (#165, pinned by #178)."""
+    pg = browser.new_page()
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))   # as the page fixture does
+    try:
+        pg.route("**/api/cards?*", lambda route: route.fulfill(
+            status=500, body='{"detail": "boom"}', content_type="application/json"))
+        pg.route("**/api/activity", lambda route: route.abort())   # the boot poll must not retry
+        pg.goto(server)
+        pg.wait_for_selector("#err.on")
+        assert pg.evaluate("loadFailed") is True
+        pg.unroute("**/api/cards?*")
+        pg.unroute("**/api/activity")
+        # the retry's answer is held past the next poll; a load started meanwhile meets a
+        # backend still too slow, and fails
+        pg.evaluate("""() => {
+            const real = window.fetch;
+            let held = false;
+            window.__release = null;
+            window.fetch = (url, opts) => {
+                if (!String(url).startsWith("/api/cards?")) return real(url, opts);
+                if (held) return Promise.reject(new Error("still too slow"));
+                held = true;
+                return real(url, opts).then(r => new Promise(ok => { window.__release = () => ok(r); }));
+            };
+        }""")
+        pg.evaluate("loadStatus()")                       # the poll retries the failed load
+        pg.wait_for_function("() => window.__release")   # answered, held back
+        call = pg.evaluate("loads")
+        pg.evaluate("loadStatus()")                       # the next poll, the load still held
+        assert pg.evaluate("loads") == call, "the next poll started a new load and dropped the held one"
+        pg.evaluate("window.__release(); loading")
+        pg.wait_for_selector("#board .lane", timeout=5000)
+        assert pg.evaluate("loadFailed") is False
+    finally:
+        pg.close()
+    assert not errors, errors
