@@ -769,7 +769,8 @@ no longer on the board.
 
 The change log is `STATUS.md` (#177): one row per change, the numbered rows 0-108 frozen at
 the top, then a `By card` table keyed `| #<id> | <change> | <state> |` with no running
-number. A card appends its own row as the file's last line and edits nothing else there;
+number. A card appends its own row at the end of the file and edits nothing else there; rows are
+keyed by `#<id>`, so a union merge's order is accepted as is (#233);
 `.gitattributes` merges that file with `merge=union`, so parallel cards' rows both stay and
 never conflict. PLAN.md itself keeps a normal merge, so real design conflicts still show.
 The rules are in STATUS.md's header.
