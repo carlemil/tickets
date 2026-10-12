@@ -40,7 +40,7 @@ A missing board never stops a run:
   | `set_activity(…)` | `POST /api/activity` `{actor, card_id, doing}`; clear: `{actor}` |
 
   Every write carries `"actor": "claude-agent"`. Send UTF-8 (plans hold non-ASCII): in
-  PowerShell `Invoke-RestMethod -Method Patch <url> -ContentType 'application/json;
+  PowerShell `Invoke-RestMethod "<url>" -Method Patch -ContentType 'application/json;
   charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes(($fields | ConvertTo-Json -Depth
   6)))`. Subagents posting a plan or ticking the checklist get the same instructions. The summary says the
   run used HTTP and that `/mcp` (or a new session) brings the tools back; if the server
@@ -55,27 +55,39 @@ A card's plan then lands in your context several times (the `plan` field, the ch
 the `detail` of the events that set them; ~12k tokens for one comment on #159), and every
 later wake re-reads it. So **you, the dispatcher, read and write the board over its HTTP
 API and print only the fields you need**; in PowerShell only what the command prints
-reaches your context:
+reaches your context. Every command starts `Invoke-RestMethod "http://127.0.0.1:8123/…"`
+(the URL quoted and first, no leading `(` or `$var`), the form the usual allow rule
+`PowerShell(Invoke-RestMethod "http://127.0.0.1:8123/:*)` matches; each call is one
+fresh shell, so no variable carries over:
 - **check** (lane, assignee, labels before a stage, a person's move, the land fields):
-  `(Invoke-RestMethod http://127.0.0.1:8123/api/cards/<id>) | Select-Object
-  id,lane,assignee,labels,merged,pr`;
-- **queue** (step 2): `(Invoke-RestMethod "http://127.0.0.1:8123/api/cards?project=<name>")
-  | Where-Object lane -in 'plan','develop','test' | Select-Object id,title,lane,assignee,
-  labels,blocked_by,@{n='questions';e={[bool]$_.questions}},@{n='answers';e={[bool]$_.answers}}`
-  (keep the parentheses: without them the array reaches `Where-Object` as one object);
+  `Invoke-RestMethod "http://127.0.0.1:8123/api/cards/<id>" | Select-Object
+  id,lane,assignee,labels,merged,pr`; a linked card for a brief likewise with `id,title,lane`;
+- **queue** (step 2): `Invoke-RestMethod "http://127.0.0.1:8123/api/cards?project=<name>"
+  | ForEach-Object { $_ } | Where-Object lane -in 'plan','develop','test' | Select-Object
+  id,title,lane,assignee,labels,blocked_by,@{n='questions';e={-not
+  [string]::IsNullOrWhiteSpace($_.questions)}},@{n='answers';e={-not
+  [string]::IsNullOrWhiteSpace($_.answers)}}` (keep the `ForEach-Object { $_ }`: it unrolls
+  the array, without it the array reaches `Where-Object` as one object; wrapping the call
+  in parentheses does the same but no longer matches the allow rule);
   `verify` cards for the PR catch-up likewise with `id,pr,merged`;
 - **writes** (assign and `session`, lane moves, unassign, `merged`, `deployed`, `pr`,
-  comments): the UTF-8 `Invoke-RestMethod -Method Patch|Post` of §0 with `"actor":
-  "claude-agent"`, piped to `| Select-Object id,lane,assignee` (a comment to `| Select-Object
-  id`), so the echoed card never prints;
-- **the refused-write check** (step 2): only the last comments, e.g. `$c.events |
-  Where-Object kind -eq 'comment' | Select-Object -Last 2 actor,at,@{n='text';e={$t =
-  $_.detail.text; $t.Substring(0, [Math]::Min(300, $t.Length))}}`, plus the check above for
-  a lane change since.
+  comments): the UTF-8 call of §0 with the URL first (`Invoke-RestMethod
+  "http://127.0.0.1:8123/api/cards/<id>" -Method Patch …`, a comment `…/comment" -Method
+  Post …`) and `"actor": "claude-agent"`, piped to `| Select-Object id,lane,assignee` (a
+  comment to `| Select-Object id`), so the echoed card never prints;
+- **the refused-write check** (step 2): only the last comments and lane moves,
+  `Invoke-RestMethod "http://127.0.0.1:8123/api/cards/<id>" | ForEach-Object { $_.events }
+  | Where-Object kind -in 'comment','moved' | Select-Object -Last 3
+  kind,actor,at,@{n='to';e={$_.detail.to}},@{n='text';e={$t = [string]$_.detail.text;
+  $t.Substring(0, [Math]::Min(300, $t.Length))}}` (a `moved` after the note makes it stale).
+  A note that is a write to repeat (a refused plan post carries the plan) is read whole
+  before the write: `… | ForEach-Object { $_.events } | Where-Object kind -eq 'comment' |
+  Select-Object -Last 1 | ForEach-Object { $_.detail.text }`, never re-posted from the cut.
 - **a full card only to build a brief**: the `get_card` right before spawning a stage
-  (step 3) stays whole, because the brief pastes the card verbatim (MCP `get_card` or a plain
-  `Invoke-RestMethod` without a `Select-Object`, either is fine). A stage's verdict needs no
-  full card: its reply is already in your context.
+  (step 3) stays whole, because the brief pastes the card verbatim (MCP `get_card`, or
+  `Invoke-RestMethod "http://127.0.0.1:8123/api/cards/<id>" | ConvertTo-Json -Depth 8`:
+  never the bare object, whose default view cuts `events`, `checklist` and `links` to 4
+  items). A stage's verdict needs no full card: its reply is already in your context.
 
 The MCP tools stay for stage subagents (their context ends with the stage) and for a
 session without PowerShell; there, use them as before and the summary says once that the
@@ -364,7 +376,7 @@ edits, no commits of its own work, no checklist ticks. Its reply is the plan, la
 one of `STAGE: PLANNED`, `STAGE: BUILT`, `STAGE: QUESTIONS`, `STAGE: BLOCKED`,
 `STAGE: MOVED`, `STAGE: FAILED`.
 
-(you) Per verdict, after `get_card` (a person's move wins: expect `develop` after
+(you) Per verdict, after the trimmed check (a person's move wins: expect `develop` after
 PLANNED, `plan` after QUESTIONS, either after BLOCKED or FAILED):
 - PLANNED → start the card's **develop** stage at once (below): same slot, same
   worktree (its (you) steps still run: the folder exists, so only the base merge), a new
@@ -377,7 +389,7 @@ PLANNED, `plan` after QUESTIONS, either after BLOCKED or FAILED):
   with the plan in that comment so the next tick can make the same write, and start
   nothing. Not a git repo → failure ("no git repo"): the card sits in `develop` with its
   plan.
-- BUILT (a small card built by its plan stage) → after `get_card` expect `develop`, then
+- BUILT (a small card built by its plan stage) → after the trimmed check expect `develop`, then
   exactly the develop BUILT handling below: the BUILT check (#176), the BUILT comment with
   the `tests:` and `build check:` lines, move to `test`. No develop subagent.
 - QUESTIONS → comment "open questions: answer them in the card; the next run replans
@@ -449,7 +461,7 @@ Its one board write (the plan stage's post came before): as it finishes a step i
 ticks that checklist item — `get_card`,
 flip that item's `done`, `update_card(checklist=<the full list>, actor="claude-agent")` —
 nothing else; tell it so in the brief.
-(you) After `get_card` (a person's move wins): BUILT → the BUILT check below
+(you) After the trimmed check (a person's move wins): BUILT → the BUILT check below
 first, then comment the summary, its `tests:` line, the `build check:` line and the
 worktree path, move to
 `test` (it waits for the test slot); BLOCKED → the blocker cards

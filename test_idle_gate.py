@@ -341,9 +341,12 @@ def test_run_md_pins_lean_board_calls():
                 text.index("### Board writes that fail (#147)")]
     for needle in ("print only the fields you need",
                    "Select-Object id,lane,assignee,labels,merged,pr",
-                   "keep the parentheses", "[bool]$_.questions",
+                   'Invoke-RestMethod "http://127.0.0.1:8123/api/cards/<id>" | Select-Object',
+                   "keep the `ForEach-Object { $_ }`",
+                   "IsNullOrWhiteSpace($_.questions)",
+                   "kind -in 'comment','moved'", "read whole before the write",
                    "piped to `| Select-Object id,lane,assignee`",
-                   "a full card only to build a brief", "verbatim",
+                   "a full card only to build a brief", "ConvertTo-Json -Depth 8",
                    "still never retried through the MCP tool",
                    "The MCP tools stay for stage subagents"):
         assert needle in lean, needle
@@ -352,6 +355,12 @@ def test_run_md_pins_lean_board_calls():
     work = text[text.index("## 3. Work the cards"):text.index("### plan")]
     assert "check the card again (the trimmed check" in work
     assert "your one full-card read per stage" in work
+    # the dispatcher's per-verdict reads are the trimmed check, not a full get_card
+    assert "Per verdict, after the trimmed check" in text
+    assert "Per verdict, after `get_card`" not in text
+    assert "(you) After `get_card`" not in text
+    # every form starts with the quoted URL, so the allow rule matches: no `(Invoke-`, no `$c.`
+    assert "`(Invoke-RestMethod" not in lean and "$c." not in lean
     docs = " ".join(open("docs.html", encoding="utf-8").read().split())
     assert "loads a whole card only to brief an agent" in docs
 
