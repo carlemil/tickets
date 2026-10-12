@@ -97,7 +97,7 @@ board</a> has the details.</p>
     works. A card assigned to a person is never taken by an agent.</li>
   <li data-field="lane"><b>lane</b>: the stage it is in, the same as dragging it to another
     column.</li>
-  <li data-field="labels"><b>labels</b>: free tags, comma separated.</li>
+  <li data-field="labels"><b>labels</b>: free tags, comma separated. <code>small</code> and <code>large</code> steer how the agent works the card (see The agent).</li>
   <li data-field="checklist"><b>checklist</b>: steps to tick off. The agent ticks its plan's
     steps as it finishes them, and the board card shows done/total.</li>
   <li data-field="links"><b>links</b>: this card's parent, and the cards it blocks. A
@@ -189,7 +189,7 @@ the sheet there says so.</p>
 <p><code>todo → plan → develop → test → verify → done</code></p>
 <dl>
   <dt>todo</dt><dd>Your backlog: not started. Move a card on to plan to start it.</dd>
-  <dt>plan</dt><dd>The agent writes a plan and any open questions.</dd>
+  <dt>plan</dt><dd>The agent writes a plan and any open questions. A small card is also built by this agent.</dd>
   <dt>develop</dt><dd>The agent builds it, following the plan and your answers. It runs only the tests that
     cover what it changed (none for a docs-only change); the full suite is left to the test
     lane.</dd>
@@ -327,16 +327,23 @@ once by default, but only one in <code>test</code> at a time. A project changes 
 line <code>Cards in flight: N</code> in its instructions. More at once finishes a batch sooner;
 fewer spends fewer tokens and causes fewer merge conflicts to rework. A card in <code>plan</code> gets a
 background agent that writes the plan and posts it with its checklist; unless the plan
-has open questions, it moves the card to <code>develop</code> and builds nothing. A new
-agent then builds the card straight away, in the same worktree and without giving up its
-place among the cards in flight. Before a built card goes to <code>test</code>, the dispatcher checks that
+has open questions, it moves the card to <code>develop</code>. For a large card it builds nothing: a new
+agent then builds it straight away, in the same worktree and without giving up its
+place among the cards in flight. A small card is planned and built by that one agent in one
+context, which saves the second read of the code; the plan still goes on the card with its
+checklist. The label <code>small</code> or <code>large</code> on a card forces the path (both labels
+mean large); without a label the agent judges after reading the code (at most 5 steps, about 5
+files, no new module, schema, route or tool, and unsure means large) and says so in the plan's
+first line, <code>Size: …</code>. Add the label before the card goes to <code>plan</code>; to
+change the path later, relabel and move the card back to <code>plan</code>. Before a built card goes to <code>test</code>, the dispatcher checks that
 the branch holds the files the build said it changed: a mismatch is noted on the card and
 handed to the test stage, and an empty build fails. Every stage gets a new agent with a clean context: a card already in
 <code>develop</code> too, and every card in <code>test</code>, so the test reviews work
 it did not write. The strong model thinks and checks: the plan is written on Opus and the
-review in <code>test</code> runs on Opus. The cheaper Sonnet writes the code from the
-posted plan, whether the card was just planned or you put it in <code>develop</code>
-yourself; reading the code a second time costs less than building on Opus. The deploy,
+review in <code>test</code> runs on Opus. For a large card the cheaper Sonnet writes the
+code from the posted plan, whether the card was just planned or you put it in <code>develop</code>
+yourself; reading the code a second time costs less than building on Opus. A small card is
+built on Opus by its plan agent, where that second read would cost more than Sonnet saves. The deploy,
 which is mechanical, runs on Haiku, and it skips the full test rerun when the tested
 tree is the landed tree: the base branch had not moved since the test stage merged it
 in, shipping committed nothing and the merge into the base was not skipped. Otherwise
