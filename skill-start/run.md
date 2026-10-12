@@ -139,9 +139,21 @@ Before working the queue, catch up on pull requests: for each of the project's `
 
 You are the dispatcher. Each stage of a card runs in its own **background** subagent
 (Agent tool, `run_in_background: true`), so several cards move at
-once and a long run does not fill this session's context.
+once and a long run does not fill this session's context. When one finishes you are
+notified: do that card's (you) steps for the stage, then start its next stage in a
+**new** subagent, or, when the card is out of your hands, fill the freed slot from a
+fresh re-list. A card in `plan` gets a **plan** subagent: it plans, posts the plan and —
+with no questions — moves the card to `develop`; a large card it builds nothing (you then
+start its **develop** subagent at once), a small one (Card size) it then builds itself
+in the same context. A card already in `develop` gets a develop subagent too;
+`test` always a fresh one. The one exception is a mechanical deploy, which you run
+yourself (ship, step 4, #189). Never
+continue a finished subagent (no SendMessage): every stage starts from a clean context
+holding only the card, so nothing an earlier stage assumed or got wrong leaks into the
+next, and the test stage reviews work it did not write.
 
-**Stage agent (#188).** Every stage's Agent call uses `subagent_type: "tickets-stage"`
+**Stage agent (#188).** Every stage's Agent call (plan, develop, test, a judgement
+deploy's subagent; a mechanical deploy spawns none, #189) uses `subagent_type: "tickets-stage"`
 when that type is in the Agent tool's list of available agent types, else
 `general-purpose`. `tickets-stage` (`skill-start/agents/tickets-stage.md`, installed by
 `/tickets-start` setup) carries only the tools a stage needs, because a `general-purpose`
@@ -150,17 +162,6 @@ fixed start (a haiku deploy ended at ~63k tokens after 5-7 commands). A call ref
 an unknown agent type is retried once as `general-purpose`, same brief, same model. When
 the fallback was used, the run's summary says so once: "tickets-stage agent not installed
 or not loaded: `/tickets-start` in a new session".
- When one finishes you are
-notified: do that card's (you) steps for the stage, then start its next stage in a
-**new** subagent, or, when the card is out of your hands, fill the freed slot from a
-fresh re-list. A card in `plan` gets a **plan** subagent: it plans, posts the plan and —
-with no questions — moves the card to `develop`; a large card it builds nothing (you then
-start its **develop** subagent at once), a small one (Card size) it then builds itself
-in the same context. A card already in `develop` gets a develop subagent too;
-`test` always a fresh one. Never
-continue a finished subagent (no SendMessage): every stage starts from a clean context
-holding only the card, so nothing an earlier stage assumed or got wrong leaks into the
-next, and the test stage reviews work it did not write.
 
 **Model per stage (#83).** Each stage's Agent call sets its model on purpose — the
 `model` parameter, or none — so the tokens go where they pay:
@@ -173,9 +174,10 @@ next, and the test stage reviews work it did not write.
   cheaper model saves, so its plan subagent (`opus`) builds it (Card size, #190).
 - test: `model: "opus"` — the owner's call (#154): the review is never weaker than the
   `sonnet` that wrote the code. The strong model thinks (plan) and checks (test).
-- deploy: `model: "haiku"` — the owner's call (#154): mechanical: push and restart per
-  the deploy instructions; it reruns the tests only when the landed tree is not the one
-  the test stage tested (#156).
+- deploy: no model for a mechanical deploy (the dispatcher runs it itself, #189); a
+  judgement deploy's subagent is `model: "haiku"` — the owner's call (#154): push and
+  restart per the deploy instructions; it reruns the tests only when the landed tree is
+  not the one the test stage tested (#156).
 
 **Card size (#190):** a small card is planned, posted and built by **one** plan subagent in
 one context (the one-agent path, see plan below), which saves the second read of the code
@@ -504,35 +506,69 @@ PASS → (you) ship, land, deploy, clean up — in this order:
    `git -C <repo> merge --no-ff card/<id> -m "Merge #<id> <title>"`; a conflict →
    `merge --abort`. Say which happened (or why it was skipped) in the deploy comment.
    Do not push yet.
-4. **Deploy:** a subagent (`model: "haiku"`) deploys per the project instructions.
-   Local only — the test backend, or an install on a connected phone (check `adb devices`; none → skip the
-   phone) — never production, a public server or an app store unless the instructions
-   clearly say so. Changed neither backend nor app → deploy nothing. It may merge, push
-   or restart services only as the instructions say; no other edits or commits. With
-   `land` `pr` it never merges into the base, whatever the rules say: the PR does that. Last
-   line `DEPLOY: OK`, `DEPLOY: SKIPPED` or `DEPLOY: FAILED`. (you) Comment it headed
-   exactly `deployed: `, `deploy skipped: ` or `deploy failed: ` — the board lights the
-   purple dot from that head. Then push the base if the land merged and the deploy did
-   not already (`git -C <repo> push -q origin <base>`), unless its tests failed: then
-   leave the merge unpushed and say so in the comment.
+4. **Deploy:** per the project instructions, by the dispatcher itself when they are
+   mechanical, by a subagent (`model: "haiku"`) when they need judgement (#189). Both
+   paths: local only — the test backend, or an install on a connected phone (check `adb
+   devices`; none → skip the phone) — never production, a public server or an app store
+   unless the instructions clearly say so. Changed neither backend nor app → deploy
+   nothing. Merge, push or restart services only as the instructions say; no other edits
+   or commits. With `land` `pr` it never merges into the base, whatever the rules say:
+   the PR does that. Last line (subagent) or decision (dispatcher) `DEPLOY: OK`,
+   `DEPLOY: SKIPPED` or `DEPLOY: FAILED`. (you) Comment it headed exactly `deployed: `,
+   `deploy skipped: ` or `deploy failed: ` — the board lights the purple dot from that
+   head — with one line `deployed by: dispatcher (mechanical)` or `deployed by:
+   subagent (<why: judgement>)`, so a later run can audit the choice. Then push the base
+   if the land merged and the deploy did not already (`git -C <repo> push -q origin
+   <base>`), unless its tests failed: then leave the merge unpushed and say so in the
+   comment.
 
-   **Tests in the deploy (#156).** Besides the brief rules (with the no-chips line), put
-   one line in the deploy subagent's brief from the verdict. Docs-only: "The change is
+   **Mechanical deploy (#189):** the dispatcher decides per deploy, from the project's
+   deploy instructions (repo `CLAUDE.md` and the project `instructions`), the #156
+   verdict and the landed file list. A deploy is **mechanical** only when every step the
+   instructions call for is one of: a git operation on the base (the land merge already
+   done, `push`, listing the changed files with `git diff --name-only origin/<base>
+   HEAD`); the project's test command, run only as the #156 verdict allows; a restart or
+   reload command the instructions have spelled out verbatim (one or more fixed commands, each
+   run as written, e.g. `powershell -NoProfile -File restart-backend.ps1 -Delay 30`);
+   choosing which of those to run by matching the changed paths against a file
+   classification the instructions list (named files or globs: live on disk, unused,
+   needs a restart). A changed file the classification does not cover counts as
+   judgement, unless the instructions name a default for any other file. Anything else
+   needs **judgement**: a connected device (`adb`, a phone or emulator install), a build,
+   sign or package step, a multi-step script whose output decides the next step, any
+   remote or production target, credentials, instructions that are vague or contradict
+   themselves, or the dispatcher being unsure. When in doubt, use the subagent: spawn it
+   exactly as before (`model: "haiku"`, the brief rules with the no-chips line, the #156
+   line). Missing deploy instructions are not judgement: they mean deploy nothing
+   (`deploy skipped:`), no subagent. The dispatcher's own deploy applies the #156
+   verdict directly (below). It runs a test command with the longest tool timeout (or in
+   the background, waiting for it), its output redirected to a file; it judges the run by
+   the command's own exit code (never one hidden behind a pipe such as `| tail`) and
+   reads only the file's summary line, so the run's output does not fill its context. It
+   treats any failing command (git, test, push, restart: a non-zero exit) as `deploy
+   failed:` with the error. It runs a restart command as given and last: a delayed one
+   returns at once, and it posts the deploy comment right after, before the clean-up. It
+   never creates chips or schedules anything.
+
+   **Tests in the deploy (#156).** Whoever deploys follows the verdict. For a subagent,
+   besides the brief rules (with the no-chips line), put
+   one line in its brief from the verdict. Docs-only: "The change is
    docs-only and no test reads it: do not run the tests, even if the deploy instructions
    say to." Tested: "The test stage ran the full suite on exactly this tree (`<base>` had
    not moved since it merged it in, and ship committed nothing): do not run the tests,
    even if the deploy instructions say to." Not tested: "`<base>` moved since the test
    stage (or ship committed changes after it, or the land was skipped): run the tests if the deploy instructions
-   call for them, before any push." The rule only removes a test run the instructions
-   call for, never adds one. The subagent puts exactly one `tests:` line in its reply
+   call for them, before any push." The dispatcher applies the same rule itself on a
+   mechanical deploy. The rule only removes a test run the instructions
+   call for, never adds one. The deploy comment carries exactly one `tests:` line
    (the head `deployed: ` / `deploy skipped: ` / `deploy failed: ` is unchanged):
    `tests: skipped, docs-only` (docs-only, the rules call for tests);
    `tests: run in test stage, skipped` (tested, the rules call for tests);
    `tests: <count> passed`, e.g. `tests: 538 passed` (not tested, tests ran; a failing run
    is `tests: <the summary line>`, no push, `DEPLOY: FAILED`); `tests: none in the deploy
-   rules` (the rules name no test run, any verdict). A `DEPLOY: SKIPPED` reply has the
+   rules` (the rules name no test run, any verdict). A `DEPLOY: SKIPPED` deploy has the
    line too (a deploy may merge, test and push yet skip the rest, as the Tickets repo's
-   does for a docs-only change, #160). If the reply lacks the line, add it to the comment yourself
+   does for a docs-only change, #160). If a subagent's reply lacks the line, add it to the comment yourself
    from the verdict (`tests: skipped, docs-only` when docs-only, `tests: run in test stage, skipped` when tested, `tests: not
    reported` when not tested), so the comment always says which.
 5. **Merged dot:** `update_card(merged=True)` if `git -C <repo> branch --merged <base>
