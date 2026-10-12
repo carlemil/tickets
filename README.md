@@ -102,7 +102,7 @@ library.
 in its instructions changes it) and one in test at a time. It plans first:
 open questions stay on the card for you, with clickable options. With none, the same
 agent goes on to build in a worktree on `card/<id>`, ticking the checklist as it goes.
-A separate, fresh agent tests with `/code-review` plus the project's tests, then merges (or opens a PR) and deploys. Without the MCP tools it uses
+A separate, fresh agent tests with `/code-review` at a depth sized to the change plus one full run of the project's tests after its last commit, then merges (or opens a PR) and deploys. Without the MCP tools it uses
 the board's HTTP API.
 
 Nothing works the board on its own: `/tickets-start` starts only when you type it.
