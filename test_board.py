@@ -3310,3 +3310,96 @@ def test_a_slow_retry_load_is_not_dropped_by_the_next_poll(browser, server):
     finally:
         pg.close()
     assert not errors, errors
+
+
+# ---------- #202: a status poll starts no load while one is pending ----------
+
+def poll_settled(page):
+    """Poll once, so the board has recorded the version as it is now, and let the reload
+    that poll starts finish drawing."""
+    page.evaluate("loadStatus()")
+    page.wait_for_function("() => window.__inflight === 0 && !loadPending")
+
+
+def test_a_poll_starts_no_load_while_one_is_pending(page):
+    """A poll that wanted a reload while a load was still on its way used to start another
+    load and drop the one in flight. On a backend slower than the 5 s poll, a change seen on
+    every poll meant no load ever drew. The poll now leaves the pending load alone, and its
+    reload starts once that load has drawn: one load for both held polls, and neither
+    poll's change is lost, though the held load was asked before both (#202)."""
+    first, = cards_in(page, "first")
+    poll_settled(page)
+    call = hold_a_load(page)
+    page.wait_for_function("() => window.__release")       # answered, held back: "first" only
+    second = core.create_card("second", actor="ce", project="Home")["id"]
+    page.evaluate("loadStatus()")                            # a poll sees the change
+    assert page.evaluate("loads") == call, "the poll started a load over the pending one"
+    assert page.evaluate("reloadDue") is True
+    third = core.create_card("third", actor="ce", project="Home")["id"]
+    page.evaluate("loadStatus()")                            # and the next one, still held
+    assert page.evaluate("loads") == call, "the second poll started a load over the pending one"
+    page.evaluate("""() => {
+        const real = renderBoard;
+        window.__draws = 0;
+        window.renderBoard = () => { window.__draws++; real(); };
+    }""")
+    page.evaluate("window.__release(); window.__older")     # the held load draws...
+    page.wait_for_selector(f'.card[data-id="{third}"]')     # ...and the due reload follows it
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.evaluate("loads") == call + 1, "one follow-up load for both held polls"
+    assert page.evaluate("window.__draws") == 2, "the held load drew, then the follow-up"
+    assert page.evaluate("[loadPending, reloadDue]") == [False, False]
+    assert all(page.locator(f'.card[data-id="{c}"]').count() == 1 for c in (first, second))
+
+
+def test_a_reload_held_behind_a_failing_load_waits_for_the_next_poll(page):
+    """The pending load fails: its error shows, and the reload the poll held back does not
+    start at once (a failing backend is retried at the poll's pace, #165). The next poll
+    starts it, and the board draws what changed meanwhile (#202)."""
+    cards_in(page, "first")
+    poll_settled(page)
+    # the next board load is held, then answered with a 500
+    call = page.evaluate("""() => {
+        const real = window.fetch;
+        window.fetch = (url, opts) => {
+            if (!String(url).startsWith("/api/cards?")) return real(url, opts);
+            window.fetch = real;
+            return new Promise(ok => { window.__release = () => ok(new Response(
+                '{"error": "boom"}', {status: 500, headers: {"Content-Type": "application/json"}})); });
+        };
+        window.__older = load();
+        return loads;
+    }""")
+    page.wait_for_function("() => window.__release")
+    second = core.create_card("second", actor="ce", project="Home")["id"]
+    page.evaluate("loadStatus()")                            # held back behind the pending load
+    assert page.evaluate("[loads, reloadDue]") == [call, True]
+    page.evaluate("window.__release(); window.__older")     # the pending load fails
+    page.wait_for_selector("#err.on")
+    assert "could not load the board: boom" in page.text_content("#err")
+    assert page.evaluate("[loads, loadPending, loadFailed]") == [call, False, True], \
+        "a failed load started the due reload at once"
+    assert page.locator(f'.card[data-id="{second}"]').count() == 0
+    page.evaluate("loadStatus()")                            # the next poll retries
+    page.wait_for_selector(f'.card[data-id="{second}"]')
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.evaluate("[loads, loadPending, loadFailed, reloadDue]") == [call + 1, False, False, False]
+
+
+def test_a_load_started_after_a_held_poll_stands_in_for_its_reload(page):
+    """A load started for some other reason (a write, a tab pick) after the poll's answer asks
+    the server after the change that poll saw, so it clears the due reload: once it draws,
+    no extra load follows (#202). The held load it overtakes is dropped, as ever (#88)."""
+    cards_in(page, "first")
+    poll_settled(page)
+    call = hold_a_load(page)
+    page.wait_for_function("() => window.__release")       # it holds "first" only
+    second = core.create_card("second", actor="ce", project="Home")["id"]
+    page.evaluate("loadStatus()")
+    assert page.evaluate("[loads, reloadDue]") == [call, True]
+    page.evaluate("load()")                                  # asked after the change
+    page.wait_for_selector(f'.card[data-id="{second}"]')
+    page.evaluate("window.__release(); window.__older")     # the older answer is dropped
+    page.wait_for_function("() => window.__inflight === 0")
+    assert page.evaluate("[loads, loadPending, reloadDue]") == [call + 1, False, False]
+    assert page.locator(f'.card[data-id="{second}"]').count() == 1, "the older load undid the newer one"

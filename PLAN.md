@@ -513,7 +513,13 @@ its text fields has focus; that waits for a later poll. Writes that log no event
 pos-only reorder, project renames) do not trigger it. Board loads are numbered (#88): an
 answer that arrives after a newer load started is dropped and its caller waits for the
 newest load, so a slow reload (a poll's, say) can no longer put an older board back over a
-newer one. A load that started before a write and is answered after the write's response
+newer one. A poll starts no load while one is pending (#202): that would drop the pending
+load's answer, and on a backend slower than the poll no load would ever draw. The poll
+marks its reload as due instead (`reloadDue`), because the pending load may have been asked
+before the change the poll saw. The due reload starts as soon as the pending load has drawn,
+so any number of held polls cost one load. A pending load that fails leaves the reload to
+the next poll's retry (#165). Any load started meanwhile (a write's, a tab pick) clears it,
+since that load asks after the change. A load that started before a write and is answered after the write's response
 is still the newest, so it merges per card (#105): a card whose copy on screen has a newer
 `updated_at` keeps that copy — unless that copy has left the view the load asked for
 (archived flag or project tab), when it is not drawn at all. A card on screen but missing
