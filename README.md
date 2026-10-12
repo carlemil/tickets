@@ -21,7 +21,8 @@ password then, so only on a network you trust. Never host it online.
   questions it moves the card to `develop` and a new agent builds it at once; a card
   labelled `small`, or judged small, is built by the same agent, `large` forces the split).
 - `develop` — the agent implements it from the posted plan on a `card/<id>` branch in
-  its own worktree (Sonnet, whether the card was just planned or you put it here).
+  its own worktree (Sonnet, whether the card was just planned or you put it here; a
+  small card arrives already built by its plan agent and skips this lane).
 - `test` — the agent reviews the code, runs the project's tests and fixes what fails
   (Opus).
 - `verify` — yours: read the comments, look at the branch, try the deployed build. With

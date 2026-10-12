@@ -156,9 +156,10 @@ next, and the test stage reviews work it did not write.
 - plan: `model: "opus"` — the owner's call (#155): planning is judgement, so the strong
   model writes the plan (pinned, no longer the session's model).
 - develop: `model: "sonnet"` — the owner's call (#155): it writes code from a written
-  plan, for every card, whether the plan stage just moved it or a person put it in
+  plan, for every large card, whether the plan stage just moved it or a person put it in
   `develop`. Splitting plan from develop trades one extra read of the code (develop
-  starts fresh) for a cheaper writer.
+  starts fresh) for a cheaper writer; for a small card that read costs more than the
+  cheaper model saves, so its plan subagent (`opus`) builds it (Card size, #190).
 - test: `model: "opus"` — the owner's call (#154): the review is never weaker than the
   `sonnet` that wrote the code. The strong model thinks (plan) and checks (test).
 - deploy: `model: "haiku"` — the owner's call (#154): mechanical: push and restart per
@@ -168,8 +169,9 @@ next, and the test stage reviews work it did not write.
 **Card size (#190):** a small card is planned, posted and built by **one** plan subagent in
 one context (the one-agent path, see plan below), which saves the second read of the code
 that the plan/develop split costs; a large card keeps the split. One definition of size:
-- label `small` (case-insensitive) → the one-agent path, forced; label `large` → the split
-  path (plan, then a fresh develop), forced. Both labels → `large`.
+- label `small` → the one-agent path, forced; label `large` → the split path (plan, then
+  a fresh develop), forced. Both labels → `large`. Labels match case-insensitively. Not a
+  git repo → never the one-agent path (no branch to build on).
 - neither → the plan subagent judges after reading the code, before it posts: the card is
   small when the plan has at most 5 steps, no open questions and no `## Blocked by`, and
   the change touches at most ~5 files (PLAN.md, docs and tests included), adds no new
@@ -183,6 +185,9 @@ that the plan/develop split costs; a large card keeps the split. One definition 
   label: the agent judges. The posted plan's first line says which path it took:
   `Size: small (label)`, `Size: small (judged: 3 steps, 2 files)` or `Size: large (…)`;
   relabel and move the card back to `plan` to replan.
+- a one-agent build that turns out bigger than judged still finishes on the develop rules
+  (the code is already read; a handoff would pay the second read anyway) and says so in its
+  summary; one that crashes after the post is handled like a FAILED after the post.
 
 **Slots.** At most **2 cards in flight** by default (#193). A project changes it with a line
 `Cards in flight: N` in its `instructions` (N a whole number from 1 up; case-insensitive,
@@ -254,13 +259,14 @@ On a card's way out: `update_card(assignee="")` unless a person had it before yo
 be behind. Then set up the card's worktree as under develop below, before spawning; note
 whether `card/<id>` already existed. Not a git repo → no pull, no worktree: the subagent
 plans in the folder. The subagent gets `model: "opus"`. Its brief carries the card's
-labels and the Card size rule; unless a label is `large`, it also carries the develop
+labels and the Card size rule; unless a label is `large` (or it is not a git repo), it also carries the develop
 stage's rules (build from the plan, targeted tests, commit on `card/<id>`, never push,
 tick checklist items, the `tests:` line and `Files changed:` section, all below), so it
 can build if the card turns out small. A `large` label: no build rules.
 
-**Plan.** The subagent reads code in the worktree, changes nothing (beyond resolving
-and committing the base merge's conflicts if you told it to), and writes the
+**Plan.** The subagent reads code in the worktree, changes nothing until the plan is
+posted (beyond resolving and committing the base merge's conflicts if you told it to;
+a small card is built after the post, below), and writes the
 complete plan in markdown (Context section restates the request; its first line is the
 `Size:` line, Card size above). If the card already
 has `questions` and `answers`, those are a person's answers: build them in, do not ask
@@ -315,7 +321,7 @@ PLANNED, `plan` after QUESTIONS, either after BLOCKED or FAILED):
   with them".
 - BLOCKED → the blocker cards (Blocked by a person, below), plus the open-questions
   comment if it posted questions.
-- FAILED → failure. Posted already (also after a failed one-agent build) → the card sits
+- FAILED → failure. Posted already (also after a failed or crashed one-agent build) → the card sits
   in `develop` and a later run develops it fresh; otherwise it stays in `plan`.
 - QUESTIONS, MOVED, or PLANNED/BLOCKED/FAILED (or a crash) with the card still in `plan` →
   `git -C <repo> worktree remove <tree>` (no `--force`; will not go → leave it, say so),
