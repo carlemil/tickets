@@ -157,6 +157,19 @@ def test_the_brief_rules_require_the_no_chips_line():
     assert "dismiss_task" in rules
 
 
+def test_run_md_holds_rules_not_history():
+    # #216: the dispatcher reads run.md on every working tick and pastes much of it into
+    # every brief; the reasons and history behind its rules live in PLAN.md (The run).
+    raw = open("skill-start/run.md", encoding="utf-8").read()
+    assert len(raw) < 40000, len(raw)  # was 53,281 chars before #216
+    text = " ".join(raw.split())
+    # built from parts: a quoted full name would make every PLAN edit non-docs-only (#163);
+    # for the same reason no test reads PLAN's text
+    assert "PLAN" + ".md" in text  # it says where the reasons went
+    assert not re.search(r"\b20\d\d-\d\d-\d\d\b", text)  # no dated owner's calls
+    assert "the owner's call" not in text and "the owner's rule" not in text
+
+
 def test_run_md_pins_the_docs_only_test_skip():
     text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
     for needle in ("**Docs-only skip (#163):**",
@@ -311,9 +324,9 @@ def test_run_md_pins_the_small_card_path():
     # #187: the small label picks the plan model before spawning; judged small stays on opus
     for needle in ('a card labelled `small` (Card size) gets `model: "sonnet"`',
                    "`large`, both labels or no label → `opus`",
-                   'The subagent gets `model: "sonnet"` when the `get_card` right before '
-                   'spawning shows the label `small` (any case, and not `large`) and the '
-                   'project is a git repo (the one-agent path), else `model: "opus"`',
+                   "the labels alone pick the plan model, read from the `get_card` right "
+                   "before spawning",
+                   "Labels match case-insensitively. Not a git repo → never the one-agent path",
                    "Not a git repo → `opus` (no one-agent path, so the agent only plans)",
                    "A card judged small was spawned on `opus` and is built there",
                    "the label is the per-card override",

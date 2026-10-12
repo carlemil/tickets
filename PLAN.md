@@ -417,6 +417,61 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   the land's clean test; an untracked copy of a file the card adds still makes `git merge`
   refuse, and the deploy comment says so.
 
+**Why run.md says what it says (#216).** The dispatcher reads `run.md` on every working tick
+and pastes much of it into every stage brief, so its size is paid many times per run. It
+holds the rules only (736 lines / 53,281 chars before #216, 539 / 39,147 after; a guard keeps
+it under 40,000 chars and free of dated history); the reasons and history behind them live
+here:
+- *Lean board calls (#186).* The owner's call on 2026-10-11, after a 5-card run took the
+  5-hour limit to 86%: the MCP tools answer with the whole card, `get_card` and every write
+  echo it with its full `events` log and `list_cards` lists every card's text, so a card's
+  plan landed in the dispatcher's context several times (the `plan` field, the checklist, the
+  `detail` of the events that set them; ~12k tokens for one comment on #159) and every later
+  wake re-read it. PowerShell prints only what the command selects, hence the trimmed
+  `Invoke-RestMethod` forms; the URL comes first and quoted because the usual allow rule
+  matches only that shape, and `ForEach-Object { $_ }` unrolls the array because parentheses
+  would no longer match it (`Invoke-RestMethod | Where-Object` otherwise sees the array as one
+  object). The bare object's default view cuts `events`, `checklist` and `links` to 4 items,
+  hence `ConvertTo-Json -Depth 8` for a brief. Measured in verify: the dispatcher session's
+  context on the next comparable run against the 2026-10-11 run (STATUS.md, #186).
+- *Board writes that fail (#147).* The owner's rule: never wait for the user to move cards;
+  on 2026-10-11 a loop sat 5 h "waiting on you" over one refused write while two built cards
+  sat in `develop` (more under "Never wait to move cards" above).
+- *Stage agent (#188).* A `general-purpose` agent loads every tool and MCP server of the
+  session, and most of a stage's cost is that fixed start (a haiku deploy ended at ~63k
+  tokens after 5-7 commands); `tickets-stage` carries only the tools a stage needs.
+- *Models (#83, #154, #155, #187).* The strong model thinks (plan) and checks (test: never
+  weaker than the `sonnet` that wrote the code); develop writes from a written plan on the
+  cheaper `sonnet`, which trades one extra read of the code for a cheaper writer. #187, the
+  owner's call after the same 86% run: a card labelled `small` plans and builds on `sonnet`;
+  the model is picked before the plan subagent starts, so only labels can decide it, and a
+  card judged small stays on `opus`. A judgement deploy runs on `haiku` (push and restart).
+- *Card size (#190).* For a small card the second read of the code that the plan/develop
+  split costs is more than the cheaper model saves, so one agent plans and builds it; one
+  that turns out bigger still finishes, since its code is already read and a handoff would
+  pay the second read anyway.
+- *Slots (#193).* Each finished stage wakes a dispatcher whose context grows with every card
+  in flight, and cards branched from the same base edit the same files, so each land
+  conflict costs a rework round in test. A card waiting for the test slot keeps its slot, so
+  at 2 the run is near serial while a land is slow; 1 is serial (cheapest, slowest); 3 suits
+  many small, unrelated cards when time matters more than tokens. One card in `test` at a
+  time because tests, the deploy and restarts share ports, devices and the base checkout.
+- *Fresh subagents (#61).* Never continuing a finished subagent keeps what an earlier stage
+  assumed or got wrong out of the next, and the test stage reviews work it did not write;
+  the brief is its whole world because it starts as empty as a session after `/clear`.
+- *No-chips line (#159).* Two haiku agents, #154 and #155, each made a background-task chip
+  by accident; #156, with the line in its brief, did not.
+- *Base checkout check (#204).* In the #193 run two stages left copies of their card's edits
+  in the base checkout and the land (it needs a clean checkout) was skipped for hours;
+  reverting an exact copy is the owner's standing call, since the branch holds the content.
+  Untracked files are skipped as the land's clean test skips them.
+- *Docs-only (#163).* A page the app serves (`docs.html`) never counts as docs-only because
+  tests fetch it without naming it; a doubtful grep hit only runs the suite, which is safe.
+  A `DEPLOY: SKIPPED` deploy keeps its `tests:` line because a deploy may merge, test and
+  push yet skip the rest, as the Tickets repo's does for a docs-only change (#160).
+- *Test stage (#191).* `code-review` gets a ref range so it reviews committed work whatever
+  the cwd, and does not know the card, hence the separate check against the request.
+
 **No tools, no stop.** Claude Code connects MCP servers once, at session start, and never
 retries, so a session opened while the board was down has no `tickets` tools — and a
 session cannot reconnect a user's MCP server itself (that reconnect tool covers claude.ai
