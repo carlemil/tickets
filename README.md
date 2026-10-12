@@ -124,6 +124,11 @@ in `verify` looks right, click "move to done".
     app.py         MCP tools + HTTP routes, both thin wrappers over core
     board.html     the board, vanilla JS
     docs.html      the user manual, served at /docs
+    docs_card.py   makes docs-card.png: the real card sheet, every field filled and numbered
+    docs-card.png  that screenshot, shown near the top of docs.html (served at /docs/card.png)
+    log-config.json  uvicorn log format: a timestamp per row
+    restart-backend.ps1  restarts the backend on 8123 (waits for the port)
+    pyproject.toml, uv.lock  the dependencies (uv)
     conftest.py    fixtures: temp DB, TestClient, uvicorn thread, Chrome page
     test_*.py      the suite: core, app, board, end-to-end, idle gate (test_idle_gate.py)
     skill*/        the Claude Code skills, one folder each (see Skills);
@@ -132,6 +137,9 @@ in `verify` looks right, click "move to done".
                    that /tickets-start copies to ~/.claude/agents/ (new session needed)
     CLAUDE.md      this repo's own rules for Claude Code sessions
     PLAN.md        the design document
+    README.md      this file
+    .gitattributes `STATUS.md merge=union`: parallel cards' rows merge without a conflict
+    .gitignore     files git leaves out (databases, settings.json, .venv, caches, screenshots, restart log)
     STATUS.md      the change log, one row per card (merged with union, see .gitattributes)
 
 ## Tests
