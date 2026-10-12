@@ -356,16 +356,18 @@ of a card's committed work is put back at once (nothing is lost, the card's bran
 cannot hold up the merge into the base branch; anything else is left alone and noted on the
 card. Every stage gets a new agent with a clean context: a card already in
 <code>develop</code> too, and every card in <code>test</code>, so the test reviews work
-it did not write. The strong model thinks and checks: the plan is written on Opus and the
-review in <code>test</code> runs on Opus. For a large card the cheaper Sonnet writes the
+it did not write. The strong model checks: the review in <code>test</code> runs on Opus.
+The plan is written on Sonnet unless you ask for Opus with a label (below). For a large card
+the cheaper Sonnet writes the
 code from the posted plan, whether the card was just planned or you put it in <code>develop</code>
 yourself; reading the code a second time costs less than building on Opus. A small card is
 built by its plan agent, where that second read would cost more than a separate Sonnet build saves. The one
-exception to planning on Opus: a card labelled <code>small</code> is planned and built on
-Sonnet, since short, mechanical plans do not need the strong model. The model is picked
-before the plan agent starts, so only the label counts: a card judged small without the
-label is planned and built on Opus. The label is your per-card switch: add
-<code>small</code> for Sonnet, leave it off (or add <code>large</code>) for Opus. When
+exception to planning on Sonnet: only a card labelled <code>large</code> is planned on Opus
+(both labels count as large). The model is picked before the plan agent starts, so only the
+label counts: a card judged small without the label is planned and built on Sonnet, and an
+unlabelled card that turns out large was planned on Sonnet and goes to a Sonnet develop agent.
+The label is your per-card switch: add <code>large</code> for Opus, leave it off (or add
+<code>small</code>) for Sonnet. When
 the project's deploy instructions are mechanical (a push, fixed restart commands, a file
 classification), the dispatcher deploys it itself and no agent is spawned; only a deploy that
 needs judgement (a phone install, a script whose output decides the next step) goes to a
