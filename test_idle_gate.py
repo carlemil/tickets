@@ -333,6 +333,38 @@ def test_run_md_pins_the_small_card_path():
     assert "built on Opus by its plan agent" not in page
 
 
+def test_run_md_pins_lean_board_calls():
+    # #186: the MCP tools echo the whole card with its events; the dispatcher prints only
+    # the fields it needs and loads a full card only to build a brief.
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    lean = text[text.index("### Lean board calls (#186)"):
+                text.index("### Board writes that fail (#147)")]
+    for needle in ("print only the fields you need",
+                   "Select-Object id,lane,assignee,labels,merged,pr",
+                   'Invoke-RestMethod "http://127.0.0.1:8123/api/cards/<id>" | Select-Object',
+                   "keep the `ForEach-Object { $_ }`",
+                   "IsNullOrWhiteSpace($_.questions)",
+                   "kind -in 'comment','moved'", "read whole before the write",
+                   "piped to `| Select-Object id,lane,assignee`",
+                   "a full card only to build a brief", "ConvertTo-Json -Depth 8",
+                   "still never retried through the MCP tool",
+                   "The MCP tools stay for stage subagents"):
+        assert needle in lean, needle
+    queue = text[text.index("## 2. Build the queue"):text.index("## 3. Work the cards")]
+    assert "the trimmed queue call" in queue and "trimmed refused-write check" in queue
+    work = text[text.index("## 3. Work the cards"):text.index("### plan")]
+    assert "check the card again (the trimmed check" in work
+    assert "your one full-card read per stage" in work
+    # the dispatcher's per-verdict reads are the trimmed check, not a full get_card
+    assert "Per verdict, after the trimmed check" in text
+    assert "Per verdict, after `get_card`" not in text
+    assert "(you) After `get_card`" not in text
+    # every form starts with the quoted URL, so the allow rule matches: no `(Invoke-`, no `$c.`
+    assert "`(Invoke-RestMethod" not in lean and "$c." not in lean
+    docs = " ".join(open("docs.html", encoding="utf-8").read().split())
+    assert "loads a whole card only to brief an agent" in docs
+
+
 def test_stage_agent_is_pinned():
     agent = open("skill-start/agents/tickets-stage.md", encoding="utf-8").read()
     front = agent.split("---")[1]
