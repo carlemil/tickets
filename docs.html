@@ -373,7 +373,10 @@ skipped the suite, and the same check still holds on the landed tree) is a third
 ran, nothing is owed, and the deploy does not run the tests either; if the check no
 longer holds, the deploy runs them. Its
 comment has a <code>tests:</code> line that says which. Each agent is handed the whole card: its
-description, plan, answers, checklist and comments, and the project's rules. Tests,
+description, plan, answers, checklist and comments, and the project's rules. Between stages the dispatcher reads
+only what it needs (a card's lane, assignee and labels) and trims the answer of its own
+board writes, so it loads a whole card only to brief an agent, which keeps a long run's
+context and its tokens down. Tests,
 the deploy and the merge into the base branch go one card after another. The status bar
 shows the card it started last and how many are in flight. A card that passes its tests
 is pushed as <code>card/&lt;id&gt;</code> and then lands the project's way: merged locally
