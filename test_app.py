@@ -58,14 +58,15 @@ def test_docs_page_is_served_and_covers_the_essentials(client):
         assert text not in r.text, text
 
 
-def test_docs_list_every_mcp_tool():   # #243: a new or renamed @tool must reach the manual
+def test_docs_list_every_mcp_tool(client):   # #243: a new or renamed @tool must reach the manual
     async def names():
         async with Client(app.mcp) as c:
             return [t.name for t in (await c.list_tools()).tools]
 
-    html = (Path(app.__file__).parent / "docs.html").read_text(encoding="utf-8")
-    missing = [n for n in asyncio.run(names()) if f"<code>{n}</code>" not in html]
-    assert not missing, f"docs.html does not list the MCP tools {missing} as <code>name</code>"
+    section = client.get("/docs").text.partition('id="mcp"')[2].partition("<h2")[0]
+    assert section, "docs.html has no MCP section (id=\"mcp\")"
+    missing = [n for n in asyncio.run(names()) if f"<code>{n}</code>" not in section]
+    assert not missing, f"docs.html's MCP section does not list the tools {missing} as <code>name</code>"
 
 
 def test_the_docs_show_the_annotated_card_with_one_legend_entry_per_badge(client):
