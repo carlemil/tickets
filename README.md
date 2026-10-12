@@ -132,6 +132,7 @@ in `verify` looks right, click "move to done".
                    that /tickets-start copies to ~/.claude/agents/ (new session needed)
     CLAUDE.md      this repo's own rules for Claude Code sessions
     PLAN.md        the design document
+    STATUS.md      the change log, one row per card (merged with union, see .gitattributes)
 
 ## Tests
 

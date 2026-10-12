@@ -1,0 +1,4 @@
+# Union merge keeps both sides' lines of a conflicting hunk, with no markers. Right for the
+# append-only status rows, wrong for prose, so it is scoped to that one file and never to
+# the design document: real design conflicts must still show (#177).
+STATUS.md merge=union

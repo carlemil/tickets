@@ -16,10 +16,11 @@
   | `skill-start/` | `test_idle_gate.py` |
   | other `skill-*/` | the docs-only check, else `test_idle_gate.py` |
   | a `test_*.py` | that file |
-  | `conftest.py`, `pyproject.toml`, `uv.lock`, `.gitignore`, a new module | full suite |
+  | `conftest.py`, `pyproject.toml`, `uv.lock`, `.gitignore`, `.gitattributes`, a new module | full suite |
   | `*.md` | the docs-only check, else the test files its #163 grep hits |
 
-- **PLAN.md** is the source of truth: every change updates it.
+- **PLAN.md** is the source of truth: every change updates it where the design changed,
+  and appends its `#<id>` row to STATUS.md (rules in its header, #177).
 - **docs.html** is the user's manual: a change to how the board or the skill behaves
   updates it too.
 - **Deploy:** merge the card into master and push. Run the tests (`uv run pytest -q`)
@@ -29,7 +30,7 @@
   list what it brings
   (`git diff --name-only origin/master HEAD`, right for a `--no-ff` or a fast-forward
   merge). `board.html`, `docs.html` and `docs-card.png` are read from disk on every
-  request: live once merged, no restart. `PLAN.md`, `README.md`, `CLAUDE.md`,
+  request: live once merged, no restart. `PLAN.md`, `STATUS.md`, `README.md`, `CLAUDE.md`, `.gitattributes`,
   `test_*.py`, `conftest.py`, `docs_card.py` and the `skill-*` folders are not used by
   the running backend. Any other changed file (`app.py`, `core.py`, `log-config.json`,
   `pyproject.toml`, `uv.lock`, `restart-backend.ps1`, a new module) is loaded once at
