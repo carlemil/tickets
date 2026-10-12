@@ -330,8 +330,13 @@ def test_stage_agent_is_pinned():
     async def listed():
         async with Client(app.mcp) as c:
             return sorted("mcp__tickets__" + t.name for t in (await c.list_tools()).tools)
+    # its own thread: in the full suite the Chrome tests leave a loop running in this one
+    worker = threading.Thread(target=lambda: server_tools.extend(asyncio.run(listed())))
+    server_tools = []
+    worker.start()
+    worker.join()
     assert tools == ["Bash", "PowerShell", "Read", "Edit", "Write", "Grep", "Glob",
-                     "Skill", "ToolSearch", "Monitor"] + asyncio.run(listed())
+                     "Skill", "ToolSearch", "Monitor"] + server_tools
     assert "model" not in fields and "Agent" not in tools and "spawn_task" not in agent
     run = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
     assert 'subagent_type: "tickets-stage"' in run
