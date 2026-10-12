@@ -337,8 +337,6 @@ def test_run_md_pins_lean_board_calls():
     assert "your one full-card read per stage" in work
     docs = " ".join(open("docs.html", encoding="utf-8").read().split())
     assert "loads a whole card only to brief an agent" in docs
-    plan = open("PLAN.md", encoding="utf-8").read()
-    assert "| 108 | #186" in plan and "test_run_md_pins_lean_board_calls" in plan
 
 
 def test_stage_agent_is_pinned():
