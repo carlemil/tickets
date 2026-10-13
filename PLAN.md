@@ -302,6 +302,18 @@ not a dispatcher. There is no polling agent, no lock and no quota handling: the 
 is the agent, and its own permission mode is the user's choice (auto mode suits an
 unattended run).
 
+**No question in the session (#448).** A prompt in the main session blocks every in-flight
+card and leaves no record on the board. The dispatcher never uses `AskUserQuestion` or chats a
+question in a run; a question it would ask, or a stage reply that asks or ends with no verdict
+line, becomes a comment plus `questions` (plan) or a `## Blocked by` blocker card (other
+stages); every brief and `tickets-stage.md` say a question for a person goes in `## Blocked
+by` / `## Open questions` and the reply ends with its verdict line (guard in
+`test_idle_gate.py`). The prompt the owner saw on elev8 (Claude Code's tool-permission
+prompt for an `ssh` to the Mac mini, blocked by the auto-mode check) no text rule can stop:
+only an allow rule in the session's settings does, so the summary names the command or path
+that held the run (as for a refused write) and docs.html points to `/permissions`. No
+settings are edited by the run.
+
 It replaced `agent.py` (a process polling the board every 15 s and running headless
 `claude -p` on any card assigned to it or set to auto advance), and with it the board's
 handshake machinery: auto advance, the attention dot, a reply restarting a run, a

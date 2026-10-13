@@ -421,6 +421,14 @@ let that write through (add it with <code>/permissions</code>). A tick never end
 "waiting on you" just to hold the cards. The stage agents it starts are told the same, and
 also never to create background-task chips or schedule anything; a chip one makes by
 mistake is dismissed at once and named on the card and in the summary.</p>
+<p><b>It never asks you in chat.</b> The run never opens a question dialog and never chats a
+question: a question it would ask, or a stage reply that asks or ends without its verdict
+line, becomes a comment plus open questions on the card (plan stage) or a blocker card (other
+stages), and the run carries on. A prompt of Claude Code's own, "Allow this command?" for an
+<code>ssh</code>, Docker or a path outside the allowed folders, is not the run's: no
+instruction can stop it, so it holds the session until you answer. Add an allow rule for the
+exact command (<code>/permissions</code>, e.g. <code>Bash(ssh macmini:*)</code>) and the
+summary names the command or path that held the run.</p>
 <p><b>Blocked by a person.</b> When a stage needs something only you can do (a credential,
 an account, a service to enable, a device to plug in), the agent opens a <code>todo</code>
 card for each such task, links it as blocking the card, and comments the new cards' numbers.
