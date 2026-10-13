@@ -88,11 +88,10 @@ board</a> has the details.</p>
   <li data-field="plan"><b>plan</b>: the agent's plan, written in <code>plan</code>. Its
     steps become the checklist. Hidden until the agent writes one.</li>
   <li data-field="open questions"><b>open questions</b>: what the agent needs you to decide
-    before it builds. A question with options gets a row of radio buttons below the box,
-    led by the question's own line, the agent's pick marked "recommended". Hidden while there are none.</li>
-  <li data-field="your answers"><b>your answers</b>: your replies to the questions; a radio
-    click writes one here. The next run replans with them. Shown once there are
-    questions.</li>
+    before it builds. Below the box each question has a row led by its own line: a question
+    with options gets radio buttons, the agent's pick marked "recommended"; one without gets
+    a small one-line text input. A click or a typed line is your answer, saved at once; the
+    next run replans with them. There is no separate answers box. Hidden while there are none.</li>
   <li data-field="assignee"><b>assignee</b>: who has the card: you, or an agent while it
     works. A card assigned to a person is never taken by an agent.</li>
   <li data-field="lane"><b>lane</b>: the stage it is in, the same as dragging it to another
@@ -258,10 +257,10 @@ again.</p>
   <li>Click a card to open its sheet. Every field saves as soon as you leave it, so there is
     no save button; "close", or a click on the board around the sheet, closes it. The sheet holds the project, the description and, right under
     it, the activity log with its comments and the box to add one; then the plan, the
-    open questions and your answers, the assignee and lane, labels, the checklist, links
+    open questions with a row of answers under each, the assignee and lane, labels, the checklist, links
     (parent and blocks) and "archive". Fields only the agent fills stay out of the way
     until they hold something: the plan and open questions appear once the agent writes
-    them, your answers whenever there are questions, and an empty checklist shows only on a
+    them, and an empty checklist shows only on a
     new card or one in todo, where you may add items yourself. Cards are never deleted, only archived. The log
     leaves out what the dots, the session button and the pull request link already show,
     and an agent taking or dropping a card itself.</li>
@@ -436,10 +435,12 @@ The card stays in its lane, marked blocked, and runs skip it until those cards r
     Watch the status bar and the comments. The plan's steps become the card's checklist and
     the agent ticks each one as it finishes it, so the checklist (and the
     <code>☑ done/total</code> chip on the board card) is its live task list.</li>
-  <li>Open questions in the plan? Fill in "your answers": the next run replans with
-    them. A question that comes with options shows them as radio
-    buttons under the questions, the agent's pick marked "recommended": a click writes
-    <code>N. &lt;option&gt;</code> into your answers, and you can still type there.</li>
+  <li>Open questions in the plan? Answer each in the row under the questions: the next
+    run replans with your answers. A question that comes with options shows them as radio
+    buttons, the agent's pick marked "recommended"; one without gets a small text input.
+    A click or a typed line is saved as <code>N. &lt;answer&gt;</code>; clearing the input
+    removes the line. An answer that matches none of a question's options (written by an
+    agent or through the API) is shown under it as "answered: …".</li>
   <li>In <code>verify</code>: read the comments, look at the branch, try the deployed build.
     With "merge into the base branch" the agent has already merged <code>card/&lt;id&gt;</code>
     and pushed the base: the deploy comment says so, or why it skipped the merge (the repo
