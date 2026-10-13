@@ -3841,3 +3841,26 @@ def test_a_load_unanswered_for_six_polls_is_taken_for_lost(page):
     assert page.evaluate("[loads, loadPending, reloadDue, heldPolls]") == [call + 1, False, False, 0]
     assert all(page.locator(f'.card[data-id="{c}"]').count() == 1 for c in (first, second)), \
         "the lost load's late answer undid the new one"
+
+
+def test_a_stalled_card_is_tinted_and_pilled_and_waiting_wins(page):
+    """#493: assigned to claude-agent in a working lane, quiet 30 min: tint and pill; a card
+    with open questions shows 'needs answers' instead; a fresh one shows neither."""
+    from contextlib import closing
+    from datetime import datetime, timedelta, timezone
+    mk = lambda n: core.create_card(n, actor="ce", project="Home", lane="develop",
+                                    assignee="claude-agent")["id"]
+    stale, fresh, asks = mk("stale"), mk("fresh"), mk("asks")
+    core.update_card(asks, "ce", questions="1. which color?")
+    old = (datetime.now(timezone.utc) - timedelta(minutes=45)).isoformat()
+    with closing(core.connect()) as db, db:
+        db.execute("UPDATE cards SET updated_at=? WHERE id IN (?,?)", (old, stale, asks))
+        db.execute("UPDATE events SET at=? WHERE card_id IN (?,?)", (old, stale, asks))
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card.stalled[data-id="{stale}"]')
+    assert page.locator(f'.card[data-id="{stale}"] .pill.stalled').text_content() == "stalled"
+    assert page.locator(f'.card[data-id="{stale}"]').evaluate(
+        "n => getComputedStyle(n).backgroundColor") == "rgb(255, 224, 214)"
+    assert page.locator(f'.card.stalled[data-id="{fresh}"]').count() == 0
+    assert page.locator(f'.card.stalled[data-id="{asks}"]').count() == 0
+    assert page.locator(f'.card.waiting[data-id="{asks}"]').count() == 1

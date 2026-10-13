@@ -316,6 +316,24 @@ that held the run (as for a refused write) and docs.html points to `/permissions
 settings are edited by the run. Fitting this under the #216 size guard left run.md at ~39,930 (#494 trimmed it to ~39,410)
 of its 40,000 chars: the next rule it gains has to trim something first.
 
+**A cut-off stage does not strand its card (#493).** A stage agent cut off (API rate or quota
+limit, crash, session closing) used to leave its card in plan/develop/test, assigned to
+`claude-agent`, for a later run to skip as assigned. Now: (1) the queue reads `stalled` (board,
+above) and `session`: a stalled card whose `session` is not this run's and that no stage agent
+of this run holds is taken over (comment, `session` set to this run's), plan and develop
+re-running the stage on the existing worktree and branch, test starting from the committed state
+(leftovers committed as the stage does) with the full suite, as a cut-off agent may have left
+half-done commits; never a card a person has, once per run. (2) A stage agent that ends on an API
+error (429, overloaded, "terminated early", "session limit") is not an ordinary FAILED: an
+`api error:` comment with the cause and any reset time, the worktree kept, the card unassigned
+with its lane unchanged; the queue skips it until the named reset time, else 30 minutes, so
+no hot loop and no double take-over (an unassigned card is not stalled). (3) The final step
+clears the activity line (a dead dispatcher's line also expires, above), and the summary names a
+`card/<id>` worktree or branch with no card in plan/develop/test, never removing it. A card
+whose last note is a refused write keeps its #147 handling. Defaults, not owner questions:
+30 minutes, board marks only, the run recovers. run.md trimmed ~1,300 chars of prose first (now
+~39,930 of 40,000).
+
 It replaced `agent.py` (a process polling the board every 15 s and running headless
 `claude -p` on any card assigned to it or set to auto advance), and with it the board's
 handshake machinery: auto advance, the attention dot, a reply restarting a run, a
@@ -620,6 +638,15 @@ pale yellow would vanish. It is a background only, so the blocked/blocking strip
 selected outline, the `.drop-at` line, the dragging opacity and the dots all show over it.
 The board has no dark theme. `cardNode` computes it from the card's own fields, so any
 re-render (poll, own write) keeps it right.
+
+A stalled card (#493) gets the `stalled` class and a "stalled" pill: the server computes
+`stalled` on every card payload (`core._stalled`; HTTP and MCP carry it, no new route or tool):
+lane `plan`, `develop` or `test`, assignee `claude-agent`, not archived, and nothing for
+`STALL_MINUTES` (30): no `updated_at`, no event (a comment counts) and no activity row newer.
+Activity rows older than that are deleted on read (`_expire_activity`, in `list_activity` and
+the card reads), so a dead dispatcher's "developing (2 in flight)" disappears. The tint is a
+salmon `#ffe0d6` (hover `#ffd2c4`), the pill `#ff9d80`; a card cannot be both: `waiting` wins,
+a person must act first. The board only marks; the run recovers (run.md §2, Failure).
 
 Arrows (#37) go from each blocking card to each card it blocks: one inline
 `<svg id="links">`, the last child of `#board` (now `position: relative`), sized to the

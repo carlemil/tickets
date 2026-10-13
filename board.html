@@ -105,7 +105,11 @@
   .card.waiting { background: #fff4cc; }
   .card.waiting:hover { background: #ffeeb3; }
   .pill.waiting { background: #ffd666; color: #7a4a00; }   /* still a shape on the hover tint */
-  .card.waiting .pill.blocks { background: #fff; }   /* its own pale yellow vanishes on the tint */
+  .card.waiting .pill.blocks { background: #fff; }
+  /* #493: stalled: assigned to claude-agent in a working lane, quiet 30 min, no live session */
+  .card.stalled { background: #ffe0d6; }
+  .card.stalled:hover { background: #ffd2c4; }
+  .pill.stalled { background: #ff9d80; color: #7a2000; }   /* its own pale yellow vanishes on the tint */
   /* #37: an arrow from each blocking card to each card it blocks, both on screen. One svg
      over the whole board, in its scroll coordinates, so it scrolls with it; clicks and
      drags go through. Faint, so many links don't drown the cards; a hovered card's are lit */
@@ -450,6 +454,11 @@ function cardNode(c) {
   if (waiting) meta.append(Object.assign(document.createElement("span"),
     { className: "pill waiting", title: "the plan has open questions: a person must answer them",
       textContent: "needs answers" }));
+  const stalled = !!c.stalled && !waiting;   // waiting wins: a person must act first
+  n.classList.toggle("stalled", stalled);
+  if (stalled) meta.append(Object.assign(document.createElement("span"),
+    { className: "pill stalled", title: "no activity for 30 min and no live session: the next run takes it over",
+      textContent: "stalled" }));
   if (by.length) meta.append(Object.assign(document.createElement("span"),
     { className: "pill blocked-by", title: "blocked: can't start until these reach verify (with an open PR, or in a PR project with none: once merged) or done",
       textContent: "blocked by " + by.map(i => "#" + i).join(" ") }));
