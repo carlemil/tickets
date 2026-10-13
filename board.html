@@ -166,7 +166,8 @@
   .log:not(.open) li.old { display: none; }
   .log li.more { border-top: 0; }
   /* an open question's options: one row of radios per question, under the questions box */
-  .choice { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; margin: 4px 0; }
+  .choice { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; margin: 4px 0 14px; }
+  .choice .q { flex-basis: 100%; }
   .chk { display: flex; gap: 6px; align-items: baseline; }
   .chk.done span { text-decoration: line-through; color: var(--dim); }
   .links li { list-style: none; display: flex; gap: 6px; align-items: center; }
@@ -750,7 +751,7 @@ function choices(c) {
   return parseQuestions(c.questions).filter(q => q.options.length).map(q => {
     const row = Object.assign(document.createElement("div"),
       { className: "choice", title: `question ${q.n}: pick an answer, it goes into your answers below` });
-    row.append(Object.assign(document.createElement("b"), { textContent: q.n + "." }));
+    row.append(Object.assign(document.createElement("b"), { className: "q", textContent: `${q.n}. ${q.text}` }));
     for (const o of q.options) {
       const r = Object.assign(document.createElement("input"),
         { type: "radio", name: "q" + q.n, checked: picked[q.n] === o.text });
