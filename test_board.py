@@ -2508,6 +2508,24 @@ def test_an_open_question_s_options_are_radios_that_write_the_answers(page):
         "an answer matching an option shows checked; one matching none checks nothing"
 
 
+def test_an_open_question_s_text_leads_its_options_with_a_gap_between_questions(page):
+    cid = core.create_card("lead", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(cid, "claude-agent", plan="p", questions=(
+        "1. Which database?\n   - SQLite\n   - Postgres\n"
+        "2. Colour?\n   - red\n   - blue"))
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    q = page.locator("#panel .choice .q")
+    assert q.all_inner_texts() == ["1. Which database?", "2. Colour?"]
+    box = q.nth(0).bounding_box()
+    first = page.locator("#panel .choice >> nth=0 >> label >> nth=0").bounding_box()
+    assert first["y"] >= box["y"] + box["height"], "options sit on a line after the question"
+    g0 = page.locator("#panel .choice >> nth=0").bounding_box()
+    g1 = page.locator("#panel .choice >> nth=1").bounding_box()
+    assert g1["y"] - (g0["y"] + g0["height"]) >= 8, "a gap between one question and the next"
+
+
 def test_an_option_click_right_after_typing_an_answer_keeps_both(page):
     """Typing in "your answers" then clicking a radio: the mousedown saves the typing and
     its re-render must not eat the click, nor the pick drop what was typed."""

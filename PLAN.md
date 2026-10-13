@@ -615,7 +615,8 @@ it from the plan's steps. The pull request link and session button were already 
 only when set. "plan" is a fixed 10 lines and scrolls, "open questions" and "your
 answers" grow like the description. A question may list its choices as indented `- `
 bullets under it, one suffixed ` (recommended)` — the AskUserQuestion shape, still plain
-text (#4). Under the questions box each such question gets a row of radios (the
+text (#4). Under the questions box each such question gets a row of radios, led by its
+own `N. <question>` line and spaced from the next question (#433) (the
 recommended one badged, none preselected); a pick replaces or adds that question's
 top-level `N. <option>` line in the answers and keeps every other line. The description box grows with its text, from 10 lines
 up to 50, then scrolls
