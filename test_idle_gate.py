@@ -549,13 +549,16 @@ def test_briefs_keep_questions_on_the_card_not_in_the_session():
     # #448: a question in the main session blocks every in-flight card and leaves no record;
     # the run never asks in chat, and every brief and the agent file send a question for a
     # person to the card's blocker/open-questions section, the reply still ending in a verdict.
+    # Key terms only, not phrasing (#215).
     text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
-    assert "Never use `AskUserQuestion` or chat a question in a run" in text
+    head = text[:text.index("## 0.")]  # the run-wide rules
+    for term in ("`AskUserQuestion`", "`questions`", "`## Blocked by`", "verdict", "failure"):
+        assert term in head, term
     brief = text[text.index("**The brief is the subagent's whole world**"):
                  text.index("On a card's way out")]
-    assert "never asks the user in chat" in brief
-    assert "`## Blocked by`" in brief and "`## Open questions`" in brief
-    assert "still ends with its verdict line" in brief
+    for term in ("`## Blocked by`", "`## Open questions`", "verdict line"):
+        assert term in brief, term
     agent = " ".join(open("skill-start/agents/tickets-stage.md", encoding="utf-8").read().split())
     body = agent.split("---", 2)[2]
-    assert "`## Blocked by`" in body and "never as a closing question" in body
+    for term in ("`## Blocked by`", "`## Open questions`", "verdict line"):
+        assert term in body, term
