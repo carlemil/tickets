@@ -7,7 +7,7 @@ One run takes every ready card of this folder's project, up to the in-flight lim
 time, to `verify`, writing each step onto the board, and ends with ideas. Work unattended: never
 ask the user or wait for an answer; what needs a person goes on the board (questions, blocker
 cards) and the run moves on. A tick never ends "waiting on you" to hold the queue, not even over
-a refused write. Never use `AskUserQuestion` or chat a question: one you would ask, or a stage
+a refused write. Never use `AskUserQuestion` or chat a question in a run: one you would ask, or a stage
 reply that asks or has no verdict line, becomes a comment plus `questions` (plan) or a
 `## Blocked by` card. Every board write uses `actor="claude-agent"`; the tools are the `tickets` MCP
 server's.
@@ -16,7 +16,7 @@ server's.
 
 - `GET http://127.0.0.1:8123/api/projects` does not answer → start it detached:
   `powershell -NoProfile -File <tickets repo>/restart-backend.ps1 -Delay 1`; wait ~12 s and ask
-  again. Still down → stop, with the tail of `<tickets repo>/restart-backend.log`.
+  again. Still down → stop, with its log tail.
 - The `tickets` tools are missing → do the whole run over the HTTP API, same calls, same
   arguments:
 
@@ -33,14 +33,13 @@ server's.
 
   Send UTF-8: in PowerShell `Invoke-RestMethod "<url>" -Method Patch -ContentType
   'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes(($fields |
-  ConvertTo-Json -Depth 6)))`. Subagents posting a plan or ticking the checklist get the same
-  instructions. The summary says the run used HTTP and that `/mcp` (or a new session) brings
-  the tools back; a server not registered at all is registered by `/tickets-start`.
+  ConvertTo-Json -Depth 6)))`. The summary says the run used HTTP and that `/mcp` (or a new session) brings
+  the tools back.
 
 ### Lean board calls (#186)
 
 You, the dispatcher, read and write the board over its HTTP API and print only the fields you
-need. Every command starts `Invoke-RestMethod "http://127.0.0.1:8123/…"` (the URL quoted and
+need. Every command starts `Invoke-RestMethod "http://127.0.0.1:8123/…"` (URL quoted and
 first, so the allow rule `PowerShell(Invoke-RestMethod "http://127.0.0.1:8123/:*)` matches);
 each call is a fresh shell:
 - **check** (lane, assignee, labels before a stage, a person's move, the land fields):
@@ -68,8 +67,7 @@ each call is a fresh shell:
   the cut.
 - **a full card only to build a brief**: the `get_card` right before spawning a stage (step 3),
   MCP `get_card` or `Invoke-RestMethod "http://127.0.0.1:8123/api/cards/<id>" | ConvertTo-Json
-  -Depth 8` (never the bare object, whose default view cuts lists to 4 items). A stage's
-  verdict needs no full card: its reply is in your context.
+  -Depth 8` (never the bare object, whose default view cuts lists to 4 items).
 
 The MCP tools stay for stage subagents and for a session without PowerShell; there, use them
 and the summary says once that the run read full cards. Their writes are slim (#203):
@@ -169,8 +167,9 @@ one-agent path); a large card is planned, then built by a fresh develop subagent
   plan has at most 5 steps, no open questions and no `## Blocked by`, and the change touches
   at most ~5 files (PLAN.md, docs and tests included), adds no new module, and changes no
   database schema, HTTP route or MCP tool. Anything else is large. When unsure: large.
-- the labels alone pick the plan model, read from the `get_card` right before spawning; the
-  label `large` is the per-card override.
+- the labels alone pick the plan model, read from the `get_card` right before spawning. A card
+  judged small is built on `sonnet`; one with no label judged large was planned on `sonnet`
+  and goes to a develop subagent; the label `large` is the per-card override.
 - the plan's first line says the path: `Size: small (label)`, `Size: small (judged: 3 steps, 2
   files)` or `Size: large (…)`; relabel and move the card back to `plan` to replan.
 - a one-agent build bigger than judged still finishes on the develop rules and says so; one
@@ -179,7 +178,8 @@ one-agent path); a large card is planned, then built by a fresh develop subagent
 **Slots.** At most **2 cards in flight** by default (#193). A project changes it with a line
 `Cards in flight: N` in its `instructions` (N a whole number from 1 up; case-insensitive, the
 first match wins, no cap); a missing, non-numeric or below-1 value falls back to 2 and the
-summary says so in one line. Plan and
+summary says so in one line. (For the person setting it: more slots finish a batch sooner on
+the clock; fewer slots spend fewer tokens and cause fewer merge conflicts at land.) Plan and
 develop stages run side by side within that limit, each in its card's own worktree. A card
 keeps its slot while it waits for the test slot, and keeps slot and worktree from plan into
 develop. At most **one card in `test`** at a time, from the test stage through ship, land,
@@ -221,8 +221,8 @@ full-card read per stage) and include, each under its own heading:
   through another tool: it reports the refused write in its reply and carries on;
 - that it never creates background-task chips (no `spawn_task`) and never schedules anything,
   and runs unattended and never asks the user in chat (a plan stage's questions still go on
-  the card). A question for a person goes in `## Blocked by` (plan: `## Open questions`), and the
-  reply still ends with its verdict line. A chip made by mistake is dismissed at once (`dismiss_task`) and named in the
+  the card); a question for a person goes in `## Blocked by` (plan: `## Open questions`), never
+  a closing question, and the reply still ends with its verdict line. A chip made by mistake is dismissed at once (`dismiss_task`) and named in the
   reply; you note it on the card and in the summary. Every stage brief carries this line;
 - that its board writes (`update_card`, `comment`) pass `slim=True` (#203), so the reply is
   only the card's `id`, `lane` and `assignee`, not the whole card; it reads the card with
@@ -539,7 +539,7 @@ the card, leaves the card in `develop` for a later run.
 Once, when the queue is empty and the last card in flight is done: clear your activity. Then:
 - **Ideas:** things the runs noticed but did not do: follow-ups, tech debt, a missing test, a
   next step the plan deferred. One `todo` card each (skip titles already on the board),
-  description ending "(idea from #<id>)". Only real ones; none is fine.
+  description ending "(idea from #<id>)".
 - **Summary** in the chat: moved to verify (with deploy result), waiting for answers, blocked
   (and by what), failed (and why), skipped as assigned, ideas opened, and **refused writes**:
   each once, with the card, the write and the permission rule that would let it through (it is
