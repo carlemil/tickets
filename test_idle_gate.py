@@ -202,9 +202,6 @@ def test_run_md_pins_the_in_flight_setting():
     for needle in ("**2 cards in flight** by default",
                    "`Cards in flight: N`",
                    "falls back to 2",
-                   "fewer slots spend fewer tokens",
-                   "fewer merge conflicts at land",
-                   "more slots finish a batch sooner on the clock",
                    "developing (2 in flight)"):
         assert needle in text, needle
     assert "fell back to 2 (#193)" in text  # the summary's fallback line
@@ -284,7 +281,7 @@ def test_run_md_pins_the_dispatcher_deploy():
                    "`tests: skipped, docs-only`", "`tests: run in test stage, skipped`",
                    "`tests: <count> passed`", "`tests: none in the deploy rules`",
                    '`model: "haiku"`', "Missing deploy instructions are not judgement",
-                   "non-zero exit", "The dispatcher applies the same rule itself",
+                   "non-zero exit", "applies to your own mechanical deploy",
                    "never one hidden behind a pipe",
                    "The one exception is a mechanical deploy"):
         assert needle in text, needle
@@ -333,7 +330,6 @@ def test_run_md_pins_the_small_card_path():
     for needle in ("the labels alone pick the plan model, read from the `get_card` right "
                    "before spawning",
                    "Labels match case-insensitively. Not a git repo → never the one-agent path",
-                   "judged small is built on `sonnet`",
                    'develop: `model: "sonnet"`',
                    'test: `model: "opus"`'):
         assert needle in text, needle
@@ -367,7 +363,7 @@ def test_run_md_pins_lean_board_calls():
                    "kind -in 'comment','moved'", "read whole before the write",
                    "piped to `| Select-Object id,lane,assignee`",
                    "a full card only to build a brief", "ConvertTo-Json -Depth 8",
-                   "still never retried through the MCP tool",
+                   "never retried through the MCP tool",
                    "The MCP tools stay for stage subagents"):
         assert needle in lean, needle
     queue = text[text.index("## 2. Build the queue"):text.index("## 3. Work the cards")]
@@ -409,7 +405,7 @@ def test_run_md_pins_slim_stage_board_writes():
     # the dispatcher's MCP fallback writes are slim too; its HTTP writes stay the trimmed ones
     lean = text[text.index("### Lean board calls (#186)"):text.index("### Board writes that fail (#147)")]
     for needle in ("Their writes are slim (#203)", "`slim=True`, which answers only `id`, `lane` and `assignee`",
-                   "the MCP fallback writes pass `slim=True` too", "Reads stay whole (`get_card`)"):
+                   "reads stay whole"):
         assert needle in lean, needle
     # the stage agent's body says it; no new tool, so its tools list is the server's as before
     agent = " ".join(open("skill-start/agents/tickets-stage.md", encoding="utf-8").read().split())
@@ -452,7 +448,7 @@ def test_run_md_pins_the_base_checkout_check():
                    "`git -C <repo> restore --source=HEAD --staged --worktree -- <paths>`",
                    "base checkout: reverted stray copies of card/<id>",
                    "Any other path is never touched", "each path once per run",
-                   "not retried another way"):
+                   "A refused revert follows"):
         assert needle in check, needle
     # before the land and the worktree clean-up, so the land finds the checkout clean
     assert "before that card's other steps" in check and "ship and land" in check
@@ -461,7 +457,8 @@ def test_run_md_pins_the_base_checkout_check():
     land = text[text.index("3. **Land:**"):text.index("4. **Deploy:**")]
     assert "not empty → run the Base checkout check (#204) once more, then look again" in land
     # untracked files are skipped, but not because the merge would ignore them: it refuses
-    assert "`git merge` refuses to overwrite an untracked copy of a file the card adds" in check
+    assert "Untracked files are not checked" in check
+    assert "makes the land fail with nothing merged" in check
     wrap = text[text.index("## 4. Wrap up"):]
     assert "each base-checkout path left alone (#204" in wrap
     # docs.html only: a test reading the README would make README edits non-docs-only (#163)

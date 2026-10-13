@@ -313,7 +313,7 @@ by` / `## Open questions` and the reply ends with its verdict line (guard in
 prompt for an `ssh` to the Mac mini, blocked by the auto-mode check) no text rule can stop:
 only an allow rule in the session's settings does, so the summary names the command or path
 that held the run (as for a refused write) and docs.html points to `/permissions`. No
-settings are edited by the run. Fitting this under the #216 size guard left run.md at ~39,930
+settings are edited by the run. Fitting this under the #216 size guard left run.md at ~39,930 (#494 trimmed it to ~39,410)
 of its 40,000 chars: the next rule it gains has to trim something first.
 
 It replaced `agent.py` (a process polling the board every 15 s and running headless
