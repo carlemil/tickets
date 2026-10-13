@@ -283,9 +283,10 @@ Last line `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
 - Cut the verdict line and the `## Open questions` section off; empty plan → post nothing,
   end `STAGE: FAILED`. The steps become the checklist: the existing items as they are, plus
   one `{"text": <step>, "done": false}` per step whose text is not already on it.
-- OPEN → `update_card(plan=…, questions=<the cut section>, checklist=…, slim=True)`, end
-  `STAGE: QUESTIONS`; then `get_card` and check each question's choices show as indented
-  bullets, not as numbered questions of their own; if not, `update_card(questions=…)` fixed (#432).
+- OPEN → `update_card(plan=…, questions=<the cut section>, checklist=…, slim=True)`, then
+  `get_card`: a choice that came out as a numbered question of its own, not an indented
+  bullet under one → `update_card(questions=<the section with it indented>, slim=True)`
+  (#432); end `STAGE: QUESTIONS`.
 - A `## Blocked by` → `update_card(plan=…, checklist=…, slim=True)` (plus `questions=…` if
   OPEN), lane unchanged, end with the section and `STAGE: BLOCKED`.
 - NONE → `update_card(plan=…, checklist=…, lane="develop", slim=True)`. Size large → end
