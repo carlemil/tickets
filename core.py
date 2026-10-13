@@ -353,8 +353,7 @@ def set_activity(actor, card_id=None, doing=""):
 
 def list_activity():
     """What the board's dots and status bar show (#498). A live row counts only while its card
-    is not archived and not in verify/done (a card the run handed on keeps no dot), and the
-    run's own row (actor claude-agent) only while the run still holds its card. A card the run
+    is not archived and not in verify/done (a card the run handed on keeps no dot). A card the run
     holds (claude-agent, work lane, not stalled, not waiting for answers) with no live row of
     its own gets a derived one: the run's single row names one card, so a second card in
     flight, or a stage longer than the row's life, would have no dot. A read, like `_quiet`."""
@@ -372,8 +371,6 @@ def list_activity():
         quiet = _quiet(db) if held else {}   # the whole-events scan only when a card is held
     working = [c for c in held if not _stalled(c, quiet)
                and not ((c["questions"] or "").strip() and not (c["answers"] or "").strip())]
-    ids = {c["id"] for c in working}
-    rows = [r for r in rows if r["actor"] != STALL_ASSIGNEE or r["card_id"] in ids]
     have = {r["card_id"] for r in rows}
     rows += [{"actor": c["assignee"], "card_id": c["id"], "doing": "working",
               "since": max(c["updated_at"], quiet.get(c["id"], "")),

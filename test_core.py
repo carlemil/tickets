@@ -1829,20 +1829,6 @@ def test_498_a_long_stage_keeps_its_dot_until_the_card_is_stalled():
     assert _ids() == [], "stalled: no dot"
 
 
-def test_498_the_runs_own_row_goes_with_its_hold_on_the_card():
-    """Released after an API error (unassigned, lane kept), sent back to todo, or waiting for
-    answers: the run's row on that card shows no dot. Another actor's row is not touched."""
-    for change in ({"assignee": ""}, {"lane": "todo"}, {"questions": "1. which?"}):
-        c = card(lane="develop", assignee="claude-agent")["id"]
-        core.set_activity("claude-agent", c, "developing")
-        assert _ids() == [c]
-        core.update_card(c, "ann", **change)
-        assert _ids() == [], change
-    o = card(lane="todo")["id"]
-    core.set_activity("ann", o, "looking")
-    assert _ids() == [o]
-
-
 def test_498_no_dot_for_cards_the_run_does_not_hold():
     card(lane="develop", assignee="ann")
     card(lane="develop")
