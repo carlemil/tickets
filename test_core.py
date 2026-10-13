@@ -1568,3 +1568,125 @@ def test_an_unreadable_or_odd_settings_file_reads_as_the_defaults(text):
 def test_a_settings_file_keeps_a_good_value_and_ignores_extra_keys():
     core.settings_path().write_text('{"lan": true, "old": 1}', encoding="utf-8")
     assert core.get_settings() == {"lan": True}
+
+
+def _pair():
+    a, b = card(), card("Second")   # same lane (todo), a above b
+    core.link_cards(a["id"], b["id"], "blocks", "ann")   # a blocks b
+    return a, b
+
+
+def test_a_blocked_card_cannot_be_moved_ahead_of_its_blocker():
+    a, b = _pair()
+    with pytest.raises(ValueError, match=f"#{b['id']} is blocked by #{a['id']}"):
+        core.update_card(b["id"], "ann", pos=a["pos"] - 1)
+    assert core.get_card(b["id"])["pos"] == b["pos"]
+
+
+def test_a_blocker_cannot_be_moved_behind_the_card_it_blocks():
+    a, b = _pair()
+    with pytest.raises(ValueError, match=f"#{a['id']} blocks #{b['id']}"):
+        core.update_card(a["id"], "ann", pos=b["pos"] + 1)
+    assert core.get_card(a["id"])["pos"] == a["pos"]
+
+
+def test_equal_pos_is_ordered_by_id():
+    a, b = _pair()   # a has the lower id: at an equal pos a is ahead, as the board draws it
+    core.update_card(b["id"], "ann", pos=a["pos"])
+    c, d = card("c"), card("d")
+    core.link_cards(d["id"], c["id"], "blocks", "ann")   # the higher id blocks
+    core.update_card(d["id"], "ann", pos=c["pos"] - 1)   # the right order first: d, c
+    with pytest.raises(ValueError, match="is blocked by"):
+        core.update_card(c["id"], "ann", pos=c["pos"] - 1)   # tied: c, the lower id, is ahead
+
+
+def test_a_refused_move_to_another_lane_writes_nothing():
+    a, b = _pair()
+    core.update_card(a["id"], "ann", lane="develop")
+    core.update_card(b["id"], "ann", lane="develop")   # unplaced: the bottom, behind a
+    core.update_card(b["id"], "ann", lane="test", pos=0)   # a is not in test: fine
+    with pytest.raises(ValueError, match="cannot go behind"):
+        core.update_card(a["id"], "ann", lane="test", pos=5)   # a behind b, placed: refused
+    a2, b2 = core.get_card(a["id"]), core.get_card(b["id"])
+    assert (a2["lane"], b2["lane"]) == ("develop", "test")
+    assert [e["kind"] for e in a2["events"]].count("moved") == 1, "the refused move left no event"
+
+
+def test_a_blocked_card_moves_freely_behind_its_blocker_and_across_lanes():
+    a, b = _pair()
+    core.update_card(b["id"], "ann", pos=a["pos"] + 0.5)
+    assert core.get_card(b["id"])["pos"] == a["pos"] + 0.5
+    core.update_card(b["id"], "ann", lane="develop", pos=a["pos"] - 5)   # another lane: unordered
+    assert core.get_card(b["id"])["lane"] == "develop"
+    core.update_card(b["id"], "ann", lane="todo")   # no pos: lands at the bottom
+    assert core.get_card(b["id"])["pos"] > a["pos"]
+
+
+def test_an_agent_lane_move_is_never_refused():
+    a, b = _pair()
+    core.update_card(b["id"], "ann", lane="plan")
+    core.update_card(a["id"], "claude-agent", lane="plan")   # lands behind b: allowed
+    core.update_card(b["id"], "claude-agent", lane="develop")
+    core.update_card(a["id"], "claude-agent", lane="develop")
+    assert [core.get_card(i)["lane"] for i in (a["id"], b["id"])] == ["develop", "develop"]
+
+
+def test_a_finished_blocker_no_longer_holds_the_order():
+    a, b = _pair()
+    core.update_card(a["id"], "ann", lane="done")
+    core.update_card(b["id"], "ann", pos=-5)
+    assert core.get_card(b["id"])["pos"] == -5
+
+
+def test_liveness_is_the_one_after_the_move():
+    a, b = _pair()
+    core.update_card(b["id"], "ann", lane="verify")
+    # into verify in a merge project with no PR, a is finished: no order to keep
+    core.update_card(a["id"], "ann", lane="verify", pos=core.get_card(b["id"])["pos"] + 1)
+    assert core.get_card(a["id"])["lane"] == "verify"
+    core.update_card(a["id"], "ann", lane="done")
+    core.update_card(b["id"], "ann", lane="todo", pos=-1)
+    # back out of done, a blocks again, so it cannot be dropped behind b
+    with pytest.raises(ValueError, match="cannot go behind"):
+        core.update_card(a["id"], "ann", lane="todo", pos=0)
+    assert core.get_card(a["id"])["lane"] == "done"
+
+
+def test_an_unmerged_verify_blocker_in_a_pr_project_still_holds_the_order():
+    core.create_project("Prs", land="pr")
+    a, b = card(project="Prs"), card("Second", project="Prs")
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    core.update_card(a["id"], "ann", lane="verify", pr="https://x/pull/1")
+    core.update_card(b["id"], "ann", lane="verify")   # unplaced: behind a
+    assert core.get_card(b["id"])["blocked_by"] == [a["id"]]
+    with pytest.raises(ValueError, match="is blocked by"):
+        core.update_card(b["id"], "ann", pos=core.get_card(a["id"])["pos"] - 1)
+
+
+def test_cards_off_the_board_together_do_not_hold_the_order():
+    a, b = _pair()
+    core.update_card(a["id"], "ann", archived=True)   # not drawn beside b
+    core.update_card(b["id"], "ann", pos=a["pos"] - 1)
+    projects("Other")
+    c = card("Elsewhere", project="Other")
+    core.link_cards(c["id"], b["id"], "blocks", "ann")   # same lane, another project's board
+    core.update_card(b["id"], "ann", pos=c["pos"] - 1)
+    assert core.get_card(b["id"])["pos"] == c["pos"] - 1
+
+
+def test_a_pair_blocking_both_ways_can_still_be_reordered():
+    a, b = _pair()
+    core.link_cards(b["id"], a["id"], "blocks", "ann")
+    core.update_card(b["id"], "ann", pos=a["pos"] - 1)
+    core.update_card(b["id"], "ann", pos=a["pos"] + 1)
+
+
+def test_an_order_already_wrong_is_not_refused_a_step_towards_right():
+    a, b = card(), card("Second")
+    x, y = card("x"), card("y")
+    core.update_card(a["id"], "ann", pos=y["pos"] + 1)   # lane: b, x, y, a
+    core.link_cards(a["id"], b["id"], "blocks", "ann")   # b is now ahead of its blocker
+    core.update_card(b["id"], "ann", pos=(x["pos"] + y["pos"]) / 2)   # still ahead, allowed
+    core.update_card(b["id"], "ann", pos=y["pos"] + 2)   # behind a: right at last
+    with pytest.raises(ValueError, match="is blocked by"):
+        core.update_card(b["id"], "ann", pos=x["pos"])   # and now it cannot go back

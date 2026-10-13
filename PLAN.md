@@ -192,6 +192,22 @@ other end may be in any project, so the server works them out (`_blocks`, one qu
 rather than the board, which loads one project. The list stays without `links` and
 `events`. #37 draws its arrows from these.
 
+Order (#449): in one lane a blocked card must not sit ahead of its live blocker, nor a
+blocker behind a card it blocks (lane order is `(pos, id)`). `update_card` refuses a write
+that sets `pos` and breaks it (`_order_check`, a `ValueError`, HTTP 400); the board's
+`move()` puts the card back and shows the message. The check runs on the written row
+inside the write's transaction, so liveness is the one after the move (a blocker dragged
+into verify finished holds nothing, one dragged back out of done blocks again) and a
+refusal rolls the write back. Only cards side by side on one board count: same lane,
+project and archived view. A finished blocker holds nothing, a pair blocking both ways has
+no order, a move without `pos` (every agent move) lands at the bottom and is never
+refused, and a pair already in the wrong order is left alone: any step is allowed until it
+is right. A multi-card drop goes in the board's order (not the picking order) except that
+a picked blocker goes above the picked cards it blocks (one from a later lane, or a pair
+already the wrong way round), one PATCH at a time, and those refused are tried again while
+any other lands, so a blocker dragged down with the card it blocks lands once that card
+has moved. Each card still refused is put back and named with its own reason.
+
 `update_card` is one function covering move-lane, assign, retitle, edit body and tick
 checklist. It diffs old against new and writes one event per changed field — that is
 what makes the audit trail free instead of something every caller must remember. Every
