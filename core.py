@@ -4,7 +4,7 @@ import json
 import re
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 LANES = ["todo", "plan", "develop", "test", "verify", "done"]
@@ -184,6 +184,22 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+# #493: a card in a lane the run works, assigned to the run's agent, quiet this long is stalled
+STALL_MINUTES = 30
+STALL_LANES = ("plan", "develop", "test")
+STALL_ASSIGNEE = "claude-agent"
+
+
+def _ago(minutes, now=None):
+    return ((now or datetime.now(timezone.utc)) - timedelta(minutes=minutes)).isoformat()
+
+
+def _expire_activity(db):
+    """Activity is live state: a row older than STALL_MINUTES belongs to a dead agent. Only a
+    write (set_activity) deletes; reads filter by the same cutoff, so a read takes no write lock."""
+    db.execute("DELETE FROM activity WHERE since < ?", (_ago(STALL_MINUTES),))
+
+
 def _card(row):
     card = dict(row)
     for f in LEGACY_COLUMNS:
@@ -323,6 +339,7 @@ def set_activity(actor, card_id=None, doing=""):
     if not actor:
         raise ValueError("actor is required")
     with closing(connect()) as db, db:
+        _expire_activity(db)
         if card_id is None:
             db.execute("DELETE FROM activity WHERE actor=?", (actor,))
         else:
@@ -338,7 +355,8 @@ def list_activity():
     with closing(connect()) as db:
         return [dict(r) for r in db.execute(
             "SELECT a.actor, a.card_id, a.doing, a.since, c.title, c.project, c.lane"
-            " FROM activity a JOIN cards c ON c.id = a.card_id ORDER BY a.since")]
+            " FROM activity a JOIN cards c ON c.id = a.card_id WHERE a.since >= ?"
+            " ORDER BY a.since", (_ago(STALL_MINUTES),))]
 
 
 def last_event():
@@ -563,14 +581,39 @@ def _blocks(db):
     return out
 
 
-def _mark(card, blocks):
+def _mark(card, blocks, quiet=None):
     card["blocked_by"], card["blocking"] = blocks.get(card["id"], ([], []))   # sorted by the ORDER BY
+    card["stalled"] = _stalled(card, quiet or {})
     return card
+
+
+def _quiet(db, id=None):
+    """{card_id: newest sign of life}: the later of the card's last event and its activity row
+    (#493), for every card or just card `id`. A read: an activity row older than STALL_MINUTES
+    is older than the cutoff anyway, so it counts for nothing without being deleted here; a
+    card's own `updated_at` is added by `_stalled`."""
+    one, args = ("", ()) if id is None else (" WHERE card_id=?", (id,))
+    out = {}
+    for cid, at in db.execute("SELECT card_id, MAX(at) FROM events" + one + " GROUP BY card_id", args):
+        out[cid] = at or ""
+    for cid, since in db.execute("SELECT card_id, since FROM activity" + one, args):
+        out[cid] = max(out.get(cid, ""), since)
+    return out
+
+
+def _stalled(card, quiet, now=None):
+    """#493: a card the run works (plan/develop/test), assigned to claude-agent, not archived,
+    with no update, event or activity row in STALL_MINUTES: its agent is gone and nothing will
+    free it. The board marks it; the run takes it over."""
+    if card["lane"] not in STALL_LANES or card["archived"] or card["assignee"] != STALL_ASSIGNEE:
+        return False
+    last = max(card["updated_at"], quiet.get(card["id"], ""))
+    return last < _ago(STALL_MINUTES, now)
 
 
 def get_card(id):
     with closing(connect()) as db:
-        card = _mark(_load(db, id), _blocks(db))
+        card = _mark(_load(db, id), _blocks(db), _quiet(db, id))
         card["events"] = [
             {**dict(r), "detail": json.loads(r["detail"])}
             for r in db.execute("SELECT * FROM events WHERE card_id=? ORDER BY id", (id,))
@@ -597,8 +640,8 @@ def list_cards(lane=None, assignee=None, label=None, project=None, archived=Fals
         args.append(project)
     sql = "SELECT * FROM cards WHERE " + " AND ".join(where)
     with closing(connect()) as db:
-        blocks = _blocks(db)
-        cards = [_mark(_card(r), blocks) for r in db.execute(sql + " ORDER BY pos, id", args)]
+        blocks, quiet = _blocks(db), _quiet(db)
+        cards = [_mark(_card(r), blocks, quiet) for r in db.execute(sql + " ORDER BY pos, id", args)]
     # ponytail: label filter scans in Python — fine to a few thousand cards.
     # Past that, index labels with json1 (json_each) and push it into the WHERE clause.
     return [c for c in cards if label is None or label in c["labels"]]

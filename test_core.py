@@ -1710,3 +1710,79 @@ def test_an_order_already_wrong_is_not_refused_a_step_towards_right():
     core.update_card(b["id"], "ann", pos=y["pos"] + 2)   # behind a: right at last
     with pytest.raises(ValueError, match="is blocked by"):
         core.update_card(b["id"], "ann", pos=x["pos"])   # and now it cannot go back
+
+
+# ---------- stalled cards (#493) ----------
+
+def _age(cid, minutes):
+    """Backdate a card's updated_at and its events, as if it had been quiet that long."""
+    from datetime import datetime, timedelta, timezone
+    at = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    with closing(core.connect()) as db, db:
+        db.execute("UPDATE cards SET updated_at=? WHERE id=?", (at, cid))
+        db.execute("UPDATE events SET at=? WHERE card_id=?", (at, cid))
+
+
+def _stalled(cid):
+    assert core.get_card(cid)["stalled"] == [c for c in core.list_cards() if c["id"] == cid][0]["stalled"]
+    return core.get_card(cid)["stalled"]
+
+
+def test_stalled_needs_every_condition_and_the_threshold():
+    c = card(lane="develop", assignee="claude-agent")["id"]
+    assert not _stalled(c), "fresh"
+    _age(c, core.STALL_MINUTES - 1)
+    assert not _stalled(c), "just inside the threshold"
+    _age(c, core.STALL_MINUTES + 1)
+    assert _stalled(c)
+    for lane in ("plan", "test"):
+        core.update_card(c, "ann", lane=lane)
+        _age(c, 60)
+        assert _stalled(c), lane
+    core.update_card(c, "ann", lane="verify")
+    _age(c, 60)
+    assert not _stalled(c), "verify is not a working lane"
+    core.update_card(c, "ann", lane="develop")
+    _age(c, 60)
+    assert _stalled(c)
+    core.update_card(c, "ann", assignee="bob")
+    _age(c, 60)
+    assert not _stalled(c), "a person's card"
+    core.update_card(c, "ann", assignee="")
+    _age(c, 60)
+    assert not _stalled(c), "unassigned (a release)"
+    core.update_card(c, "ann", assignee="claude-agent")
+    _age(c, 60)
+    assert _stalled(c)
+    core.update_card(c, "ann", archived=True)
+    _age(c, 60)
+    assert not core.get_card(c)["stalled"]
+
+
+def test_stalled_is_cleared_by_a_comment_or_a_fresh_activity_row():
+    c = card(lane="test", assignee="claude-agent")["id"]
+    _age(c, 60)
+    assert _stalled(c)
+    core.set_activity("claude-agent", c, "testing")
+    assert not _stalled(c), "a live activity row"
+    with closing(core.connect()) as db, db:
+        db.execute("UPDATE activity SET since=?", ("2000-01-01T00:00:00+00:00",))
+    assert _stalled(c), "an old row counts for nothing"
+    assert core.list_activity() == [], "and is cleared on read"
+    core.comment(c, "claude-agent", "still here")
+    assert not _stalled(c), "a recent event is activity"
+
+
+def test_stale_activity_rows_are_hidden_on_read_and_deleted_by_the_next_write():
+    a, b = card("a")["id"], card("b")["id"]
+    core.set_activity("old", a, "developing (2 in flight)")
+    core.set_activity("new", b, "testing")
+    with closing(core.connect()) as db, db:
+        db.execute("UPDATE activity SET since=? WHERE actor='old'", ("2000-01-01T00:00:00+00:00",))
+    assert [r["actor"] for r in core.list_activity()] == ["new"]
+    core.get_card(a), core.list_cards()
+    with closing(core.connect()) as db:   # reads take no write lock: nothing deleted
+        assert sorted(r[0] for r in db.execute("SELECT actor FROM activity")) == ["new", "old"]
+    core.set_activity("new", b, "testing")
+    with closing(core.connect()) as db:   # a write clears the stale row
+        assert [r[0] for r in db.execute("SELECT actor FROM activity")] == ["new"]

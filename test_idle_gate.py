@@ -228,7 +228,7 @@ def test_run_md_pins_one_suite_run_and_sized_review():
                    "only when it is a known flake",
                    "a flake recorded as fixed (e.g. #165) no longer counts",
                    "runs the tests in the order below (#191)",
-                   "no rerun and hope"):
+                   "Any other failure is real"):
         assert needle in text, needle
     assert "args `<base>...card/<id>`" not in text  # the old bare range, no level
     # docs.html only: a test reading the README would make README edits non-docs-only (#163)
@@ -283,7 +283,7 @@ def test_run_md_pins_the_dispatcher_deploy():
                    '`model: "haiku"`', "Missing deploy instructions are not judgement",
                    "non-zero exit", "applies to your own mechanical deploy",
                    "never one hidden behind a pipe",
-                   "The one exception is a mechanical deploy"):
+                   "is a mechanical deploy"):
         assert needle in text, needle
     assert '4. **Deploy:** a subagent (`model: "haiku"`) deploys per the project' not in text
     # docs.html only: a test reading the README would make README edits non-docs-only (#163)
@@ -327,8 +327,7 @@ def test_run_md_pins_the_small_card_path():
     assert "both labels count as `large`" in plan_model
     assert "`small` or no label → `sonnet`" in plan_model
     assert "Not a git repo → `opus`" in plan_model
-    for needle in ("the labels alone pick the plan model, read from the `get_card` right "
-                   "before spawning",
+    for needle in ("the labels alone pick the plan model",
                    "Labels match case-insensitively. Not a git repo → never the one-agent path",
                    'develop: `model: "sonnet"`',
                    'test: `model: "opus"`'):
@@ -559,3 +558,21 @@ def test_briefs_keep_questions_on_the_card_not_in_the_session():
     body = agent.split("---", 2)[2]
     for term in ("`## Blocked by`", "`## Open questions`", "verdict line"):
         assert term in body, term
+
+
+def test_run_md_pins_stalled_takeover_and_api_error_release():
+    # #493: behaviour the run relies on, not wording
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    queue = text[text.index("## 2. Build the queue"):text.index("## 3. Work the cards")]
+    assert "stalled" in queue and "session" in queue       # the queue reads both fields
+    assert "taken over, not skipped" in queue              # a stalled card is not a skip
+    assert "full suite" in queue                           # test restarts on committed state
+    assert "a person has" in queue                         # never a person's card
+    assert "`api error:`" in queue                         # a released card waits for its reset
+    failure = text[text.index("**API error (#493):**"):text.index("## 4. Wrap up")]
+    for needle in ("429", "overloaded", "terminated early", "session limit", "worktree kept",
+                   "unassign", "reset", "30 minutes"):
+        assert needle in failure, needle
+    assert "never in a hot loop" in failure
+    wrap = text[text.index("## 4. Wrap up"):]
+    assert "clear your activity" in wrap and "never removed" in wrap

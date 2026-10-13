@@ -2,14 +2,13 @@
 
 `/tickets-start` reads this file and follows it, once per loop tick or once, handing you the
 **session id**, the **Tickets repo** (the folder holding `restart-backend.ps1`) and optionally
-a **card id**. Rules only: their reasons and history are in the Tickets repo's PLAN.md.
+a **card id**. Rules only: reasons and history are in the Tickets repo's PLAN.md.
 One run takes every ready card of this folder's project, up to the in-flight limit (Slots) at a
 time, to `verify`, writing each step onto the board, and ends with ideas. Work unattended: during a
 run never ask the user (no `AskUserQuestion`, no chat question) or wait for an answer. What needs
 a person goes on the board and the run moves on: a question you would ask, or a stage reply's
 question in place of its verdict line, becomes a comment plus `questions` (plan) or a
-`## Blocked by` card; a reply with neither is a failure. A tick never ends "waiting on you", not even over a
-refused write. Every board write uses `actor="claude-agent"`; the tools are the `tickets` MCP
+`## Blocked by` card; a reply with neither is a failure. A tick never ends "waiting on you". Every board write uses `actor="claude-agent"`; the tools are the `tickets` MCP
 server's.
 
 ## 0. Board up, tools or not
@@ -31,7 +30,7 @@ server's.
   | `link_cards(…)` | `POST /api/links` `{from_id, to_id, kind, actor}` |
   | `set_activity(…)` | `POST /api/activity` `{actor, card_id, doing}`; clear: `{actor}` |
 
-  Send UTF-8: in PowerShell `Invoke-RestMethod "<url>" -Method Patch -ContentType
+  UTF-8: in PowerShell `Invoke-RestMethod "<url>" -Method Patch -ContentType
   'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes(($fields |
   ConvertTo-Json -Depth 6)))`. Subagents posting a plan or ticking the checklist get them too.
   The summary says the run used HTTP and that `/mcp` (or a new session) brings the tools back.
@@ -47,11 +46,10 @@ each call is a fresh shell:
   id,lane,assignee,labels,merged,pr`; a linked card for a brief likewise with `id,title,lane`;
 - **queue** (step 2): `Invoke-RestMethod "http://127.0.0.1:8123/api/cards?project=<name>"
   | ForEach-Object { $_ } | Where-Object lane -in 'plan','develop','test' | Select-Object
-  id,title,lane,assignee,labels,blocked_by,@{n='questions';e={-not
+  id,title,lane,assignee,session,stalled,labels,blocked_by,@{n='questions';e={-not
   [string]::IsNullOrWhiteSpace($_.questions)}},@{n='answers';e={-not
   [string]::IsNullOrWhiteSpace($_.answers)}}` (keep the `ForEach-Object { $_ }`: it unrolls the
-  array; parentheses would too but no longer match the allow rule); `verify` cards for the PR
-  catch-up likewise with `id,pr,merged`;
+  array); `verify` cards for the PR catch-up with `id,pr,merged`;
 - **writes** (assign and `session`, lane moves, unassign, `merged`, `deployed`, `pr`,
   comments): the UTF-8 call of §0 with the URL first (`Invoke-RestMethod
   "http://127.0.0.1:8123/api/cards/<id>" -Method Patch …`, a comment `…/comment" -Method Post
@@ -69,8 +67,7 @@ each call is a fresh shell:
   MCP `get_card` or `Invoke-RestMethod "http://127.0.0.1:8123/api/cards/<id>" | ConvertTo-Json
   -Depth 8` (never the bare object, whose default view cuts lists to 4 items).
 
-The MCP tools stay for stage subagents and for a session without PowerShell (the summary says
-once that the run read full cards). Their writes are slim (#203): `update_card` and `comment`
+The MCP tools stay for stage subagents and for a session without PowerShell (the summary says so). Their writes are slim (#203): `update_card` and `comment`
 take `slim=True`, which answers only `id`, `lane` and `assignee`; reads stay whole. HTTP is
 your first route: a write it refused by a permission check is never retried through the MCP
 tool (below), and the summary names the `PowerShell(…)` rule.
@@ -93,11 +90,10 @@ tool (below), and the summary names the `PowerShell(…)` rule.
      new stage;
   4. each tick's summary names each refused write **once**, with the permission rule that
      would let it through (e.g. allow `mcp__tickets__update_card`, or the exact `Bash(…)` /
-     `PowerShell(…)` command), for `/permissions`; a retry refused again may be one short line
-     ("still refused: #<id> <write>"). A tool-permission prompt that held the run is named too (its command or path).
+     `PowerShell(…)` command), for `/permissions`; a retry refused again is one short line.
+     A tool-permission prompt that held the run is named too.
 
-Subagents follow it too (brief rules); you note their refused write on the card and retry it
-next tick.
+Subagents follow it too; you note their refused write on the card and retry it next tick.
 
 ## 1. Find the project
 
@@ -110,8 +106,7 @@ Priority, highest first: the card's latest comments, the card (`description`, `p
 (Slots) is read from the project `instructions` only, never from a card.
 
 The **repo** is the git toplevel of the path; the **base** branch is its current branch
-(`git -C <repo> rev-parse --abbrev-ref HEAD`). Not a git repo → cards can still be planned (the
-plan is posted, nothing is built) but fail in develop/test.
+(`git -C <repo> rev-parse --abbrev-ref HEAD`). Not a git repo → cards are planned but fail in develop/test.
 
 ## 2. Build the queue
 
@@ -122,13 +117,21 @@ plan is posted, nothing is built) but fail in develop/test.
 - **blocked:** `blocked_by` not empty (the server lists unfinished cards with a `blocks` link
   to this one);
 - **assigned to a person:** `assignee` set to anyone but `claude-agent`;
-- **already in flight** in this run.
+- **already in flight:** this run holds it (a stage agent here has it, or it waits for a slot);
+- **released by an API error** (Failure) until its named reset time, else 30 minutes after the
+  comment: its latest `claude-agent` comment starts `api error:` (read with the trimmed
+  refused-write check before starting an unassigned card).
 
-Re-list whenever a slot frees (a card planned without questions goes straight on to its
-develop stage, then to test). Plan then develop of one card is one piece of work; otherwise
+A **stalled** card (`stalled` true: `claude-agent`'s, quiet 30 minutes) that this run does not
+hold lost its agent (cut off, crashed, session closed). It is taken over, not skipped (#493): comment `stalled: taking over from session <old>: <what is
+re-run>`, set `session` to this run's, then work its lane on the existing worktree and branch:
+plan and develop re-run the stage; test starts from the committed state (`git -C <tree> status
+--porcelain` clean, else commit leftovers as the stage does and say so) and runs the full suite.
+Never a card a person has, and once per run.
+
+Re-list whenever a slot frees. Plan then develop of one card is one piece of work; otherwise
 never work a card twice in one run: once it fails or waits, it is done for this run. A card
-with a live refused-write note (the trimmed refused-write check) gets that same write first,
-not a new stage ("Board writes that fail", 3.); refused again → note nothing new, carry on.
+with a live refused-write note (the trimmed refused-write check) gets that same write first, not a new stage.
 
 Before working the queue, catch up on pull requests: each `verify` card with `pr` set and
 `merged` false, `gh pr view <pr> --json state -q .state`; `MERGED` → `update_card(merged=True)`.
@@ -140,8 +143,7 @@ You are the dispatcher. Each stage of a card runs in its own **background** suba
 tool, `run_in_background: true`). When one finishes, do that card's (you) steps, then start its
 next stage in a **new** subagent, or fill the freed slot from a fresh re-list. `plan` gets a
 plan subagent (a small card it also builds, Card size), `develop` a develop subagent, `test`
-always a fresh one. The one exception is a mechanical deploy, which you run yourself (ship,
-step 4, #189). Never continue a finished subagent (no SendMessage).
+always a fresh one. The exception is a mechanical deploy, which you run (step 4, #189). Never continue a finished subagent (no SendMessage).
 
 **Stage agent (#188).** Every stage's Agent call uses `subagent_type: "tickets-stage"` when
 that type is in the Agent tool's list of available agent types, else `general-purpose`. A call
@@ -153,7 +155,7 @@ When the fallback was used, the run's summary says so once: "tickets-stage agent
 - plan: `model: "sonnet"`, which plans and, when small (Card size), builds it, except that a
   card labelled `large` (any case; both labels count as `large`) gets `model: "opus"`;
   `small` or no label → `sonnet`.
-  Not a git repo → `opus` whatever the labels (no one-agent path, so the agent only plans).
+  Not a git repo → `opus`.
 - develop: `model: "sonnet"`, for every large card, however it reached `develop`.
 - test: `model: "opus"`.
 - deploy: none when mechanical (you run it); a judgement deploy's subagent `model: "haiku"`.
@@ -166,11 +168,10 @@ one-agent path); a large card is planned, then built by a fresh develop subagent
   plan has at most 5 steps, no open questions and no `## Blocked by`, and the change touches
   at most ~5 files (PLAN.md, docs and tests included), adds no new module, and changes no
   database schema, HTTP route or MCP tool. Anything else is large. When unsure: large.
-- the labels alone pick the plan model, read from the `get_card` right before spawning.
+- the labels alone pick the plan model.
 - the plan's first line says the path: `Size: small (label)`, `Size: small (judged: 3 steps, 2
   files)` or `Size: large (…)`; relabel and move the card back to `plan` to replan.
-- a one-agent build bigger than judged still finishes on the develop rules and says so; one
-  that crashes after the post is handled like a FAILED after the post.
+- a one-agent build bigger than judged still finishes on the develop rules and says so.
 
 **Slots.** At most **2 cards in flight** by default (#193). A project changes it with a line
 `Cards in flight: N` in its `instructions` (N a whole number from 1 up; case-insensitive, the
@@ -179,7 +180,7 @@ summary says so in one line. Plan and
 develop stages run side by side within that limit, each in its card's own worktree. A card
 keeps its slot while it waits for the test slot, and keeps slot and worktree from plan into
 develop. At most **one card in `test`** at a time, from the test stage through ship, land,
-deploy and clean-up to `verify`; the next waits, with no subagent. Land merges and pushes of
+deploy and clean-up to `verify`; the next waits. Land merges and pushes of
 the base are yours, one card at a time. Never use the Agent tool's `isolation: "worktree"`.
 
 Starting a card: `update_card(assignee="claude-agent", session="<session id>")`, all your
@@ -218,7 +219,7 @@ full-card read per stage) and include, each under its own heading:
 - that it never creates background-task chips (no `spawn_task`) and never schedules anything,
   and runs unattended and never asks the user in chat: a question for a person goes in
   `## Blocked by` (plan: `## Open questions`) and the reply still ends with its verdict line. A chip made by mistake is dismissed at once (`dismiss_task`) and
-  named in the reply; you note it on the card and in the summary. Every stage brief carries this line;
+  named in the reply; you note it on the card and in the summary;
 - that its board writes (`update_card`, `comment`) pass `slim=True` (#203), so the reply is
   only the card's `id`, `lane` and `assignee`, not the whole card; it reads the card with
   `get_card` when it needs it. Every stage brief carries this line too.
@@ -251,13 +252,11 @@ fail with nothing merged, and the deploy comment says so.
 
 ### plan  (in the card's worktree)
 
-(you) `git -C <repo> pull --ff-only` first; if it fails, tell the subagent the code may be
-behind. Set up the card's worktree as under develop, before spawning; note whether
+(you) `git -C <repo> pull --ff-only` first (fails → tell the subagent the code may be behind). Set up the card's worktree as under develop, before spawning; note whether
 `card/<id>` already existed. Not a git repo → no pull, no worktree: it plans in the folder.
 Its model: Model per stage (#187). Its brief carries the card's labels and the Card size rule;
-unless a label is `large` (or it is not a git repo), also the develop stage's rules (build from
-the plan, targeted tests, commit on `card/<id>`, never push, tick checklist items, the `tests:`
-line and `Files changed:` section), so it can build a small card.
+unless a label is `large` (or it is not a git repo), also the develop stage's rules, so it can
+build a small card.
 
 **Plan.** The subagent reads code in the worktree, changes nothing until the plan is posted
 (beyond resolving and committing the base merge's conflicts if told to), and writes the
@@ -411,9 +410,7 @@ docs-only check instead). While fixing it may run single test files, never the f
 before its last commit. It runs the full suite again only after a failure it then fixed or a
 fix it committed after the run; the run that counts is the last. A failing test is rerun
 unchanged (once, alone) only when it is a known flake: named as a current flake in the repo's
-`CLAUDE.md`, `PLAN.md` or `STATUS.md`, or marked so in the test code; a flake recorded as fixed
-(e.g. #165) no longer counts. Any other failure is real: fix it or `RESULT: FAIL`, no rerun and
-hope. The reply names any flake rerun. The `<level>` comes from the committed diff (`git -C
+`CLAUDE.md`, `PLAN.md` or `STATUS.md`, or marked so in the test code; a flake recorded as fixed (e.g. #165) no longer counts. Any other failure is real: fix it or `RESULT: FAIL`. The reply names any flake rerun. The `<level>` comes from the committed diff (`git -C
 <tree> diff --numstat --no-renames <base>...card/<id>`). Prose counts as text (#217): lines of
 `*.md`, `*.txt` and a manual page with no script such as `docs.html` do not count toward the
 level, so only the code lines set it; tests, config and pages with script (`board.html`) are code,
@@ -422,11 +419,11 @@ and a binary file (`-` in `--numstat`, e.g. `docs-card.png`) is code with 0 line
 - `medium`: code, but small, at most ~50 changed code lines (insertions + deletions, prose
   files left out);
 - `high`: any other code diff.
-Its reply has one line `review: <level> (<n> files, +<a>/-<b>, text-only|code)`, `<n>` all
-changed files, `+<a>/-<b>` the code lines the level came from.
+Its reply has one line `review: <level> (<n> files, +<a>/-<b>, text-only|code)`: `<n>` all
+changed files, `+<a>/-<b>` the code lines.
 A brief carrying a `build check: MISMATCH` note (#176) makes it verify every claim of the
 develop reply against the diff and say what was missing and what it did about it.
-Its review names every checklist step still unticked (one skipped on purpose says why).
+Its review names every checklist step still unticked.
 Last line exactly `RESULT: PASS` or `RESULT: FAIL`. Comment its reply. FAIL → failure.
 
 PASS → (you) ship, land, deploy, clean up, in this order:
@@ -479,10 +476,9 @@ PASS → (you) ship, land, deploy, clean up, in this order:
    step, a multi-step script whose output decides the next step, a remote or production
    target, credentials, vague or contradictory instructions, or you being unsure. When in
    doubt, use the subagent (`model: "haiku"`, the brief rules with the no-chips line, the #156
-   line). Missing deploy instructions are not judgement: deploy nothing (`deploy skipped:`), no
-   subagent. Your own deploy runs a test command with the longest tool timeout (or in the
-   background, waiting for it), output redirected to a file, judged by the command's own exit code (never one
-   hidden behind a pipe such as `| tail`), reading only the summary line. Any failing command
+   line). Missing deploy instructions are not judgement: deploy nothing (`deploy skipped:`), no subagent. Your own deploy runs a test command with the longest tool timeout (or in the
+   background), output redirected to a file, judged by its own exit code (never one hidden
+   behind a pipe such as `| tail`), reading only the summary line. Any failing command
    (a non-zero exit) is `deploy failed:` with the error. A restart command runs as given and
    last, and the deploy comment follows right after, before the clean-up. Never chips or
    schedules.
@@ -528,9 +524,16 @@ for develop/test): `comment("agent failed: <why>")`, leave the lane as it is; it
 A plan run that fails after posting, or a develop stage that fails after the plan stage moved
 the card, leaves the card in `develop` for a later run.
 
+**API error (#493):** a stage agent that ends on one (429, overloaded, "terminated early",
+"session limit") is not an ordinary failure: `comment("api error: <cause>; reset <time the error
+names, else none>; worktree kept")`, keep the worktree, unassign (lane unchanged). It is not
+retried this run, and never in a hot loop: a later run retries it after the reset time, else
+after 30 minutes.
+
 ## 4. Wrap up
 
-Once, when the queue is empty and the last card in flight is done: clear your activity. Then:
+Once, when the queue is empty and the last card in flight is done: clear your activity (also at
+a run's end mid-way). Then:
 - **Ideas:** things the runs noticed but did not do: follow-ups, tech debt, a missing test, a
   next step the plan deferred. One `todo` card each (skip titles already on the board),
   description ending "(idea from #<id>)". Only real ones; none is fine.
@@ -539,5 +542,7 @@ Once, when the queue is empty and the last card in flight is done: clear your ac
   each once, with the card, the write and the permission rule that would let it through (it is
   retried next tick); any background-task chip a stage made by mistake; one line when the
   project's `Cards in flight:` value was invalid and the run fell back to 2 (#193); each
-  base-checkout path left alone (#204: not a stray copy, so a person decides). The summary
+  base-checkout path left alone (#204: not a stray copy, so a person decides); each stalled card
+  taken over, each API-error release with its reset time, and each `card/<id>` worktree or branch
+  with no card in plan/develop/test (named, never removed). The summary
   reports; it never ends "waiting on you".

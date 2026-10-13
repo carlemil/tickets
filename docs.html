@@ -321,6 +321,17 @@ it is lit; a card with none of them has no dot.</p>
     skips it. It shows alongside the other marks (stripe, dots, selection) and goes as
     soon as an answer is saved (the agent then picks the card up again), or when the card
     leaves those lanes or is archived.</li>
+  <li><span style="display:inline-block;width:12px;height:12px;background:#ffe0d6;border:1px solid #dcdfe4;vertical-align:middle"></span>
+    <b>salmon tint</b> with a "stalled" pill: a card in plan, develop or test assigned to
+    claude-agent with no activity for 30 minutes (no update, comment or activity line), so
+    whatever was working it was cut off (rate limit, crash, closed session). Nothing needs
+    doing: the next run takes it over, re-running the stage on its existing worktree and
+    branch (a test stage starts from the committed state and runs the full suite) and says so
+    in a comment. A card that also waits for answers shows "needs answers" instead. A stage
+    agent that dies on an API limit leaves a comment with the cause and any reset time, keeps
+    its worktree and releases the card; the next run retries it after that time (or 30
+    minutes), never in a loop. The status line's "developing (2 in flight)" clears itself
+    after 30 minutes if the run that set it died.</li>
   <li><span style="color:#ff991f">&#10230;</span> <b>arrows</b> go from a blocking card to the
     cards it blocks, across lanes or within one; one that skips a lane goes round the
     cards there, never under them. They are faint so a busy board stays
