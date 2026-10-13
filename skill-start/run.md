@@ -7,9 +7,9 @@ One run takes every ready card of this folder's project, up to the in-flight lim
 time, to `verify`, writing each step onto the board, and ends with ideas. Work unattended: never
 ask the user or wait for an answer; what needs a person goes on the board (questions, blocker
 cards) and the run moves on. A tick never ends "waiting on you" to hold the queue, not even over
-a refused write. Never use `AskUserQuestion` or chat a question in a run: a question you would
-ask, or a stage reply that asks or ends with no verdict line, becomes a card comment plus
-`questions` (plan) or a `## Blocked by` blocker card (other stages), and the run carries on. Every board write uses `actor="claude-agent"`; the tools are the `tickets` MCP
+a refused write. Never use `AskUserQuestion` or chat a question: one you would ask, or a stage
+reply that asks or has no verdict line, becomes a comment plus `questions` (plan) or a
+`## Blocked by` card. Every board write uses `actor="claude-agent"`; the tools are the `tickets` MCP
 server's.
 
 ## 0. Board up, tools or not
@@ -97,8 +97,7 @@ tool (below), and the summary names the `PowerShell(…)` rule.
   4. each tick's summary names each refused write **once**, with the permission rule that
      would let it through (e.g. allow `mcp__tickets__update_card`, or the exact `Bash(…)` /
      `PowerShell(…)` command), for `/permissions`; a retry refused again may be one short line
-     ("still refused: #<id> <write>"). A tool-permission prompt that held the run (a stage's
-     command or path, not a board write) is named the same way: the command or path, once.
+     ("still refused: #<id> <write>"). A tool-permission prompt that held the run is named too (its command or path).
 
 Subagents follow the same rule (every brief says so): a refused write is reported in their
 reply, never retried another way; you note it on the card and retry it next tick.
@@ -170,9 +169,8 @@ one-agent path); a large card is planned, then built by a fresh develop subagent
   plan has at most 5 steps, no open questions and no `## Blocked by`, and the change touches
   at most ~5 files (PLAN.md, docs and tests included), adds no new module, and changes no
   database schema, HTTP route or MCP tool. Anything else is large. When unsure: large.
-- the labels alone pick the plan model, read from the `get_card` right before spawning. A card
-  judged small is built on `sonnet`; one with no label judged large was planned on `sonnet`
-  and goes to a develop subagent; the label `large` is the per-card override.
+- the labels alone pick the plan model, read from the `get_card` right before spawning; the
+  label `large` is the per-card override.
 - the plan's first line says the path: `Size: small (label)`, `Size: small (judged: 3 steps, 2
   files)` or `Size: large (…)`; relabel and move the card back to `plan` to replan.
 - a one-agent build bigger than judged still finishes on the develop rules and says so; one
@@ -181,8 +179,7 @@ one-agent path); a large card is planned, then built by a fresh develop subagent
 **Slots.** At most **2 cards in flight** by default (#193). A project changes it with a line
 `Cards in flight: N` in its `instructions` (N a whole number from 1 up; case-insensitive, the
 first match wins, no cap); a missing, non-numeric or below-1 value falls back to 2 and the
-summary says so in one line. (For the person setting it: more slots finish a batch sooner on
-the clock; fewer slots spend fewer tokens and cause fewer merge conflicts at land.) Plan and
+summary says so in one line. Plan and
 develop stages run side by side within that limit, each in its card's own worktree. A card
 keeps its slot while it waits for the test slot, and keeps slot and worktree from plan into
 develop. At most **one card in `test`** at a time, from the test stage through ship, land,
@@ -224,8 +221,8 @@ full-card read per stage) and include, each under its own heading:
   through another tool: it reports the refused write in its reply and carries on;
 - that it never creates background-task chips (no `spawn_task`) and never schedules anything,
   and runs unattended and never asks the user in chat (a plan stage's questions still go on
-  the card); a question for a person goes in `## Blocked by` (plan: `## Open questions`), never
-  a closing question, and the reply still ends with its verdict line. A chip made by mistake is dismissed at once (`dismiss_task`) and named in the
+  the card). A question for a person goes in `## Blocked by` (plan: `## Open questions`), and the
+  reply still ends with its verdict line. A chip made by mistake is dismissed at once (`dismiss_task`) and named in the
   reply; you note it on the card and in the summary. Every stage brief carries this line;
 - that its board writes (`update_card`, `comment`) pass `slim=True` (#203), so the reply is
   only the card's `id`, `lane` and `assignee`, not the whole card; it reads the card with
