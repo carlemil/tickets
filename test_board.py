@@ -2295,8 +2295,9 @@ def test_the_delete_dialog_explains_and_cancel_keeps_the_project(page):
     page.evaluate("load()")
     open_delete(page, "Doomed")
     msg = page.text_content("#delMsg")
-    assert "Its 3 cards (1 archived) will move to “No Project”" in msg, msg
-    assert "agents will not work on them" in msg and "cannot be undone" in msg
+    assert "Its 3 cards (1 archived already) will be archived and stay hidden under “Doomed”" in msg, msg
+    assert "a project made with that name gets them back, still archived" in msg, msg
+    assert "No Project" not in msg and "cannot be undone" in msg
     page.click("#delProject button[value=cancel]")
     assert page.locator("#delProject[open]").count() == 0
     page.wait_for_timeout(200)
@@ -2314,20 +2315,62 @@ def test_escape_also_cancels(page):
     assert page.locator("#panel.on").count() == 1, "the projects sheet stays open"
 
 
-def test_confirming_deletes_and_moves_the_cards(page):
+def test_confirming_deletes_and_archives_the_cards(page):
     core.create_project("Doomed")
     cid = core.create_card("orphan", actor="ce", project="Doomed")["id"]
     page.evaluate("localStorage.setItem('project', 'Doomed'); load()")
     open_delete(page, "Doomed")
     page.click("#delProject button[value=delete]")
-    page.wait_for_selector("#panel .project h3:text-is('No Project')")
-    assert [p["name"] for p in core.list_projects()] == ["Home", "No Project"]
-    assert core.get_card(cid)["project"] == "No Project"
+    page.wait_for_function("() => ![...document.querySelectorAll('#panel .project h3')]"
+                           ".some(h => h.textContent === 'Doomed')")
+    assert [p["name"] for p in core.list_projects()] == ["Home"]
+    got = core.get_card(cid)
+    assert got["project"] == "Doomed" and got["archived"] is True
     assert page.evaluate("localStorage.getItem('project')") == "", "the filter falls back to all"
-    no = page.locator("#panel .project", has=page.locator("h3:text-is('No Project')"))
-    assert no.locator("button.danger").count() == 0, "No Project offers no delete"
+    assert "No Project" not in page.inner_text("body")
     close_sheet(page)
+    page.wait_for_function(f"() => !document.querySelector('.card[data-id=\"{cid}\"]')")
+
+
+def test_a_card_of_a_deleted_project_opens_showing_its_own_project(page):
+    core.create_project("Doomed")
+    cid = core.create_card("orphan", actor="ce", project="Doomed")["id"]
+    core.delete_project("Doomed")
+    page.evaluate("document.querySelector('#showArch').click()")
     page.wait_for_selector(f'.card[data-id="{cid}"]')
+    page.evaluate(f"openCard({cid})")
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    assert page.evaluate("document.querySelector('#panel select').selectedOptions[0].textContent") == "Doomed"
+    assert page.evaluate("document.querySelector('#panel select').selectedOptions[0].disabled")
+
+
+@pytest.mark.no_home
+def test_a_fresh_board_works_end_to_end_with_no_projects(page):
+    assert core.list_projects() == []
+    assert "No Project" not in page.inner_text("body")
+    tabs = lambda: each(page, "#proj > *", "ns => ns.map(n => n.textContent.trim())")
+    assert len(tabs()) == 1, tabs()   # only the All tab
+    page.click("#add")
+    page.wait_for_selector("#err.on")
+    assert "create a project first" in page.text_content("#err")
+    page.keyboard.type("First")
+    page.click("#err")
+    page.click("#panel button:text-is('add project')")
+    page.wait_for_selector("#panel .project h3:text-is('First')")
+    page.click("#panel button:text-is('done')")
+    assert any("First" in t for t in tabs()), tabs()
+    cid = add_card(page, "only card")
+    close_sheet(page)
+    open_delete(page, "First")
+    page.click("#delProject button[value=delete]")
+    page.wait_for_function("() => ![...document.querySelectorAll('#proj > *')]"
+                           ".some(n => n.textContent.includes('First'))")
+    assert core.list_projects() == []
+    close_sheet(page)
+    page.wait_for_function(f"() => !document.querySelector('.card[data-id=\"{cid}\"]')")
+    page.evaluate("document.querySelector('#showArch').click()")
+    page.wait_for_selector(f'.card[data-id="{cid}"]')
+    assert "No Project" not in page.inner_text("body")
 
 
 # ---------- description grows with its text ----------
