@@ -513,11 +513,11 @@ def test_ensure_user_strips_and_rejects_blanks():
 
 
 def test_rename_user_moves_every_trace_of_the_old_name():
-    mine = card(actor="ce", lane="develop")["id"]
+    mine = card(actor="ce")["id"]
     core.update_card(mine, "ce", assignee="ce")
     core.comment(mine, "ce", "hi")
     core.set_activity("ce", mine, "looking")
-    theirs = card(actor="zoe", assignee="zoe", lane="develop")["id"]
+    theirs = card(actor="zoe", assignee="zoe")["id"]
     core.update_card(theirs, "zoe", assignee="ce")      # the old name as `to`...
     core.update_card(theirs, "zoe", assignee="zoe")     # ...and as `from`
     core.set_activity("User", theirs, "already here")   # a clash on activity's primary key
@@ -1019,7 +1019,7 @@ def test_a_database_without_land_gains_it(db):
 # ---------- activity ----------
 
 def test_activity_is_set_replaced_and_cleared_per_actor():
-    a, b = card("a", lane="plan", assignee="ann")["id"], card("b", lane="develop", assignee="ann")["id"]
+    a, b = card("a")["id"], card("b", lane="develop")["id"]
     core.set_activity("bot", a, "planning")
     core.set_activity("bot2", b, "developing")
     core.set_activity("bot", b, " testing ")          # replaces bot's row, stripped
@@ -1054,7 +1054,7 @@ def test_activity_rejects_bad_input():
 
 
 def test_activity_shows_the_card_as_it_is_now():
-    c = card(lane="plan", assignee="ann")["id"]
+    c = card()["id"]
     core.set_activity("bot", c, "planning")
     core.update_card(c, "ann", title="renamed", lane="develop")
     assert (core.list_activity()[0]["title"], core.list_activity()[0]["lane"]) == ("renamed", "develop")
@@ -1774,7 +1774,7 @@ def test_stalled_is_cleared_by_a_comment_or_a_fresh_activity_row():
 
 
 def test_stale_activity_rows_are_hidden_on_read_and_deleted_by_the_next_write():
-    a, b = card("a", lane="develop", assignee="ann")["id"], card("b", lane="test", assignee="ann")["id"]
+    a, b = card("a")["id"], card("b")["id"]
     core.set_activity("old", a, "developing (2 in flight)")
     core.set_activity("new", b, "testing")
     with closing(core.connect()) as db, db:
@@ -1827,6 +1827,20 @@ def test_498_a_long_stage_keeps_its_dot_until_the_card_is_stalled():
     assert _ids() == [c], "row expired, card held and fresh"
     _age(c, 60)
     assert _ids() == [], "stalled: no dot"
+
+
+def test_498_the_runs_own_row_goes_with_its_hold_on_the_card():
+    """Released after an API error (unassigned, lane kept), sent back to todo, or waiting for
+    answers: the run's row on that card shows no dot. Another actor's row is not touched."""
+    for change in ({"assignee": ""}, {"lane": "todo"}, {"questions": "1. which?"}):
+        c = card(lane="develop", assignee="claude-agent")["id"]
+        core.set_activity("claude-agent", c, "developing")
+        assert _ids() == [c]
+        core.update_card(c, "ann", **change)
+        assert _ids() == [], change
+    o = card(lane="todo")["id"]
+    core.set_activity("ann", o, "looking")
+    assert _ids() == [o]
 
 
 def test_498_no_dot_for_cards_the_run_does_not_hold():
