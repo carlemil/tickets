@@ -319,20 +319,22 @@ of its 40,000 chars: the next rule it gains has to trim something first.
 **A cut-off stage does not strand its card (#493).** A stage agent cut off (API rate or quota
 limit, crash, session closing) used to leave its card in plan/develop/test, assigned to
 `claude-agent`, for a later run to skip as assigned. Now: (1) the queue reads `stalled` (board,
-above) and `session`: a stalled card whose `session` is not this run's and that no stage agent
-of this run holds is taken over (comment, `session` set to this run's), plan and develop
+above) and `session`: a stalled card that this run does not hold (no stage agent here has it,
+none waits for a slot; not "its `session` is this run's", as a loop's ticks share one session
+id and would never retry their own leftovers) is taken over (comment, `session` set to this run's), plan and develop
 re-running the stage on the existing worktree and branch, test starting from the committed state
 (leftovers committed as the stage does) with the full suite, as a cut-off agent may have left
 half-done commits; never a card a person has, once per run. (2) A stage agent that ends on an API
 error (429, overloaded, "terminated early", "session limit") is not an ordinary FAILED: an
 `api error:` comment with the cause and any reset time, the worktree kept, the card unassigned
-with its lane unchanged; the queue skips it until the named reset time, else 30 minutes, so
-no hot loop and no double take-over (an unassigned card is not stalled). (3) The final step
+with its lane unchanged; the queue skips it until the named reset time, else 30 minutes (the
+queue call carries no comments, so the trimmed refused-write check reads it before an
+unassigned card starts), so no hot loop and no double take-over (an unassigned card is not stalled). (3) The final step
 clears the activity line (a dead dispatcher's line also expires, above), and the summary names a
 `card/<id>` worktree or branch with no card in plan/develop/test, never removing it. A card
 whose last note is a refused write keeps its #147 handling. Defaults, not owner questions:
 30 minutes, board marks only, the run recovers. run.md trimmed ~1,300 chars of prose first (now
-~39,930 of 40,000).
+~39,970 of 40,000).
 
 It replaced `agent.py` (a process polling the board every 15 s and running headless
 `claude -p` on any card assigned to it or set to auto advance), and with it the board's
@@ -643,8 +645,11 @@ A stalled card (#493) gets the `stalled` class and a "stalled" pill: the server 
 `stalled` on every card payload (`core._stalled`; HTTP and MCP carry it, no new route or tool):
 lane `plan`, `develop` or `test`, assignee `claude-agent`, not archived, and nothing for
 `STALL_MINUTES` (30): no `updated_at`, no event (a comment counts) and no activity row newer.
-Activity rows older than that are deleted on read (`_expire_activity`, in `list_activity` and
-the card reads), so a dead dispatcher's "developing (2 in flight)" disappears. The tint is a
+Activity rows older than that are left out of `list_activity` (a filter: reads never write, so
+a board poll takes no write lock) and deleted by the next `set_activity` (`_expire_activity`),
+so a dead dispatcher's "developing (2 in flight)" disappears. `get_card` reads only its own
+card's events and activity. A card goes stalled by time alone, with no write to bump the
+version, so the board also reloads when its last load is 5 minutes old. The tint is a
 salmon `#ffe0d6` (hover `#ffd2c4`), the pill `#ff9d80`; a card cannot be both: `waiting` wins,
 a person must act first. The board only marks; the run recovers (run.md §2, Failure).
 

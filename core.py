@@ -195,7 +195,8 @@ def _ago(minutes, now=None):
 
 
 def _expire_activity(db):
-    """Activity is live state: a row older than STALL_MINUTES belongs to a dead agent."""
+    """Activity is live state: a row older than STALL_MINUTES belongs to a dead agent. Only a
+    write (set_activity) deletes; reads filter by the same cutoff, so a read takes no write lock."""
     db.execute("DELETE FROM activity WHERE since < ?", (_ago(STALL_MINUTES),))
 
 
@@ -338,6 +339,7 @@ def set_activity(actor, card_id=None, doing=""):
     if not actor:
         raise ValueError("actor is required")
     with closing(connect()) as db, db:
+        _expire_activity(db)
         if card_id is None:
             db.execute("DELETE FROM activity WHERE actor=?", (actor,))
         else:
@@ -350,11 +352,11 @@ def set_activity(actor, card_id=None, doing=""):
 
 
 def list_activity():
-    with closing(connect()) as db, db:
-        _expire_activity(db)
+    with closing(connect()) as db:
         return [dict(r) for r in db.execute(
             "SELECT a.actor, a.card_id, a.doing, a.since, c.title, c.project, c.lane"
-            " FROM activity a JOIN cards c ON c.id = a.card_id ORDER BY a.since")]
+            " FROM activity a JOIN cards c ON c.id = a.card_id WHERE a.since >= ?"
+            " ORDER BY a.since", (_ago(STALL_MINUTES),))]
 
 
 def last_event():
@@ -585,16 +587,16 @@ def _mark(card, blocks, quiet=None):
     return card
 
 
-def _quiet(db):
+def _quiet(db, id=None):
     """{card_id: newest sign of life}: the later of the card's last event and its activity row
-    (#493). The activity rows older than STALL_MINUTES are cleared first, so a dead
-    dispatcher's "developing (2 in flight)" goes away; a card's own `updated_at` is added by
-    `_stalled`."""
-    _expire_activity(db)
+    (#493), for every card or just card `id`. A read: an activity row older than STALL_MINUTES
+    is older than the cutoff anyway, so it counts for nothing without being deleted here; a
+    card's own `updated_at` is added by `_stalled`."""
+    one, args = ("", ()) if id is None else (" WHERE card_id=?", (id,))
     out = {}
-    for cid, at in db.execute("SELECT card_id, MAX(at) FROM events GROUP BY card_id"):
+    for cid, at in db.execute("SELECT card_id, MAX(at) FROM events" + one + " GROUP BY card_id", args):
         out[cid] = at or ""
-    for cid, since in db.execute("SELECT card_id, since FROM activity"):
+    for cid, since in db.execute("SELECT card_id, since FROM activity" + one, args):
         out[cid] = max(out.get(cid, ""), since)
     return out
 
@@ -611,7 +613,7 @@ def _stalled(card, quiet, now=None):
 
 def get_card(id):
     with closing(connect()) as db:
-        card = _mark(_load(db, id), _blocks(db), _quiet(db))
+        card = _mark(_load(db, id), _blocks(db), _quiet(db, id))
         card["events"] = [
             {**dict(r), "detail": json.loads(r["detail"])}
             for r in db.execute("SELECT * FROM events WHERE card_id=? ORDER BY id", (id,))

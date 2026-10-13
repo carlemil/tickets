@@ -117,13 +117,13 @@ The **repo** is the git toplevel of the path; the **base** branch is its current
 - **blocked:** `blocked_by` not empty (the server lists unfinished cards with a `blocks` link
   to this one);
 - **assigned to a person:** `assignee` set to anyone but `claude-agent`;
-- **already in flight** in this run (its `session` is this run's, or a stage agent here has it);
+- **already in flight:** this run holds it (a stage agent here has it, or it waits for a slot);
 - **released by an API error** (Failure) until its named reset time, else 30 minutes after the
-  comment: its latest `claude-agent` comment starts `api error:`.
+  comment: its latest `claude-agent` comment starts `api error:` (read with the trimmed
+  refused-write check before starting an unassigned card).
 
-A **stalled** card (`stalled` true: `claude-agent`'s, quiet 30 minutes) whose `session` is not
-this run's and that no stage agent here has lost its run (cut off, crashed, session closed). It is
-taken over, not skipped (#493): comment `stalled: taking over from session <old>: <what is
+A **stalled** card (`stalled` true: `claude-agent`'s, quiet 30 minutes) that this run does not
+hold lost its agent (cut off, crashed, session closed). It is taken over, not skipped (#493): comment `stalled: taking over from session <old>: <what is
 re-run>`, set `session` to this run's, then work its lane on the existing worktree and branch:
 plan and develop re-run the stage; test starts from the committed state (`git -C <tree> status
 --porcelain` clean, else commit leftovers as the stage does and say so) and runs the full suite.

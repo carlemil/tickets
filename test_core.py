@@ -1773,10 +1773,16 @@ def test_stalled_is_cleared_by_a_comment_or_a_fresh_activity_row():
     assert not _stalled(c), "a recent event is activity"
 
 
-def test_stale_activity_rows_are_dropped_on_read_and_fresh_ones_kept():
+def test_stale_activity_rows_are_hidden_on_read_and_deleted_by_the_next_write():
     a, b = card("a")["id"], card("b")["id"]
     core.set_activity("old", a, "developing (2 in flight)")
     core.set_activity("new", b, "testing")
     with closing(core.connect()) as db, db:
         db.execute("UPDATE activity SET since=? WHERE actor='old'", ("2000-01-01T00:00:00+00:00",))
     assert [r["actor"] for r in core.list_activity()] == ["new"]
+    core.get_card(a), core.list_cards()
+    with closing(core.connect()) as db:   # reads take no write lock: nothing deleted
+        assert sorted(r[0] for r in db.execute("SELECT actor FROM activity")) == ["new", "old"]
+    core.set_activity("new", b, "testing")
+    with closing(core.connect()) as db:   # a write clears the stale row
+        assert [r[0] for r in db.execute("SELECT actor FROM activity")] == ["new"]
