@@ -439,6 +439,28 @@ def test_every_event_kind_reads_as_a_sentence(page):
     assert "unarchived it" in page.text_content("#panel .log"), "and the panel shows it"
 
 
+def test_a_card_waiting_for_answers_is_tinted_and_pilled_until_answered(page):
+    """#447: questions filled and answers empty marks the card; answered, cleared or done does not."""
+    a = core.create_card("waits", actor="ce", project="Home")["id"]
+    card = lambda: page.locator(f'.card[data-id="{a}"]')
+    poll = lambda: page.evaluate("loadStatus()")
+    core.update_card(a, "ce", questions="1. which color?")
+    poll()
+    page.wait_for_selector(f'.card.waiting[data-id="{a}"]')
+    assert card().locator(".pill.waiting").text_content() == "needs answers"
+    assert card().evaluate("n => getComputedStyle(n).backgroundColor") != "rgb(255, 255, 255)"
+    core.update_card(a, "ce", answers="1. red")
+    poll()
+    page.wait_for_selector(f'.card[data-id="{a}"]:not(.waiting)')
+    assert card().locator(".pill.waiting").count() == 0
+    core.update_card(a, "ce", answers="")
+    poll()
+    page.wait_for_selector(f'.card.waiting[data-id="{a}"]')
+    core.update_card(a, "ce", lane="done")
+    poll()
+    page.wait_for_selector(f'.card[data-id="{a}"]:not(.waiting)')
+
+
 def test_blocked_and_blocking_cards_are_marked_and_unmarked_by_the_poll(page):
     """Links and moves made elsewhere reach the marks through the status poll's reload."""
     a, b, c = (core.create_card(t, actor="ce", project="Home")["id"] for t in "abc")

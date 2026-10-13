@@ -596,6 +596,13 @@ marks. The board's own writes reload at once instead: `replace` reloads when the
 card's marks changed (the other end's changed too), and the panel's `blocks` link and
 unlink reload. #37 builds on the classes and fields.
 
+A card waiting for answers (#447: `questions` set, `answers` empty, not in done) gets the
+`waiting` class: a pale yellow background (`#fff4cc`, a shade deeper on hover) and a
+"needs answers" pill. It is a background only, so the blocked/blocking stripe, the
+selected outline, the `.drop-at` line, the dragging opacity and the dots all show over it.
+The board has no dark theme. `cardNode` computes it from the card's own fields, so any
+re-render (poll, own write) keeps it right.
+
 Arrows (#37) go from each blocking card to each card it blocks: one inline
 `<svg id="links">`, the last child of `#board` (now `position: relative`), sized to the
 board's scroll size, `pointer-events: none` so clicks, selection and drags go through;

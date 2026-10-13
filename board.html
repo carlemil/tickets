@@ -98,6 +98,12 @@
   .card.blocked.blocking::before { background: linear-gradient(var(--warn) 50%, #ff991f 50%); }
   .pill.blocked-by { background: #ffebe6; color: var(--warn); }
   .pill.blocks { background: #fffae6; color: #974f0c; }
+  /* #447: waiting for answers (questions set, answers empty): a pale yellow tint on the card
+     itself, so it pops in the list without touching the stripe (::before), the selected
+     outline, the drop-at shadow, the dragging opacity or the dots; a pill says it in words */
+  .card.waiting { background: #fff4cc; }
+  .card.waiting:hover { background: #ffeeb3; }
+  .pill.waiting { background: #ffe58f; color: #7a4a00; }
   /* #37: an arrow from each blocking card to each card it blocks, both on screen. One svg
      over the whole board, in its scroll coordinates, so it scrolls with it; clicks and
      drags go through. Faint, so many links don't drown the cards; a hovered card's are lit */
@@ -433,6 +439,11 @@ function cardNode(c) {
   const by = c.lane === "done" ? [] : c.blocked_by, blocks = c.lane === "done" ? [] : c.blocking;
   n.classList.toggle("blocked", by.length > 0);
   n.classList.toggle("blocking", blocks.length > 0);
+  const waiting = c.lane !== "done" && !!c.questions.trim() && !c.answers.trim();   // #447
+  n.classList.toggle("waiting", waiting);
+  if (waiting) meta.append(Object.assign(document.createElement("span"),
+    { className: "pill waiting", title: "the plan has open questions: a person must answer them",
+      textContent: "needs answers" }));
   if (by.length) meta.append(Object.assign(document.createElement("span"),
     { className: "pill blocked-by", title: "blocked: can't start until these reach verify (with an open PR, or in a PR project with none: once merged) or done",
       textContent: "blocked by " + by.map(i => "#" + i).join(" ") }));
