@@ -272,6 +272,8 @@ in, do not ask again. A `## Steps` section: a numbered list of concrete steps, a
 one line each. Anything needing a person's decision goes in a last `## Open questions`
 section, numbered 1., 2., …; a question with sensible choices lists 2–4 of them as indented
 `- ` bullets, the recommended one first and suffixed ` (recommended)`; otherwise free text.
+A choice is never a top-level line: the board numbers every top-level line as a question and
+offers radios only for the indented `- ` bullets under one (#432).
 Last line `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
 
 **Post.** The subagent writes the plan to the board itself (`actor="claude-agent"`):
@@ -282,7 +284,8 @@ Last line `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
   end `STAGE: FAILED`. The steps become the checklist: the existing items as they are, plus
   one `{"text": <step>, "done": false}` per step whose text is not already on it.
 - OPEN → `update_card(plan=…, questions=<the cut section>, checklist=…, slim=True)`, end
-  `STAGE: QUESTIONS`.
+  `STAGE: QUESTIONS`; then `get_card` and check each question's choices show as indented
+  bullets, not as numbered questions of their own; if not, `update_card(questions=…)` fixed (#432).
 - A `## Blocked by` → `update_card(plan=…, checklist=…, slim=True)` (plus `questions=…` if
   OPEN), lane unchanged, end with the section and `STAGE: BLOCKED`.
 - NONE → `update_card(plan=…, checklist=…, lane="develop", slim=True)`. Size large → end
