@@ -31,9 +31,6 @@ TEXT_FIELDS = PLAN_FIELDS + ("session", "pr")   # free text, '' when unset
 PROJECT_FIELDS = ("name", "path", "instructions", "color", "land")
 # how a card that passed its tests lands: merged locally into the base, or as a pull request
 LANDS = ("merge", "pr")
-# Where a deleted project's cards go. Agents never work a card in it; matched ignoring case.
-NO_PROJECT = "No Project"
-NO_PROJECT_COLOR = "#6b778c"
 # a new project takes the least-used of these; any #rrggbb can be set instead
 PALETTE = ["#0052cc", "#00875a", "#ff991f", "#6554c0", "#de350b", "#00a3bf", "#c9372c",
            "#5e4db2", "#b65c02", "#216e4e"]
@@ -135,16 +132,33 @@ def connect():
     # naming projects that were only strings, so give each one a row. A fresh database has
     # no projects at all: a card cannot be made until someone configures one. Checked
     # first so a plain read does not take the write lock.
-    orphan = db.execute("SELECT 1 FROM cards c WHERE NOT EXISTS"
-                        " (SELECT 1 FROM projects p WHERE p.name = c.project)").fetchone()
+    # Only live cards count: a deleted project's cards are all archived and stay under its
+    # name without a row (#437).
     have = {r["name"] for r in db.execute("PRAGMA table_info(projects)")}
     if "color" not in have:
         db.execute("ALTER TABLE projects ADD COLUMN color TEXT NOT NULL DEFAULT ''")
     if "land" not in have:
         db.execute("ALTER TABLE projects ADD COLUMN land TEXT NOT NULL DEFAULT 'merge'")
+    # #437: the "No Project" parking project is gone. Once per database (user_version 0 -> 1):
+    # its cards are archived, into Tickets when that project exists, else left under the
+    # old name, and the row is removed. A project of that name made later is left alone.
+    if db.execute("PRAGMA user_version").fetchone()[0] < 1:
+        with db:
+            if db.execute("SELECT 1 FROM projects WHERE name='No Project' COLLATE NOCASE").fetchone():
+                home = db.execute("SELECT name FROM projects WHERE name='Tickets' COLLATE NOCASE"
+                                  ).fetchone()
+                db.execute("UPDATE cards SET archived=1 WHERE project='No Project' COLLATE NOCASE")
+                if home:
+                    db.execute("UPDATE cards SET project=? WHERE project='No Project' COLLATE NOCASE",
+                               (home["name"],))
+                db.execute("DELETE FROM projects WHERE name='No Project' COLLATE NOCASE")
+            db.execute("PRAGMA user_version=1")
+    orphan = db.execute("SELECT 1 FROM cards c WHERE c.archived=0 AND NOT EXISTS"
+                        " (SELECT 1 FROM projects p WHERE p.name = c.project)").fetchone()
     if orphan:
         with db:
-            db.execute("INSERT OR IGNORE INTO projects (name) SELECT DISTINCT project FROM cards")
+            db.execute("INSERT OR IGNORE INTO projects (name) SELECT DISTINCT project FROM cards"
+                       " WHERE archived=0")
     # every project has a color: one from before colors, or backfilled above, gets one
     uncolored = [r["name"] for r in
                  db.execute("SELECT name FROM projects WHERE color='' ORDER BY name")]
@@ -406,23 +420,15 @@ def update_project(name, /, **fields):   # positional-only, so name= in fields i
 
 
 def delete_project(name):
-    """Delete a project. Its cards, archived ones too, move to NO_PROJECT (created on first
-    use), where agents leave them alone. Like a rename, the move writes no card events.
-    NO_PROJECT itself cannot be deleted: its cards would have nowhere to go."""
+    """Delete a project. Its cards, archived ones too, are archived and keep the project's
+    name as plain text, hidden until a project of that name is made again (#437). Like a
+    rename, this writes no card events."""
     with closing(connect()) as db, db:
         old = _load_project(db, name)["name"]
-        if old.lower() == NO_PROJECT.lower():
-            raise ValueError(f"{NO_PROJECT!r} holds the cards of deleted projects and cannot be deleted")
-        n = db.execute("SELECT COUNT(*) FROM cards WHERE project=? COLLATE NOCASE",
-                       (old,)).fetchone()[0]
-        if n:
-            db.execute("INSERT OR IGNORE INTO projects (name, color) VALUES (?,?)",
-                       (NO_PROJECT, NO_PROJECT_COLOR))
-            home = db.execute("SELECT name FROM projects WHERE name=?", (NO_PROJECT,)).fetchone()
-            db.execute("UPDATE cards SET project=? WHERE project=? COLLATE NOCASE",
-                       (home["name"], old))
+        n = db.execute("UPDATE cards SET archived=1 WHERE project=? COLLATE NOCASE",
+                       (old,)).rowcount
         db.execute("DELETE FROM projects WHERE name=?", (old,))
-    return {"deleted": old, "moved": n}
+    return {"deleted": old, "archived": n}
 
 
 BOARD = "board"   # author of the cards the board opens by itself
@@ -587,6 +593,10 @@ def update_card(id, actor, **fields):
         old = _load(db, id)
         if "project" in fields:
             fields["project"] = _project(db, fields["project"])
+        if fields.get("archived") is False and old["archived"]:   # #437: a deleted project's cards
+            proj = fields.get("project", old["project"])
+            if db.execute("SELECT 1 FROM projects WHERE name=?", (proj,)).fetchone() is None:
+                raise ValueError("its project was deleted: recreate it or move the card to a project")
         if fields.get("assignee") == "":   # unassigned is NULL, whether "" or null was sent
             fields["assignee"] = None
         if isinstance(fields.get("questions"), str):   # every writer's questions: 1. 2. 3.

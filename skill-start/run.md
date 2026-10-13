@@ -104,7 +104,7 @@ reply, never retried another way; you note it on the card and retry it next tick
 
 `list_projects`, and take the one whose `path` is the current working directory (compare
 case-insensitively, `\` and `/` alike, no trailing slash). None → stop and say: open the board,
-"projects…", set this project's path to this folder. Never work "No Project".
+"projects…", set this project's path to this folder.
 
 Priority, highest first: the card's latest comments, the card (`description`, `plan`,
 `answers`), the project `instructions`, the repo's `CLAUDE.md`, this file. The in-flight limit

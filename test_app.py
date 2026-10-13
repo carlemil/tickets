@@ -665,11 +665,14 @@ def test_delete_project_route(client):
     client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Old/one"})
     r = client.delete("/api/projects/old/one")
     # the card above plus the three setup cards adding the project opened
-    assert r.status_code == 200 and r.json() == {"deleted": "Old/one", "moved": 4}, r.text
-    assert {c["project"] for c in client.get("/api/cards").json()} == {core.NO_PROJECT}
+    assert r.status_code == 200 and r.json() == {"deleted": "Old/one", "archived": 4}, r.text
+    assert client.get("/api/cards").json() == [], "archived, so off the board's default list"
+    gone = client.get("/api/cards?archived=1").json()
+    assert {c["project"] for c in gone} == {"Old/one"} and len(gone) == 4
+    assert [p["name"] for p in client.get("/api/projects").json()] == ["Home"]
     assert client.delete("/api/projects/Old/one").status_code == 404
-    r = client.delete("/api/projects/" + core.NO_PROJECT)
-    assert r.status_code == 400 and "cannot be deleted" in r.json()["error"], r.text
+    r = client.patch(f"/api/cards/{gone[0]['id']}", json={"actor": "ann", "archived": False})
+    assert r.status_code == 400 and "project was deleted" in r.json()["error"], r.text
 
 
 def test_update_card_tool_sets_merged_and_deployed_and_rejects_non_bools():

@@ -1062,46 +1062,53 @@ def test_activity_shows_the_card_as_it_is_now():
 
 # ---------- deleting a project ----------
 
-def test_deleting_a_project_moves_every_card_to_no_project():
+def test_deleting_a_project_archives_every_card_under_its_name():
     projects("Doomed")
     a = card("a", project="Doomed")["id"]
     b = card("b", project="Doomed")["id"]
     core.update_card(b, "ann", archived=True)
     keep = card("c")["id"]
-    assert core.delete_project("doomed") == {"deleted": "Doomed", "moved": 2}
-    assert [p["name"] for p in core.list_projects()] == ["Home", core.NO_PROJECT]
-    assert core.get_project(core.NO_PROJECT)["color"] == core.NO_PROJECT_COLOR
-    assert {core.get_card(i)["project"] for i in (a, b)} == {core.NO_PROJECT}
-    assert core.get_card(b)["archived"] is True, "archived cards move and stay archived"
-    assert core.get_card(keep)["project"] == "Home"
-    assert [e["kind"] for e in core.get_card(a)["events"]] == ["created"], "no card events"
+    assert core.delete_project("doomed") == {"deleted": "Doomed", "archived": 2}
+    assert [p["name"] for p in core.list_projects()] == ["Home"]
+    for i in (a, b):
+        got = core.get_card(i)
+        assert got["project"] == "Doomed" and got["archived"] is True, got
+        assert [e["kind"] for e in got["events"]] == (["created"] if i == a else ["created", "archived"])
+    assert core.get_card(keep)["archived"] is False and core.get_card(keep)["project"] == "Home"
+    assert {c["id"] for c in core.list_cards(project="doomed", archived=True)} == {a, b}
+    assert core.list_cards(project="Doomed") == [], "hidden unless archived is asked for"
 
 
-def test_deleting_an_empty_project_creates_no_no_project():
+def test_deleting_an_empty_project_archives_nothing():
     projects("Empty")
-    assert core.delete_project("Empty") == {"deleted": "Empty", "moved": 0}
+    assert core.delete_project("Empty") == {"deleted": "Empty", "archived": 0}
     assert [p["name"] for p in core.list_projects()] == ["Home"]
 
 
-def test_a_second_delete_reuses_no_project_and_keeps_its_settings():
-    projects("A", "B")
-    card(project="A")
-    card(project="B")
-    core.delete_project("A")
-    core.update_project(core.NO_PROJECT, instructions="leave these alone")
-    core.delete_project("B")
-    assert len(core.list_cards(project=core.NO_PROJECT)) == 2
-    assert core.get_project(core.NO_PROJECT)["instructions"] == "leave these alone"
+def test_a_deleted_projects_cards_do_not_bring_it_back():
+    projects("Gone")
+    card(project="Gone")
+    core.delete_project("Gone")
+    for _ in range(2):
+        assert [p["name"] for p in core.list_projects()] == ["Home"]
+    with pytest.raises(ValueError, match="unknown project"):
+        card(project="Gone")
 
 
-def test_no_project_cannot_be_deleted_in_any_case():
-    projects("A")
-    card(project="A")
-    core.delete_project("A")
-    for spelling in (core.NO_PROJECT, "no project", "NO PROJECT"):
-        with pytest.raises(ValueError, match="cannot be deleted"):
-            core.delete_project(spelling)
-    assert len(core.list_cards(project=core.NO_PROJECT)) == 1
+def test_a_card_under_a_deleted_project_cannot_be_unarchived_there():
+    projects("Gone")
+    cid = card(project="Gone")["id"]
+    core.delete_project("Gone")
+    with pytest.raises(ValueError, match="its project was deleted"):
+        core.update_card(cid, "ann", archived=False)
+    assert core.get_card(cid)["archived"] is True
+    got = core.update_card(cid, "ann", project="Home", archived=False)
+    assert got["project"] == "Home" and got["archived"] is False
+    # an edit that leaves it archived is fine
+    other = card(project="Home")["id"]
+    core.update_card(other, "ann", archived=True)
+    core.update_project("Home", name="Renamed")
+    assert core.update_card(other, "ann", archived=False)["archived"] is False
 
 
 def test_deleting_an_unknown_project_is_not_found():
@@ -1109,13 +1116,82 @@ def test_deleting_an_unknown_project_is_not_found():
         core.delete_project("nope")
 
 
-def test_a_deleted_projects_name_can_be_used_again():
+def test_recreating_a_deleted_project_shows_its_archived_cards_again():
     projects("Again")
     old = card(project="Again")["id"]
     core.delete_project("Again")
     projects("Again")
     assert core.list_cards(project="Again") == []
-    assert core.get_card(old)["project"] == core.NO_PROJECT
+    assert [c["id"] for c in core.list_cards(project="Again", archived=True)] == [old]
+    assert core.update_card(old, "ann", archived=False)["project"] == "Again"
+
+
+def _legacy_db(*, tickets, no_project_cards=2, user_version=0):
+    """A database as it was with the "No Project" row: cards parked there."""
+    import sqlite3
+    core.list_projects()                       # creates the schema
+    old = sqlite3.connect(core.DB_PATH)
+    old.execute("INSERT INTO projects (name, color) VALUES ('No Project', '#6b778c')")
+    if tickets:
+        old.execute("INSERT INTO projects (name, color) VALUES (?, '#0052cc')", (tickets,))
+    for n in range(no_project_cards):
+        old.execute("INSERT INTO cards (project, title, lane, archived, pos, created_by,"
+                    " created_at, updated_at) VALUES ('No Project', ?, 'develop', ?, 7,"
+                    " 'ann', 't', 't')", (f"parked {n}", n % 2))
+    old.execute(f"PRAGMA user_version={user_version}")
+    old.commit()
+    old.close()
+
+
+def test_migration_archives_no_project_cards_into_tickets_and_drops_the_row():
+    _legacy_db(tickets="tickets")
+    names = [p["name"] for p in core.list_projects()]
+    assert names == ["Home", "tickets"], names
+    for c in core.list_cards(archived=True):
+        assert c["project"] == "tickets" and c["archived"] is True and c["lane"] == "develop"
+        assert c["pos"] == 7 and c["updated_at"] == "t" and core.get_card(c["id"])["events"] == []
+    assert len(core.list_cards(project="tickets", archived=True)) == 2
+    assert core.list_cards() == []
+    core.list_projects()                       # a rerun is a no-op
+    assert [p["name"] for p in core.list_projects()] == ["Home", "tickets"]
+
+
+def test_migration_without_a_tickets_project_keeps_the_cards_hidden_under_the_old_name():
+    _legacy_db(tickets=None)
+    assert [p["name"] for p in core.list_projects()] == ["Home"]
+    got = core.list_cards(project="No Project", archived=True)
+    assert len(got) == 2 and all(c["archived"] for c in got)
+    assert [p["name"] for p in core.list_projects()] == ["Home"], "not resurrected"
+
+
+def test_migration_runs_once_so_a_later_no_project_is_left_alone():
+    _legacy_db(tickets="Tickets")
+    core.list_projects()
+    core.create_project("No Project")
+    cid = core.create_card("fresh", actor="ann", project="No Project")["id"]
+    assert "No Project" in [p["name"] for p in core.list_projects()]
+    assert core.get_card(cid)["archived"] is False and core.get_card(cid)["project"] == "No Project"
+
+
+@pytest.mark.no_home
+def test_a_fresh_database_has_no_no_project_and_marks_itself_migrated():
+    import sqlite3
+    assert core.list_projects() == []
+    assert sqlite3.connect(core.DB_PATH).execute("PRAGMA user_version").fetchone()[0] == 1
+
+
+def test_an_unarchived_card_naming_a_missing_project_still_gets_its_row(db):
+    """The pre-projects backfill stays for live cards."""
+    import sqlite3
+    core.list_projects()
+    old = sqlite3.connect(core.DB_PATH)
+    old.execute("INSERT INTO cards (project, title, lane, created_by, created_at, updated_at)"
+                " VALUES ('stray','t','todo','ann','t','t')")
+    old.execute("INSERT INTO cards (project, title, lane, archived, created_by, created_at,"
+                " updated_at) VALUES ('hidden','t','todo',1,'ann','t','t')")
+    old.commit()
+    old.close()
+    assert [p["name"] for p in core.list_projects()] == ["Home", "stray"]
 
 
 def test_questions_are_stored_numbered_from_1_whoever_writes_them():

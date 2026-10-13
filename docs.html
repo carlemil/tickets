@@ -225,8 +225,9 @@ again.</p>
   <li><b>project tabs</b>: <b>All</b> shows every project's cards; a project's tab, marked with its color, shows only that project's. Under All each card carries its project's name in its color. The board remembers the tab you picked. With many projects the tabs scroll sideways.</li>
   <li><b>projects…</b>: each project's name, path (the absolute folder of its git repo, where
     the agent works), agent instructions (how to build, test and deploy, and how to install
-    dependencies in a fresh worktree) and color. "delete project…" moves its cards to
-    "No Project", where agents never work. Adding a project opens a <code>todo</code> card
+    dependencies in a fresh worktree) and color. "delete project…" archives its cards; they stay
+    hidden under the deleted project's name (tick "show archived" to see them) and show in
+    a project of that name again if you make one. Adding a project opens a <code>todo</code> card
     for each thing its setup still lacks &mdash; a path, or rules saying how to test or
     deploy. Fix it, then archive the card. The best home for a project's rules is the
     <code>CLAUDE.md</code> in its repo, which every Claude Code session reads anyway; it
@@ -333,7 +334,7 @@ when a session starts, so a session opened before the board has none until
 ready card of that project in <code>plan</code>, <code>develop</code> and <code>test</code>
 through to <code>verify</code>, and writes what it does onto the board as
 <code>claude-agent</code>: the plan, comments, the moves, and a new idea card for any
-follow-up it finds. Cards in "No Project" are never worked. It works up to 2 cards at
+follow-up it finds. It works up to 2 cards at
 once by default, but only one in <code>test</code> at a time. A project changes the limit with a
 line <code>Cards in flight: N</code> in its instructions. More at once finishes a batch sooner;
 fewer spends fewer tokens and causes fewer merge conflicts to rework. A card in <code>plan</code> gets a

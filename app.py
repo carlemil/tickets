@@ -452,8 +452,6 @@ def list_projects() -> list[dict]:
     `instructions`: how the humans want agents to work on that project. Read them before
     working a card, and follow them. `land` is how a card that passed its tests lands:
     "merge" (merged locally into the base branch) or "pr" (as a pull request).
-
-    "No Project" holds the cards of deleted projects: do not work on cards in it.
     """
     return core.list_projects()
 
