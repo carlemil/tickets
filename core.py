@@ -190,6 +190,23 @@ def _bottom(db, lane):
     return (db.execute("SELECT MAX(pos) FROM cards WHERE lane=?", (lane,)).fetchone()[0] or 0) + 1
 
 
+def _order_check(db, id, lane, pos, placed):
+    """A card must not sit ahead of a live blocker in its lane (#449), nor a blocker
+    behind a card it blocks: the lane order is (pos, id). Other lanes are unordered, and a
+    finished blocker is no blocker (`_blocks`). Refused with a ValueError, which the board
+    answers by putting the card back."""
+    by, blocking = _blocks(db).get(id, ([], []))
+    for other in by + blocking:
+        o = _load(db, other)
+        if o["lane"] != lane:
+            continue
+        ahead = (pos, id) < (o["pos"], other)
+        if other in by and ahead:
+            raise ValueError(f"#{id} is blocked by #{other} and cannot go ahead of it")
+        if other in blocking and not ahead and placed:   # arriving unplaced = the bottom
+            raise ValueError(f"#{id} blocks #{other} and cannot go behind it")
+
+
 def _event(db, card_id, actor, kind, detail):
     # every mutation funnels through here, so actors self-register: no auth, a user is
     # just a name that has done something
@@ -594,8 +611,11 @@ def update_card(id, actor, **fields):
         frm, to = LANES.index(old["lane"]), LANES.index(fields.get("lane", old["lane"]))
         # a card arriving in a lane queues behind the ones already there, unless the
         # writer said where it goes (the board's drag does; an agent's move does not)
+        placed = "pos" in fields
         if to != frm:
             fields.setdefault("pos", _bottom(db, LANES[to]))
+        if "pos" in fields and (to != frm or fields["pos"] != old["pos"]):
+            _order_check(db, id, LANES[to], fields["pos"], placed)
         # back into plan, develop or test is rework: the new work is neither on master
         # nor deployed. The old PR goes too (#72): a merged one would vouch for code
         # that is not on the base, and the next ship opens a new one.

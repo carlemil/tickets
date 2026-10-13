@@ -1492,3 +1492,35 @@ def test_an_unreadable_or_odd_settings_file_reads_as_the_defaults(text):
 def test_a_settings_file_keeps_a_good_value_and_ignores_extra_keys():
     core.settings_path().write_text('{"lan": true, "old": 1}', encoding="utf-8")
     assert core.get_settings() == {"lan": True}
+
+
+def _pair():
+    a, b = card(), card("Second")   # same lane (todo), a above b
+    core.link_cards(a["id"], b["id"], "blocks", "ann")   # a blocks b
+    return a, b
+
+
+def test_a_blocked_card_cannot_be_moved_ahead_of_its_blocker():
+    a, b = _pair()
+    with pytest.raises(ValueError, match=f"#{b['id']} is blocked by #{a['id']}"):
+        core.update_card(b["id"], "ann", pos=a["pos"] - 1)
+    assert core.get_card(b["id"])["pos"] == b["pos"]
+
+
+def test_a_blocker_cannot_be_moved_behind_the_card_it_blocks():
+    a, b = _pair()
+    with pytest.raises(ValueError, match=f"#{a['id']} blocks #{b['id']}"):
+        core.update_card(a["id"], "ann", pos=b["pos"] + 1)
+
+
+def test_a_blocked_card_moves_freely_behind_its_blocker_and_across_lanes():
+    a, b = _pair()
+    core.update_card(b["id"], "ann", pos=a["pos"] + 0.5)
+    core.update_card(b["id"], "ann", lane="develop", pos=a["pos"] - 5)   # another lane: unordered
+    core.update_card(b["id"], "ann", lane="todo")   # no pos: lands at the bottom
+
+
+def test_a_finished_blocker_no_longer_holds_the_order():
+    a, b = _pair()
+    core.update_card(a["id"], "ann", lane="done")
+    core.update_card(b["id"], "ann", pos=-5)

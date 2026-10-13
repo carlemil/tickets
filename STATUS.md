@@ -152,3 +152,4 @@ below are what keep it safe:
 | #265 | A card write's answer (`replace()`) landing mid-drag no longer redraws the board under the dragged card; it draws after the drop or the drag's end (the second cause beside #242); a failed move's put-back waits for a drag too | done — +2 checks |
 | #433 | An open question's radio row leads with its own `N. <question>` line and has a gap before the next question (`board.html` `choices()`, `.choice`); docs.html and PLAN.md say so | done — +2 checks |
 | #432 | run.md plan stage: a question's choices are always indented `- ` bullets (a top-level line is numbered as a question, no radios) and the post is re-read; #286, #294, #295 repaired by hand | done — +0 checks |
+| #449 | A blocked card cannot be placed ahead of its live blocker in a lane, nor a blocker behind a card it blocks: `update_card` refuses (`_order_check`), the board undoes the drop | done — +4 checks |

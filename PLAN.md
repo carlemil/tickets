@@ -192,6 +192,13 @@ other end may be in any project, so the server works them out (`_blocks`, one qu
 rather than the board, which loads one project. The list stays without `links` and
 `events`. #37 draws its arrows from these.
 
+Order (#449): in one lane a blocked card must not sit ahead of its live blocker, nor a
+blocker behind a card it blocks (lane order is `(pos, id)`). `update_card` refuses a write
+that sets `pos` and breaks it (`_order_check`, a `ValueError`, HTTP 400); the board's
+`move()` already puts the card back and shows the message. Other lanes are unordered, a
+finished blocker holds nothing, a move without `pos` lands at the bottom (never ahead),
+and an order that was already wrong is left alone. Agents and the API are bound like drags.
+
 `update_card` is one function covering move-lane, assign, retitle, edit body and tick
 checklist. It diffs old against new and writes one event per changed field — that is
 what makes the audit trail free instead of something every caller must remember. Every
