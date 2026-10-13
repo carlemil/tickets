@@ -151,3 +151,4 @@ below are what keep it safe:
 | #244 | README Layout names every tracked top-level file: docs_card.py, docs-card.png, log-config.json, restart-backend.ps1, pyproject.toml/uv.lock, README.md, .gitattributes, .gitignore added, wording from PLAN.md Shape | done — +0 checks |
 | #265 | A card write's answer (`replace()`) landing mid-drag no longer redraws the board under the dragged card; it draws after the drop or the drag's end (the second cause beside #242); a failed move's put-back waits for a drag too | done — +2 checks |
 | #433 | An open question's radio row leads with its own `N. <question>` line and has a gap before the next question (`board.html` `choices()`, `.choice`); docs.html and PLAN.md say so | done — +1 check |
+| #432 | run.md plan stage: a question's choices are always indented `- ` bullets (a top-level line is numbered as a question, no radios) and the post is re-read; #286, #294, #295 repaired by hand | done — +0 checks |
