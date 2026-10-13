@@ -4,17 +4,19 @@
 **session id**, the **Tickets repo** (the folder holding `restart-backend.ps1`) and optionally
 a **card id**. Rules only: their reasons and history are in the Tickets repo's PLAN.md.
 One run takes every ready card of this folder's project, up to the in-flight limit (Slots) at a
-time, to `verify`, writing each step onto the board, and ends with ideas. Work unattended: never
-ask the user or wait for an answer; what needs a person goes on the board (questions, blocker
-cards) and the run moves on. A tick never ends "waiting on you" to hold the queue, not even over
-a refused write. Every board write uses `actor="claude-agent"`; the tools are the `tickets` MCP
+time, to `verify`, writing each step onto the board, and ends with ideas. Work unattended: during a
+run never ask the user (no `AskUserQuestion`, no chat question) or wait for an answer. What needs
+a person goes on the board and the run moves on: a question you would ask, or a stage reply's
+question in place of its verdict line, becomes a comment plus `questions` (plan) or a
+`## Blocked by` card; a reply with neither is a failure. A tick never ends "waiting on you", not even over a
+refused write. Every board write uses `actor="claude-agent"`; the tools are the `tickets` MCP
 server's.
 
 ## 0. Board up, tools or not
 
 - `GET http://127.0.0.1:8123/api/projects` does not answer → start it detached:
   `powershell -NoProfile -File <tickets repo>/restart-backend.ps1 -Delay 1`; wait ~12 s and ask
-  again. Still down → stop, with the tail of `<tickets repo>/restart-backend.log`.
+  again. Still down → stop, with the tail of `restart-backend.log`.
 - The `tickets` tools are missing → do the whole run over the HTTP API, same calls, same
   arguments:
 
@@ -31,14 +33,13 @@ server's.
 
   Send UTF-8: in PowerShell `Invoke-RestMethod "<url>" -Method Patch -ContentType
   'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes(($fields |
-  ConvertTo-Json -Depth 6)))`. Subagents posting a plan or ticking the checklist get the same
-  instructions. The summary says the run used HTTP and that `/mcp` (or a new session) brings
-  the tools back; a server not registered at all is registered by `/tickets-start`.
+  ConvertTo-Json -Depth 6)))`. Subagents posting a plan or ticking the checklist get them too.
+  The summary says the run used HTTP and that `/mcp` (or a new session) brings the tools back.
 
 ### Lean board calls (#186)
 
 You, the dispatcher, read and write the board over its HTTP API and print only the fields you
-need. Every command starts `Invoke-RestMethod "http://127.0.0.1:8123/…"` (the URL quoted and
+need. Every command starts `Invoke-RestMethod "http://127.0.0.1:8123/…"` (URL quoted and
 first, so the allow rule `PowerShell(Invoke-RestMethod "http://127.0.0.1:8123/:*)` matches);
 each call is a fresh shell:
 - **check** (lane, assignee, labels before a stage, a person's move, the land fields):
@@ -66,8 +67,7 @@ each call is a fresh shell:
   the cut.
 - **a full card only to build a brief**: the `get_card` right before spawning a stage (step 3),
   MCP `get_card` or `Invoke-RestMethod "http://127.0.0.1:8123/api/cards/<id>" | ConvertTo-Json
-  -Depth 8` (never the bare object, whose default view cuts lists to 4 items). A stage's
-  verdict needs no full card: its reply is in your context.
+  -Depth 8` (never the bare object, whose default view cuts lists to 4 items).
 
 The MCP tools stay for stage subagents and for a session without PowerShell; there, use them
 and the summary says once that the run read full cards. Their writes are slim (#203):
@@ -95,10 +95,10 @@ tool (below), and the summary names the `PowerShell(…)` rule.
   4. each tick's summary names each refused write **once**, with the permission rule that
      would let it through (e.g. allow `mcp__tickets__update_card`, or the exact `Bash(…)` /
      `PowerShell(…)` command), for `/permissions`; a retry refused again may be one short line
-     ("still refused: #<id> <write>").
+     ("still refused: #<id> <write>"). A tool-permission prompt that held the run is named too (its command or path).
 
-Subagents follow the same rule (every brief says so): a refused write is reported in their
-reply, never retried another way; you note it on the card and retry it next tick.
+Subagents follow it too (brief rules); you note their refused write on the card and retry it
+next tick.
 
 ## 1. Find the project
 
@@ -147,7 +147,7 @@ step 4, #189). Never continue a finished subagent (no SendMessage).
 **Stage agent (#188).** Every stage's Agent call uses `subagent_type: "tickets-stage"` when
 that type is in the Agent tool's list of available agent types, else `general-purpose`. A call
 refused for an unknown agent type is retried once as `general-purpose`, same brief and model.
-When the fallback was used (either way), the run's summary says so once: "tickets-stage agent not installed or not loaded:
+When the fallback was used, the run's summary says so once: "tickets-stage agent not installed or not loaded:
 `/tickets-start` in a new session".
 
 **Model per stage (#83).** Each stage's Agent call sets its model:
@@ -220,9 +220,9 @@ full-card read per stage) and include, each under its own heading:
 - that a board write refused by a permission check is never retried in another form or
   through another tool: it reports the refused write in its reply and carries on;
 - that it never creates background-task chips (no `spawn_task`) and never schedules anything,
-  and runs unattended and never asks the user in chat (a plan stage's questions still go on
-  the card). A chip made by mistake is dismissed at once (`dismiss_task`) and named in the
-  reply; you note it on the card and in the summary. Every stage brief carries this line;
+  and runs unattended and never asks the user in chat: a question for a person goes in
+  `## Blocked by` (plan: `## Open questions`) and the reply still ends with its verdict line. A chip made by mistake is dismissed at once (`dismiss_task`) and
+  named in the reply; you note it on the card and in the summary. Every stage brief carries this line;
 - that its board writes (`update_card`, `comment`) pass `slim=True` (#203), so the reply is
   only the card's `id`, `lane` and `assignee`, not the whole card; it reads the card with
   `get_card` when it needs it. Every stage brief carries this line too.

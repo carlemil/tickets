@@ -543,3 +543,22 @@ def test_status_rows_merge_by_union(tmp_path):
     assert "| #2 |" in text and "| #3 |" in text and "| #1 |" in text
     assert not re.search(r"^(<<<<<<<|=======|>>>>>>>)", text, re.M)
     assert text.endswith("\n")
+
+
+def test_briefs_keep_questions_on_the_card_not_in_the_session():
+    # #448: a question in the main session blocks every in-flight card and leaves no record;
+    # the run never asks in chat, and every brief and the agent file send a question for a
+    # person to the card's blocker/open-questions section, the reply still ending in a verdict.
+    # Key terms only, not phrasing (#215).
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    head = text[:text.index("## 0.")]  # the run-wide rules
+    for term in ("`AskUserQuestion`", "`questions`", "`## Blocked by`", "verdict", "failure"):
+        assert term in head, term
+    brief = text[text.index("**The brief is the subagent's whole world**"):
+                 text.index("On a card's way out")]
+    for term in ("`## Blocked by`", "`## Open questions`", "verdict line"):
+        assert term in brief, term
+    agent = " ".join(open("skill-start/agents/tickets-stage.md", encoding="utf-8").read().split())
+    body = agent.split("---", 2)[2]
+    for term in ("`## Blocked by`", "`## Open questions`", "verdict line"):
+        assert term in body, term
