@@ -1068,7 +1068,8 @@ def test_deleting_a_project_archives_every_card_under_its_name():
     b = card("b", project="Doomed")["id"]
     core.update_card(b, "ann", archived=True)
     keep = card("c")["id"]
-    assert core.delete_project("doomed") == {"deleted": "Doomed", "archived": 2}
+    # `archived` counts the cards this archived: b already was
+    assert core.delete_project("doomed") == {"deleted": "Doomed", "archived": 1}
     assert [p["name"] for p in core.list_projects()] == ["Home"]
     for i in (a, b):
         got = core.get_card(i)
@@ -1192,6 +1193,25 @@ def test_an_unarchived_card_naming_a_missing_project_still_gets_its_row(db):
     old.commit()
     old.close()
     assert [p["name"] for p in core.list_projects()] == ["Home", "stray"]
+
+
+def test_the_migration_still_gives_an_all_archived_legacy_project_its_row():
+    """Before #437 every card's project had a row: a database not yet migrated (a
+    pre-projects one) gets one for a project whose cards are all archived too, or its
+    cards would pass for a deleted project's. "No Project" is not brought back."""
+    import sqlite3
+    core.list_projects()
+    old = sqlite3.connect(core.DB_PATH)
+    old.execute("INSERT INTO cards (project, title, lane, archived, created_by, created_at,"
+                " updated_at) VALUES ('Infra','t','todo',1,'ann','t','t')")
+    old.execute("INSERT INTO cards (project, title, lane, archived, created_by, created_at,"
+                " updated_at) VALUES ('No Project','t','todo',1,'ann','t','t')")
+    old.execute("PRAGMA user_version=0")
+    old.commit()
+    old.close()
+    assert [p["name"] for p in core.list_projects()] == ["Home", "Infra"]
+    cid = core.list_cards(project="Infra", archived=True)[0]["id"]
+    assert core.update_card(cid, "ann", archived=False)["archived"] is False
 
 
 def test_questions_are_stored_numbered_from_1_whoever_writes_them():

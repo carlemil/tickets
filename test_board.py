@@ -2295,7 +2295,8 @@ def test_the_delete_dialog_explains_and_cancel_keeps_the_project(page):
     page.evaluate("load()")
     open_delete(page, "Doomed")
     msg = page.text_content("#delMsg")
-    assert "Its 3 cards (1 archived) will be archived and stay hidden under “Doomed”" in msg, msg
+    assert "Its 3 cards (1 archived already) will be archived and stay hidden under “Doomed”" in msg, msg
+    assert "a project made with that name gets them back, still archived" in msg, msg
     assert "No Project" not in msg and "cannot be undone" in msg
     page.click("#delProject button[value=cancel]")
     assert page.locator("#delProject[open]").count() == 0

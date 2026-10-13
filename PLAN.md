@@ -766,7 +766,7 @@ stay hidden under the project's name, and that it cannot be undone; only "Delete
 acts, Cancel or Esc do nothing. `DELETE /api/projects/{name}` → `core.delete_project`
 archives all the project's cards (no card events, like a rename), keeps their `project`
 text (`cards.project` is plain TEXT, not a foreign key) and removes the row; it answers
-`{deleted, archived}`. There is no "No Project" any more (#437). A card under a deleted
+`{deleted, archived}`, `archived` counting the cards it archived (not those already were). There is no "No Project" any more (#437). A card under a deleted
 name is listed only with `archived` and the name as filter, or under "show archived"; the
 sheet shows its project as a disabled option. Creating or moving a card to that name is
 refused (no row). Unarchiving such a card is refused ("its project was deleted: recreate
@@ -776,8 +776,12 @@ only, or the next request would resurrect the project. Making a project of the s
 again shows the cards under it (still archived). Agents list non-archived cards only, so
 never work one. `connect()` runs a one-time migration (`PRAGMA user_version` 0 → 1): a
 "No Project" row left by the old design is removed and its cards archived, moved into
-project Tickets when it exists, else left under the old name. A fresh database has no
-projects at all and sets user_version 1.
+project Tickets when it exists, else left under the old name. Before that, in the same
+transaction, it gives every other card's project a row, archived cards' too (until #437
+every card's project had one, so a pre-projects database's archived-only project is not
+taken for a deleted one). The whole step is one transaction, user_version included: a
+failure leaves the database as it was and the next connect retries. A fresh database
+has no projects at all and sets user_version 1.
 
 "projects…" in the header opens the panel on project settings: name, path, agent
 instructions, a color picker and the land select ("merge into the base branch" / "open a

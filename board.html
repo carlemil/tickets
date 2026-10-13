@@ -1326,8 +1326,9 @@ async function confirmDelete(name) {
   const n = active + archived;
   $("#delTitle").textContent = `Delete project “${name}”?`;
   $("#delMsg").textContent = n === 0 ? "It has no cards. " : (
-      `Its ${n} card${n === 1 ? "" : "s"}${archived ? ` (${archived} archived)` : ""} will be archived ` +
-      `and stay hidden under “${name}”; creating a project with that name shows them again. `) +
+      `Its ${n} card${n === 1 ? "" : "s"}${archived ? ` (${archived} archived already)` : ""} ` +
+      `will be archived and stay hidden under “${name}”; a project made with that name ` +
+      `gets them back, still archived. `) +
     "Its folder, instructions and color are forgotten; nothing on disk is touched. " +
     "This cannot be undone.";
   const d = $("#delProject");

@@ -142,8 +142,13 @@ def connect():
     # #437: the "No Project" parking project is gone. Once per database (user_version 0 -> 1):
     # its cards are archived, into Tickets when that project exists, else left under the
     # old name, and the row is removed. A project of that name made later is left alone.
+    # Until then every card's project had a row, archived cards' too: a database from
+    # before projects gets those rows first, so its archived-only projects are not taken
+    # for deleted ones.
     if db.execute("PRAGMA user_version").fetchone()[0] < 1:
         with db:
+            db.execute("INSERT OR IGNORE INTO projects (name) SELECT DISTINCT project FROM cards"
+                       " WHERE project <> 'No Project' COLLATE NOCASE")
             if db.execute("SELECT 1 FROM projects WHERE name='No Project' COLLATE NOCASE").fetchone():
                 home = db.execute("SELECT name FROM projects WHERE name='Tickets' COLLATE NOCASE"
                                   ).fetchone()
@@ -449,13 +454,13 @@ def update_project(name, /, **fields):   # positional-only, so name= in fields i
 
 
 def delete_project(name):
-    """Delete a project. Its cards, archived ones too, are archived and keep the project's
-    name as plain text, hidden until a project of that name is made again (#437). Like a
-    rename, this writes no card events."""
+    """Delete a project. Its cards are all archived and keep the project's name as plain
+    text, hidden until a project of that name is made again (#437); `archived` counts the
+    ones this archived. Like a rename, this writes no card events."""
     with closing(connect()) as db, db:
         old = _load_project(db, name)["name"]
-        n = db.execute("UPDATE cards SET archived=1 WHERE project=? COLLATE NOCASE",
-                       (old,)).rowcount
+        n = db.execute("UPDATE cards SET archived=1 WHERE project=? COLLATE NOCASE"
+                       " AND archived=0", (old,)).rowcount
         db.execute("DELETE FROM projects WHERE name=?", (old,))
     return {"deleted": old, "archived": n}
 
