@@ -69,11 +69,10 @@ each call is a fresh shell:
   MCP `get_card` or `Invoke-RestMethod "http://127.0.0.1:8123/api/cards/<id>" | ConvertTo-Json
   -Depth 8` (never the bare object, whose default view cuts lists to 4 items).
 
-The MCP tools stay for stage subagents and for a session without PowerShell; there, use them
-and the summary says once that the run read full cards. Their writes are slim (#203):
-`update_card` and `comment` take `slim=True`, which answers only `id`, `lane` and `assignee`;
-the MCP fallback writes pass `slim=True` too. Reads stay whole (`get_card`). HTTP is your
-first route: a write it refused by a permission check is still never retried through the MCP
+The MCP tools stay for stage subagents and for a session without PowerShell (the summary says
+once that the run read full cards). Their writes are slim (#203): `update_card` and `comment`
+take `slim=True`, which answers only `id`, `lane` and `assignee`; reads stay whole. HTTP is
+your first route: a write it refused by a permission check is never retried through the MCP
 tool (below), and the summary names the `PowerShell(…)` rule.
 
 ### Board writes that fail (#147)
@@ -167,9 +166,7 @@ one-agent path); a large card is planned, then built by a fresh develop subagent
   plan has at most 5 steps, no open questions and no `## Blocked by`, and the change touches
   at most ~5 files (PLAN.md, docs and tests included), adds no new module, and changes no
   database schema, HTTP route or MCP tool. Anything else is large. When unsure: large.
-- the labels alone pick the plan model, read from the `get_card` right before spawning. A card
-  judged small is built on `sonnet`; one with no label judged large was planned on `sonnet`
-  and goes to a develop subagent; the label `large` is the per-card override.
+- the labels alone pick the plan model, read from the `get_card` right before spawning.
 - the plan's first line says the path: `Size: small (label)`, `Size: small (judged: 3 steps, 2
   files)` or `Size: large (…)`; relabel and move the card back to `plan` to replan.
 - a one-agent build bigger than judged still finishes on the develop rules and says so; one
@@ -178,8 +175,7 @@ one-agent path); a large card is planned, then built by a fresh develop subagent
 **Slots.** At most **2 cards in flight** by default (#193). A project changes it with a line
 `Cards in flight: N` in its `instructions` (N a whole number from 1 up; case-insensitive, the
 first match wins, no cap); a missing, non-numeric or below-1 value falls back to 2 and the
-summary says so in one line. (For the person setting it: more slots finish a batch sooner on
-the clock; fewer slots spend fewer tokens and cause fewer merge conflicts at land.) Plan and
+summary says so in one line. Plan and
 develop stages run side by side within that limit, each in its card's own worktree. A card
 keeps its slot while it waits for the test slot, and keeps slot and worktree from plan into
 develop. At most **one card in `test`** at a time, from the test stage through ship, land,
@@ -249,10 +245,9 @@ Stray copies are reverted at once, without asking:
 whose branch matched `base checkout: reverted stray copies of card/<id>: <paths>`. Any other
 path is never touched: comment on the replying card `base checkout: uncommitted changes that
 are not a copy of a card's committed edits, left alone: <their status lines>`, each path once
-per run, and the summary names them. A revert refused by a permission check is not retried
-another way (as under "Board writes that fail"). Untracked files are not checked; but `git
-merge` refuses to overwrite an untracked copy of a file the card adds, so such a land fails
-with nothing merged and the deploy comment says so.
+per run, and the summary names them. A refused revert follows "Board writes that fail".
+Untracked files are not checked; an untracked copy of a file the card adds makes the land
+fail with nothing merged, and the deploy comment says so.
 
 ### plan  (in the card's worktree)
 
@@ -498,8 +493,8 @@ PASS → (you) ship, land, deploy, clean up, in this order:
    (`<base>` had not moved since it merged it in, and ship committed nothing): do not run the
    tests, even if the deploy instructions say to." Not tested: "`<base>` moved since the test
    stage (or ship committed changes after it, or the land was skipped): run the tests if the
-   deploy instructions call for them, before any push." The dispatcher applies the same rule
-   itself on a mechanical deploy. The rule only removes a test run, never adds one. The deploy
+   deploy instructions call for them, before any push." The same rule
+   applies to your own mechanical deploy; it only removes a test run, never adds one. The deploy
    comment carries exactly one `tests:` line: `tests: skipped, docs-only` (docs-only, the rules
    call for tests); `tests: run in test stage, skipped` (tested, the rules call for tests);
    `tests: <count> passed`, e.g. `tests: 538 passed` (not tested, tests ran; a failing run is
