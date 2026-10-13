@@ -743,25 +743,37 @@ function pickAnswer(answers, n, text) {
   return lines.join("\n");
 }
 
-// One row of radios per question that offers options; a pick writes the answers field.
-// Nothing is preselected: the recommended option only wears a badge.
+// The answers text without question n's top-level line.
+function dropAnswer(answers, n) {
+  return (answers ? answers.split("\n") : []).filter(l => !new RegExp(`^${n}[.)]\\s`).test(l)).join("\n");
+}
+
+// One row per question: radios when it offers options, else a small one-line input; either
+// writes its "N. <text>" line into the answers field (there is no answers box). Nothing is
+// preselected: the recommended option only wears a badge.
 function choices(c) {
   const picked = Object.fromEntries((c.answers || "").split("\n")
     .map(l => l.match(/^(\d+)[.)]\s+(.*)/)).filter(Boolean).map(m => [m[1], m[2].trim()]));
-  return parseQuestions(c.questions).filter(q => q.options.length).map(q => {
+  // from the latest card, not the one this panel was drawn from: a second pick must keep the first
+  const save = (n, text) => patch({ answers: pickAnswer(open.answers, n, text) });
+  return parseQuestions(c.questions).map(q => {
     const row = Object.assign(document.createElement("div"),
-      { className: "choice", title: `question ${q.n}: pick an answer, it goes into your answers below` });
+      { className: "choice", title: `question ${q.n}: ${q.options.length ? "pick an answer" : "type an answer"}, it is saved as your answer` });
     row.append(Object.assign(document.createElement("b"), { className: "q", textContent: `${q.n}. ${q.text}` }));
+    if (!q.options.length) {
+      const t = Object.assign(document.createElement("input"),
+        { type: "text", className: "answer-line", value: picked[q.n] || "", placeholder: "your answer" });
+      t.onchange = () => {
+        const v = t.value.trim();
+        patch({ answers: v ? pickAnswer(open.answers, q.n, v) : dropAnswer(open.answers, q.n) });
+      };
+      row.append(t);
+      return row;
+    }
     for (const o of q.options) {
       const r = Object.assign(document.createElement("input"),
         { type: "radio", name: "q" + q.n, checked: picked[q.n] === o.text });
-      // from the box, not the card: it may hold text typed since the last save
-      r.onchange = () => {
-        const box = $("#panel textarea.answers");
-        const answers = pickAnswer(box ? box.value : c.answers, q.n, o.text);
-        if (box) box.value = answers;
-        patch({ answers });
-      };
+      r.onchange = () => save(q.n, o.text);
       const l = document.createElement("label");
       l.append(r, " " + o.text);
       if (o.recommended)
@@ -1013,10 +1025,9 @@ function renderPanel() {
   }
 
   // the planning round, each in its own box, shown only once it holds something (#96):
-  // the agent writes plan and questions; a person answers, so answers show with questions
-  const shows = { plan: c.plan, questions: c.questions, answers: c.questions || c.answers };
-  for (const [f, label] of [["plan", "plan"], ["questions", "open questions"],
-                            ["answers", "your answers"]]) {
+  // the agent writes plan and questions; a person answers in the rows under the questions
+  const shows = { plan: c.plan, questions: c.questions };
+  for (const [f, label] of [["plan", "plan"], ["questions", "open questions"]]) {
     if (!shows[f]) continue;
     const box = Object.assign(document.createElement("textarea"),
       { value: c[f], className: f === "plan" ? f : "desc " + f });
@@ -1569,7 +1580,6 @@ const FIELD_TIPS = {
   "description": "the request: what you want done and why. The agent reads it, never rewrites it",
   "plan": "the implementation plan the planning agent wrote. Edit it if you want it done differently",
   "open questions": "what the plan needs a person to decide before the work can go on",
-  "your answers": "your answers to the open questions: the agent reads them when it replans",
   "assignee": "who is working on it: a person, or an agent while it works",
   "lane": "the stage it is in: todo → plan → develop → test → verify → done",
   "labels": "free tags, comma separated",

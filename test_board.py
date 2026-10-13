@@ -1271,7 +1271,8 @@ def test_the_comments_come_before_a_planned_cards_plan(page):
                      questions="1. which?", answers="this one")
     heads = sheet_heads(page, cid)
     assert heads[:4] == ["project", "description", "activity", "say something"], heads
-    assert heads[4:7] == ["plan", "open questions", "your answers"], heads
+    assert heads[4:6] == ["plan", "open questions"], heads
+    assert "your answers" not in heads, heads
 
 
 def test_a_draft_has_no_comments_under_its_description(page):
@@ -2410,13 +2411,14 @@ def test_plan_questions_and_answers_get_their_own_boxes_once_planned(page):
     page.wait_for_function(f"() => open && open.id === {cid}")
     assert page.locator("#panel textarea.desc >> nth=0").input_value() == "the ask"
     assert page.locator("#panel textarea.questions").input_value() == "1. red?", "numbered from 1"
-    type_into(page, "#panel textarea.answers", "blue")
-    wait_saved(page, cid, "answers", "blue")
+    assert page.locator("#panel textarea.answers").count() == 0, "no answers box (#436)"
+    type_into(page, "#panel .choice input.answer-line", "blue")
+    wait_saved(page, cid, "answers", "1. blue")
 
 
 def test_each_planning_box_shows_only_once_it_holds_something(page):
-    """#96: plan and open questions are the agent's, so an empty one is hidden; "your
-    answers" is a person's to fill, so it shows whenever there are questions to answer."""
+    """#96: plan and open questions are the agent's, so an empty one is hidden; there is no
+    answers box (#436), a person answers in the rows under the questions."""
     def boxes(fields):
         cid = core.create_card("p", actor="ce", project="Home", lane="plan")["id"]
         if fields:
@@ -2431,10 +2433,9 @@ def test_each_planning_box_shows_only_once_it_holds_something(page):
 
     assert boxes({}) == []
     assert boxes({"plan": "do it"}) == ["plan"], "no questions: nothing to answer"
-    assert boxes({"questions": "1. red?"}) == ["questions", "answers"], "no plan box"
-    assert boxes({"answers": "blue"}) == ["answers"], "an answer is kept on show"
-    assert boxes({"plan": "p", "questions": "1. q?", "answers": "a"}) == \
-        ["plan", "questions", "answers"]
+    assert boxes({"questions": "1. red?"}) == ["questions"], "no plan box"
+    assert boxes({"answers": "blue"}) == [], "answers alone show nothing"
+    assert boxes({"plan": "p", "questions": "1. q?", "answers": "a"}) == ["plan", "questions"]
 
 
 def test_an_empty_checklist_shows_only_while_a_person_writes_the_card(page):
@@ -2483,7 +2484,9 @@ def test_an_open_question_s_options_are_radios_that_write_the_answers(page):
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
     groups = page.locator("#panel .choice")
-    assert groups.count() == 2, "a question without options has no group"
+    assert groups.count() == 3, "a question without options gets a one-line input row"
+    assert groups.nth(1).locator("input.answer-line").input_value() == "no, nothing"
+    assert page.locator("#panel textarea.answers").count() == 0, "no answers box (#436)"
     assert groups.nth(0).inner_text().startswith("1.")
     labels = groups.nth(0).locator("label")
     assert [t.split()[0] for t in labels.all_inner_texts()] == ["SQLite", "Postgres"]
@@ -2493,19 +2496,19 @@ def test_an_open_question_s_options_are_radios_that_write_the_answers(page):
 
     human_click(page, "#panel .choice >> nth=0 >> input >> nth=0")    # SQLite
     wait_saved(page, cid, "answers", "2. no, nothing\n1. SQLite")
-    assert page.locator("#panel textarea.answers").input_value() == "2. no, nothing\n1. SQLite"
     assert page.locator("#panel .choice >> nth=0 >> input >> nth=0").is_checked()
 
     human_click(page, "#panel .choice >> nth=0 >> input >> nth=1")    # Postgres replaces it
     wait_saved(page, cid, "answers", "2. no, nothing\n1. Postgres")
-    page.click("#panel .choice >> nth=1 >> input >> nth=1")           # blue, for question 3
+    page.click("#panel .choice >> nth=2 >> input >> nth=1")           # blue, for question 3
     wait_saved(page, cid, "answers", "2. no, nothing\n1. Postgres\n3. blue")
 
-    type_into(page, "#panel textarea.answers", "1. red\n3. blue\nand be quick")   # still editable
-    wait_saved(page, cid, "answers", "1. red\n3. blue\nand be quick")
+    type_into(page, "#panel .choice >> nth=1 >> input.answer-line", "yes please")
+    wait_saved(page, cid, "answers", "2. yes please\n1. Postgres\n3. blue")
+    type_into(page, "#panel .choice >> nth=1 >> input.answer-line", "")   # empty clears the line
+    wait_saved(page, cid, "answers", "1. Postgres\n3. blue")
     assert each(page, "#panel .choice input:checked",
-                "rs => rs.map(r => r.parentNode.textContent.trim())") == ["blue"], \
-        "an answer matching an option shows checked; one matching none checks nothing"
+                "rs => rs.map(r => r.parentNode.textContent.trim())") == ["Postgres", "blue"]
 
 
 def test_an_open_question_s_text_leads_its_options_with_a_gap_between_questions(page):
@@ -2538,30 +2541,33 @@ def test_an_open_question_s_lead_line_is_plain_text_and_wraps_in_a_narrow_panel(
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
     q = page.locator("#panel .choice .q")
-    assert q.all_inner_texts() == ["1. Keep <b>bold</b> & <i>tags</i>?", f"3. {long.strip()}"], \
-        "markup in a question shows as text; a question with no options has no line"
+    assert q.all_inner_texts() == ["1. Keep <b>bold</b> & <i>tags</i>?", "2. No options here",
+                                   f"3. {long.strip()}"], "markup in a question shows as text"
     assert page.locator("#panel .choice .q b, #panel .choice .q i").count() == 0
-    assert q.nth(1).bounding_box()["height"] > 2 * q.nth(0).bounding_box()["height"], \
+    assert q.nth(2).bounding_box()["height"] > 2 * q.nth(0).bounding_box()["height"], \
         "a long question wraps"
     assert each(page, "#panel .choice", "rs => rs.map(r => r.scrollWidth <= r.clientWidth)") \
-        == [True, True], "nothing overflows the narrow panel"
+        == [True, True, True], "nothing overflows the narrow panel"
     assert each(page, "#panel .choice input:checked",
                 "rs => rs.map(r => r.parentNode.textContent.trim())") == ["no"], \
         "a picked answer still shows checked under its question"
 
 
-def test_an_option_click_right_after_typing_an_answer_keeps_both(page):
-    """Typing in "your answers" then clicking a radio: the mousedown saves the typing and
-    its re-render must not eat the click, nor the pick drop what was typed."""
+def test_two_picks_in_a_row_keep_both_answers(page):
+    """No answers box to read (#436): a pick builds on the latest card, so a pick right
+    after another, and a typed line, never overwrite one another."""
     cid = core.create_card("both", actor="ce", project="Home", lane="plan")["id"]
-    core.update_card(cid, "claude-agent", questions="1. Pick?\n  - a\n  - b")
+    core.update_card(cid, "claude-agent", questions="1. Pick?\n  - a\n  - b\n2. Pick too?\n  - c\n  - d\n3. Why?")
     page.evaluate("load()")
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
-    page.fill("#panel textarea.answers", "a note")                    # no blur: still typing
-    human_click(page, "#panel .choice input >> nth=1")
-    wait_saved(page, cid, "answers", "a note\n1. b")
-    assert page.locator("#panel .choice input >> nth=1").is_checked()
+    type_into(page, "#panel .choice >> nth=2 >> input.answer-line", "because")
+    wait_saved(page, cid, "answers", "3. because")
+    human_click(page, "#panel .choice >> nth=0 >> input >> nth=1")
+    wait_saved(page, cid, "answers", "3. because\n1. b")
+    human_click(page, "#panel .choice >> nth=1 >> input >> nth=0")
+    wait_saved(page, cid, "answers", "3. because\n1. b\n2. c")
+    assert page.locator("#panel .choice input:checked").count() == 2
 
 
 def test_parse_questions_and_pick_answer(page):

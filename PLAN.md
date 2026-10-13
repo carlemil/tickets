@@ -608,8 +608,10 @@ No dark-theme colours: the board has no dark theme yet.
 
 The sheet hides an empty field that only an agent fills at that point and keeps every
 field a person fills in by hand at that point (#96). Plan and open questions each get their own box
-under the comment box (under the description on a draft) once they hold text; "your answers" shows whenever there are
-questions (or answers) and is hidden otherwise. The checklist shows once it has items;
+under the comment box (under the description on a draft) once they hold text; there is no "your answers" box (#436): under the questions each
+one has a row, radios for a question with options and a small one-line input for one without, and
+either writes its `N. <text>` line into `answers` (built on the latest card, so a second pick keeps
+the first; an emptied input drops its line). The checklist shows once it has items;
 empty, it shows only on a new card or a card in todo, since from plan on the agent writes
 it from the plan's steps. The pull request link and session button were already shown
 only when set. "plan" is a fixed 10 lines and scrolls, "open questions" and "your

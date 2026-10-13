@@ -36,7 +36,6 @@ MARKERS = [
     ("say something", "h3:say something"),
     ("plan", "h3:plan"),
     ("open questions", "h3:open questions"),
-    ("your answers", "h3:your answers"),
     ("assignee", "h3:assignee"),
     ("lane", "h3:lane"),
     ("labels", "h3:labels"),
