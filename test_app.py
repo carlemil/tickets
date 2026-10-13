@@ -187,6 +187,14 @@ def test_a_card_in_an_unconfigured_project_is_400(client):
     assert r.status_code == 400 and "unknown project" in r.json()["error"], r.text
 
 
+def test_a_blocked_card_dropped_ahead_of_its_blocker_is_400(client):
+    a, b = (core.create_card(t, actor="ann", project="Home") for t in ("a", "b"))
+    core.link_cards(a["id"], b["id"], "blocks", "ann")
+    r = client.patch(f"/api/cards/{b['id']}", json={"actor": "User", "pos": a["pos"] - 1})
+    assert r.status_code == 400 and f"is blocked by #{a['id']}" in r.json()["error"], r.text
+    assert core.get_card(b["id"])["pos"] == b["pos"]
+
+
 @pytest.mark.no_home
 def test_a_fresh_board_lists_no_projects_and_refuses_a_projectless_card(client):
     assert client.get("/api/projects").json() == []

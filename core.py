@@ -190,21 +190,33 @@ def _bottom(db, lane):
     return (db.execute("SELECT MAX(pos) FROM cards WHERE lane=?", (lane,)).fetchone()[0] or 0) + 1
 
 
-def _order_check(db, id, lane, pos, placed):
+def _order_check(db, id, old, placed):
     """A card must not sit ahead of a live blocker in its lane (#449), nor a blocker
-    behind a card it blocks: the lane order is (pos, id). Other lanes are unordered, and a
-    finished blocker is no blocker (`_blocks`). Refused with a ValueError, which the board
-    answers by putting the card back."""
+    behind a card it blocks: the lane order is (pos, id). Run on the written row, inside
+    the write's transaction, so liveness is the one after the move (`_blocks`: a blocker
+    dragged into verify may be finished, one dragged back out of done blocks again).
+    Only cards side by side on one board count: same lane, project and archived view. A
+    pair blocking both ways has no order to keep, and a pair already in the wrong order
+    before the write (`old`) is left alone. Refused with a ValueError, which rolls the write
+    back and which the board answers by putting the card back."""
+    me = _load(db, id)
     by, blocking = _blocks(db).get(id, ([], []))
     for other in by + blocking:
-        o = _load(db, other)
-        if o["lane"] != lane:
+        if other in by and other in blocking:
             continue
-        ahead = (pos, id) < (o["pos"], other)
-        if other in by and ahead:
-            raise ValueError(f"#{id} is blocked by #{other} and cannot go ahead of it")
-        if other in blocking and not ahead and placed:   # arriving unplaced = the bottom
-            raise ValueError(f"#{id} blocks #{other} and cannot go behind it")
+        blocked = other in by
+        if not blocked and not placed:   # a blocker arriving unplaced goes to the bottom
+            continue
+        o = _load(db, other)
+        view = (o["lane"], o["project"], o["archived"])
+
+        def wrong(c):
+            ahead = (c["pos"], id) < (o["pos"], other)
+            return (c["lane"], c["project"], c["archived"]) == view and ahead == blocked
+
+        if wrong(me) and not wrong(old):
+            raise ValueError(f"#{id} is blocked by #{other} and cannot go ahead of it" if blocked
+                             else f"#{id} blocks #{other} and cannot go behind it")
 
 
 def _event(db, card_id, actor, kind, detail):
@@ -614,8 +626,7 @@ def update_card(id, actor, **fields):
         placed = "pos" in fields
         if to != frm:
             fields.setdefault("pos", _bottom(db, LANES[to]))
-        if "pos" in fields and (to != frm or fields["pos"] != old["pos"]):
-            _order_check(db, id, LANES[to], fields["pos"], placed)
+        order = "pos" in fields and (to != frm or fields["pos"] != old["pos"])
         # back into plan, develop or test is rework: the new work is neither on master
         # nor deployed. The old PR goes too (#72): a merged one would vouch for code
         # that is not on the base, and the next ship opens a new one.
@@ -644,6 +655,8 @@ def update_card(id, actor, **fields):
                 _event(db, id, actor, kind, detail)
             if fields.get("assignee"):   # an agent assigning itself needs no create_user first
                 db.execute("INSERT OR IGNORE INTO users (name) VALUES (?)", (fields["assignee"],))
+            if order:   # on the written row: a refusal rolls the whole write back (#449)
+                _order_check(db, id, old, placed)
     return get_card(id)
 
 

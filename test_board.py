@@ -3098,6 +3098,38 @@ def test_a_rejected_bulk_move_puts_every_card_back(page):
     assert [core.get_card(i)["lane"] for i in (a, b)] == ["todo", "todo"]
 
 
+def todo_order(page):
+    return each(page, '.lane[data-lane="todo"] .card', "ns => ns.map(n => +n.dataset.id)")
+
+
+def test_a_blocked_card_dropped_above_its_blocker_goes_back_with_the_reason(page):
+    a, b = cards_in(page, "a", "b")
+    core.link_cards(a, b, "blocks", "ann")
+    page.evaluate("load()")
+    page.wait_for_function("() => window.__inflight === 0")
+    box = page.locator(f'.card[data-id="{a}"]').bounding_box()
+    drag(page, b, "todo", y=box["y"] + 1)   # above the blocker's middle
+    page.wait_for_selector("#err.on")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert f"could not move #{b}: #{b} is blocked by #{a}" in page.text_content("#err")
+    assert todo_order(page) == [a, b], "drawn back where it was"
+    assert [c["id"] for c in core.list_cards(lane="todo")] == [a, b]
+
+
+def test_a_blocker_and_the_card_it_blocks_dragged_down_together_both_land(page):
+    a, b, x = cards_in(page, "a", "b", "x")
+    core.link_cards(a, b, "blocks", "ann")
+    page.evaluate("load()")
+    page.wait_for_function("() => window.__inflight === 0")
+    ctrl(page, b)   # picked out of board order: the drop still keeps a above b
+    ctrl(page, a)
+    drag(page, a, "todo")   # under x
+    page.wait_for_function("() => window.__inflight === 0")
+    assert [c["id"] for c in core.list_cards(lane="todo")] == [x, a, b]
+    assert todo_order(page) == [x, a, b]
+    assert not page.locator("#err.on").count()
+
+
 def test_esc_in_an_open_sheet_leaves_the_selection_alone(page):
     a, b = cards_in(page, "a", "b")
     ctrl(page, a)

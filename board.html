@@ -639,30 +639,53 @@ document.addEventListener("drop", ev => {
   ev.preventDefault();
   const id = Number(ev.dataTransfer.getData("text/plain"));
   // a selected card takes the whole selection with it; any other card goes alone
-  const ids = selected.has(id) ? [...selected] : [id];
+  // in the board's order, not the order they were picked: a blocker stays above the card
+  // it blocks (#449)
+  const of = i => cards.find(c => c.id === i);
+  const ids = (selected.has(id) ? [...selected] : [id]).filter(of).sort((x, y) =>
+    LANES.indexOf(of(x).lane) - LANES.indexOf(of(y).lane) || of(x).pos - of(y).pos || x - y);
   if (selected.has(id)) selected.clear();
   const at = slots(col, ev.clientY, ids.length);
-  ids.forEach((i, k) => move(i, col.dataset.lane, at[k]));
+  move(ids, col.dataset.lane, at);
 });
 document.addEventListener("keydown", ev => {
   if (ev.key === "Escape" && !open && selected.size) { selected.clear(); renderBoard(); }
 });
 
-// One call for both gestures: to another lane, or up and down inside this one.
-async function move(id, lane, pos) {
-  const c = cards.find(x => x.id === id);
-  if (!c || (c.lane === lane && c.pos === pos)) return;
-  const was = { lane: c.lane, pos: c.pos };
-  c.lane = lane; c.pos = pos;    // optimistic: the card lands where it was dropped
+// One call for both gestures: to another lane, or up and down inside this one. `ids` go
+// to `pos[k]` each. The server checks each card against where the others are now (#449),
+// so they go one at a time and those refused are tried again while any other lands: a
+// blocker dragged down with the card it blocks fits once that card has gone first.
+async function move(ids, lane, pos) {
+  const was = new Map();
+  let left = [];
+  ids.forEach((id, k) => {
+    const c = cards.find(x => x.id === id);
+    if (!c || (c.lane === lane && c.pos === pos[k])) return;
+    was.set(id, { lane: c.lane, pos: c.pos });
+    c.lane = lane; c.pos = pos[k];   // optimistic: the card lands where it was dropped
+    left.push([id, pos[k]]);
+  });
+  if (!left.length) return;
   renderBoard();
-  try {
-    replace(await api("PATCH", "/api/cards/" + id, { lane, pos }));
-    if (open && open.id === id) openCard(id);
-  } catch (e) {
-    Object.assign(c, was);       // put it back where it came from
-    drawAfterDrag();             // not under a drag started since (#265)
-    showErr("could not move #" + id + ": " + e.message);
+  let err;
+  for (let landed = true; left.length && landed;) {
+    const failed = [];
+    for (const [id, p] of left) {
+      try { replace(await api("PATCH", "/api/cards/" + id, { lane, pos: p })); }
+      catch (e) { failed.push([id, p]); err = e; }
+    }
+    landed = failed.length < left.length;
+    left = failed;
   }
+  if (open && was.has(open.id) && !left.some(([id]) => id === open.id)) openCard(open.id);
+  if (!left.length) return;
+  for (const [id] of left) {     // put them back where they came from
+    const c = cards.find(x => x.id === id);
+    if (c) Object.assign(c, was.get(id));
+  }
+  drawAfterDrag();               // not under a drag started since (#265)
+  showErr("could not move #" + left.map(([id]) => id).join(", #") + ": " + err.message);
 }
 
 // archived, not deleted: "show archived" brings them back
