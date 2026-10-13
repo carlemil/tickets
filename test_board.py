@@ -2570,6 +2570,70 @@ def test_two_picks_in_a_row_keep_both_answers(page):
     assert page.locator("#panel .choice input:checked").count() == 2
 
 
+SLOW_PATCH = """() => {
+    const inner = window.api;
+    window.api = (m, ...a) => m === "PATCH"
+        ? new Promise(ok => setTimeout(ok, 600)).then(() => inner(m, ...a)) : inner(m, ...a);
+}"""
+
+
+def test_a_pick_while_an_earlier_answer_is_in_flight_keeps_both(page):
+    """#436 test review: with no answers box, a pick made before the previous PATCH has
+    answered built on the card as it was, and its PATCH undid the earlier answer."""
+    cid = core.create_card("race", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(cid, "claude-agent",
+                     questions="1. Pick?\n  - a\n  - b\n2. Pick too?\n  - c\n  - d\n3. Why?")
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    page.evaluate(SLOW_PATCH)
+    page.fill("#panel .choice >> nth=2 >> input.answer-line", "because")   # no blur yet
+    human_click(page, "#panel .choice >> nth=0 >> input >> nth=1")   # blurs: saves, then picks b
+    page.click("#panel .choice >> nth=1 >> input >> nth=0")          # and c, all three in flight
+    wait_saved(page, cid, "answers", "3. because\n1. b\n2. c")
+    assert each(page, "#panel .choice input:checked",
+                "rs => rs.map(r => r.parentNode.textContent.trim())") == ["b", "c"]
+    assert page.locator("#panel .choice >> nth=2 >> input.answer-line").input_value() == "because"
+
+
+def test_typing_in_the_next_answer_survives_the_save_of_the_last(page):
+    """#436 test review: tabbing from one answer input to the next saves the first, and its
+    response re-rendered the panel, wiping what was being typed in the second and its focus."""
+    cid = core.create_card("tab", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(cid, "claude-agent", questions="1. Why?\n2. And how?")
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    page.evaluate(SLOW_PATCH)
+    page.fill("#panel .choice >> nth=0 >> input.answer-line", "speed")
+    page.keyboard.press("Tab")                      # saves answer 1, focus in answer 2
+    page.keyboard.type("care")                      # typed before that save answers
+    wait_saved(page, cid, "answers", "1. speed")    # its re-render has happened
+    page.keyboard.type("fully")
+    assert page.evaluate("document.activeElement.dataset.q") == "2"
+    assert page.locator("#panel .choice >> nth=1 >> input.answer-line").input_value() == "carefully"
+    page.keyboard.press("Tab")
+    wait_saved(page, cid, "answers", "1. speed\n2. carefully")
+
+
+def test_an_answer_matching_no_option_is_shown_under_its_question(page):
+    """#436 test review: with no answers box, an answer written through the API or by an
+    agent that matches none of the options would be shown nowhere."""
+    cid = core.create_card("api", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(cid, "claude-agent", questions="1. Which DB?\n  - SQLite\n  - Postgres\n2. Why?",
+                     answers="1. MySQL, <b>really</b>\n2. habit")
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    assert page.locator("#panel .choice .answered").all_inner_texts() == \
+        ["answered: MySQL, <b>really</b>"], "as text, and only where no option matches"
+    assert page.locator("#panel .choice input:checked").count() == 0
+    assert page.locator("#panel .choice input.answer-line").input_value() == "habit"
+    human_click(page, "#panel .choice >> nth=0 >> input >> nth=0")
+    wait_saved(page, cid, "answers", "1. SQLite\n2. habit")
+    assert page.locator("#panel .choice .answered").count() == 0
+
+
 def test_parse_questions_and_pick_answer(page):
     qs = page.evaluate("q => parseQuestions(q)", "1. Which?\n   - A (recommended)\n   - B\n   more text\n2. Free?\n  * C")
     assert qs == [{"n": 1, "text": "Which?", "options": [{"text": "A", "recommended": True},
