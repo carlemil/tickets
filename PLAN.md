@@ -202,9 +202,11 @@ refusal rolls the write back. Only cards side by side on one board count: same l
 project and archived view. A finished blocker holds nothing, a pair blocking both ways has
 no order, a move without `pos` (every agent move) lands at the bottom and is never
 refused, and a pair already in the wrong order is left alone: any step is allowed until it
-is right. A multi-card drop goes in the board's order (not the picking order), one PATCH
-at a time, and those refused are tried again while any other lands, so a blocker dragged
-down with the card it blocks lands once that card has moved.
+is right. A multi-card drop goes in the board's order (not the picking order) except that
+a picked blocker goes above the picked cards it blocks (one from a later lane, or a pair
+already the wrong way round), one PATCH at a time, and those refused are tried again while
+any other lands, so a blocker dragged down with the card it blocks lands once that card
+has moved. Each card still refused is put back and named with its own reason.
 
 `update_card` is one function covering move-lane, assign, retitle, edit body and tick
 checklist. It diffs old against new and writes one event per changed field — that is

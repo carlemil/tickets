@@ -3130,6 +3130,38 @@ def test_a_blocker_and_the_card_it_blocks_dragged_down_together_both_land(page):
     assert not page.locator("#err.on").count()
 
 
+def test_a_blocker_from_a_later_lane_dropped_with_the_card_it_blocks_goes_above_it(page):
+    a, b = cards_in(page, "a", "b")
+    core.update_card(a, "ann", lane="develop")   # the blocker sits in a later lane than b
+    core.link_cards(a, b, "blocks", "ann")
+    page.evaluate("load()")
+    page.wait_for_function("() => window.__inflight === 0")
+    ctrl(page, b)
+    ctrl(page, a)
+    drag(page, a, "test")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert [c["id"] for c in core.list_cards(lane="test")] == [a, b]
+    assert not page.locator("#err.on").count()
+
+
+def test_two_refused_cards_each_show_their_own_reason(page):
+    a, b, c, d = cards_in(page, "a", "b", "c", "d")
+    core.link_cards(a, b, "blocks", "ann")
+    core.link_cards(c, d, "blocks", "ann")
+    page.evaluate("load()")
+    page.wait_for_function("() => window.__inflight === 0")
+    ctrl(page, b)
+    ctrl(page, d)
+    box = page.locator(f'.card[data-id="{a}"]').bounding_box()
+    drag(page, b, "todo", y=box["y"] + 1)   # both above every blocker
+    page.wait_for_selector("#err.on")
+    page.wait_for_function("() => window.__inflight === 0")
+    msg = page.text_content("#err")
+    assert f"could not move #{b}: #{b} is blocked by #{a}" in msg, msg
+    assert f"could not move #{d}: #{d} is blocked by #{c}" in msg, msg
+    assert [x["id"] for x in core.list_cards(lane="todo")] == [a, b, c, d]
+
+
 def test_esc_in_an_open_sheet_leaves_the_selection_alone(page):
     a, b = cards_in(page, "a", "b")
     ctrl(page, a)

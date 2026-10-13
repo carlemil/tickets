@@ -639,11 +639,18 @@ document.addEventListener("drop", ev => {
   ev.preventDefault();
   const id = Number(ev.dataTransfer.getData("text/plain"));
   // a selected card takes the whole selection with it; any other card goes alone
-  // in the board's order, not the order they were picked: a blocker stays above the card
-  // it blocks (#449)
+  // in the board's order, not the order they were picked, except that a blocker goes
+  // above the cards it blocks (one from a later lane, or a pair already the wrong way
+  // round) so the pair lands as one (#449)
   const of = i => cards.find(c => c.id === i);
-  const ids = (selected.has(id) ? [...selected] : [id]).filter(of).sort((x, y) =>
+  const board = (selected.has(id) ? [...selected] : [id]).filter(of).sort((x, y) =>
     LANES.indexOf(of(x).lane) - LANES.indexOf(of(y).lane) || of(x).pos - of(y).pos || x - y);
+  const waits = (x, y) => of(x).blocked_by.includes(y) && !of(x).blocking.includes(y);
+  const ids = [];
+  while (board.length) {   // next: the first card no other picked card holds back (a cycle: the first)
+    const k = board.findIndex(x => !board.some(y => y !== x && waits(x, y)));
+    ids.push(...board.splice(Math.max(k, 0), 1));
+  }
   if (selected.has(id)) selected.clear();
   const at = slots(col, ev.clientY, ids.length);
   move(ids, col.dataset.lane, at);
@@ -668,12 +675,12 @@ async function move(ids, lane, pos) {
   });
   if (!left.length) return;
   renderBoard();
-  let err;
+  const err = new Map();   // id -> why its last try was refused
   for (let landed = true; left.length && landed;) {
     const failed = [];
     for (const [id, p] of left) {
-      try { replace(await api("PATCH", "/api/cards/" + id, { lane, pos: p })); }
-      catch (e) { failed.push([id, p]); err = e; }
+      try { replace(await api("PATCH", "/api/cards/" + id, { lane, pos: p })); err.delete(id); }
+      catch (e) { failed.push([id, p]); err.set(id, e.message); }
     }
     landed = failed.length < left.length;
     left = failed;
@@ -685,7 +692,7 @@ async function move(ids, lane, pos) {
     if (c) Object.assign(c, was.get(id));
   }
   drawAfterDrag();               // not under a drag started since (#265)
-  showErr("could not move #" + left.map(([id]) => id).join(", #") + ": " + err.message);
+  showErr(left.map(([id]) => "could not move #" + id + ": " + err.get(id)).join("; "));
 }
 
 // archived, not deleted: "show archived" brings them back
