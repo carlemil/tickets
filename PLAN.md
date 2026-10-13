@@ -703,7 +703,13 @@ up to 50, then scrolls
 and all grow together with the tallest. 
 
 **The work dot.** A board card leads with a green dot that shows and pulses while an
-agent's status entry (`/api/activity`) points at the card, and is hidden otherwise (#65:
+agent's status entry (`/api/activity`) points at the card, and is hidden otherwise (#498: the
+list is the live rows, each kept only while its card is not archived and not in verify/done
+(a run's row on a card it released in a work lane or todo still shows until it is replaced,
+cleared or 30 min old), plus a derived `working` row for every card `claude-agent` holds in plan/develop/test that
+is not stalled, not waiting for answers and has no live row, so a second card in flight, a
+stage longer than the row's 30 min and a card that left the run's hands all show right in
+`core.list_activity`; the board is unchanged) (#65:
 the element stays, so `markWorking` lights it without a re-render). The same poll pulses
 the project tabs (#82): a tab's color dot pulses while an agent works any card in that
 project (matched case-insensitively), and "All" — plus a tab with no color, such as a

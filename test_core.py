@@ -1786,3 +1786,56 @@ def test_stale_activity_rows_are_hidden_on_read_and_deleted_by_the_next_write():
     core.set_activity("new", b, "testing")
     with closing(core.connect()) as db:   # a write clears the stale row
         assert [r[0] for r in db.execute("SELECT actor FROM activity")] == ["new"]
+
+
+# ---------- #498: the dots follow the cards the run holds ----------
+
+def _ids():
+    return sorted(r["card_id"] for r in core.list_activity())
+
+
+def test_498_a_row_of_a_card_that_left_the_run_shows_no_dot():
+    for lane in ("verify", "done"):
+        c = card(lane="develop", assignee="claude-agent")["id"]
+        core.set_activity("bot", c, "developing")
+        assert _ids() == [c]
+        core.update_card(c, "ann", lane=lane)
+        assert _ids() == [], lane
+    c = card(lane="develop", assignee="claude-agent")["id"]
+    core.set_activity("bot", c, "developing")
+    core.update_card(c, "ann", archived=True)
+    assert _ids() == [], "archived"
+
+
+def test_498_every_card_the_run_holds_shows_a_dot_with_its_project():
+    projects("Other")
+    a = card("a", lane="develop", assignee="claude-agent")["id"]
+    b = card("b", lane="test", assignee="claude-agent", project="Other")["id"]
+    core.set_activity("claude-agent", b, "testing (2 in flight)")   # the run's one row
+    rows = {r["card_id"]: r for r in core.list_activity()}
+    assert sorted(rows) == [a, b]
+    assert rows[a]["project"] == "Home" and rows[b]["project"] == "Other"
+    assert rows[b]["doing"] == "testing (2 in flight)", "the live row wins, listed once"
+
+
+def test_498_a_long_stage_keeps_its_dot_until_the_card_is_stalled():
+    c = card(lane="test", assignee="claude-agent")["id"]
+    core.set_activity("claude-agent", c, "testing")
+    with closing(core.connect()) as db, db:
+        db.execute("UPDATE activity SET since=?", ("2000-01-01T00:00:00+00:00",))
+    _age(c, 10)
+    assert _ids() == [c], "row expired, card held and fresh"
+    _age(c, 60)
+    assert _ids() == [], "stalled: no dot"
+
+
+def test_498_no_dot_for_cards_the_run_does_not_hold():
+    card(lane="develop", assignee="ann")
+    card(lane="develop")
+    card(lane="verify", assignee="claude-agent")
+    card(lane="todo", assignee="claude-agent")
+    w = card(lane="plan", assignee="claude-agent")["id"]
+    core.update_card(w, "claude-agent", questions="1. which?")
+    assert _ids() == [], "waiting for answers"
+    core.update_card(w, "ann", answers="this")
+    assert _ids() == [w]

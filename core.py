@@ -352,11 +352,31 @@ def set_activity(actor, card_id=None, doing=""):
 
 
 def list_activity():
+    """What the board's dots and status bar show (#498). A live row counts only while its card
+    is not archived and not in verify/done (a card the run handed on keeps no dot). A card the run
+    holds (claude-agent, work lane, not stalled, not waiting for answers) with no live row of
+    its own gets a derived one: the run's single row names one card, so a second card in
+    flight, or a stage longer than the row's life, would have no dot. A read, like `_quiet`."""
+    lanes = ",".join("?" * len(STALL_LANES))
     with closing(connect()) as db:
-        return [dict(r) for r in db.execute(
+        rows = [dict(r) for r in db.execute(
             "SELECT a.actor, a.card_id, a.doing, a.since, c.title, c.project, c.lane"
             " FROM activity a JOIN cards c ON c.id = a.card_id WHERE a.since >= ?"
-            " ORDER BY a.since", (_ago(STALL_MINUTES),))]
+            " AND c.archived = 0 AND c.lane NOT IN ('verify', 'done') ORDER BY a.since",
+            (_ago(STALL_MINUTES),))]
+        held = [dict(c) for c in db.execute(
+            "SELECT id, title, project, lane, assignee, archived, updated_at, questions, answers"
+            f" FROM cards WHERE archived = 0 AND assignee = ? AND lane IN ({lanes}) ORDER BY id",
+            (STALL_ASSIGNEE, *STALL_LANES))]
+        quiet = _quiet(db) if held else {}   # the whole-events scan only when a card is held
+    working = [c for c in held if not _stalled(c, quiet)
+               and not ((c["questions"] or "").strip() and not (c["answers"] or "").strip())]
+    have = {r["card_id"] for r in rows}
+    rows += [{"actor": c["assignee"], "card_id": c["id"], "doing": "working",
+              "since": max(c["updated_at"], quiet.get(c["id"], "")),
+              "title": c["title"], "project": c["project"], "lane": c["lane"]}
+             for c in working if c["id"] not in have]
+    return rows
 
 
 def last_event():

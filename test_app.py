@@ -648,6 +648,18 @@ def test_activity_route_lists_what_agents_are_doing(client):
     assert client.get("/api/activity").json() == []
 
 
+def test_activity_route_follows_held_cards_not_only_the_row(client):
+    """#498: a second card in flight has a dot; a card that left the run has none."""
+    mk = lambda t: client.post("/api/cards", json={"title": t, "actor": "ann", "project": "Home",
+                                                    "lane": "develop", "assignee": "claude-agent"}).json()
+    a, b = mk("a"), mk("b")
+    app.set_activity("claude-agent", b["id"], "developing (2 in flight)")
+    got = {r["card_id"]: r["doing"] for r in client.get("/api/activity").json()}
+    assert got == {a["id"]: "working", b["id"]: "developing (2 in flight)"}
+    client.patch(f"/api/cards/{b['id']}", json={"actor": "ann", "lane": "verify"})
+    assert [r["card_id"] for r in client.get("/api/activity").json()] == [a["id"]]
+
+
 def test_activity_can_be_set_and_cleared_over_http(client):
     """The fallback for an agent whose MCP connection failed: set_activity as a POST."""
     c = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home"}).json()
