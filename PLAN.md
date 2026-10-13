@@ -596,9 +596,13 @@ marks. The board's own writes reload at once instead: `replace` reloads when the
 card's marks changed (the other end's changed too), and the panel's `blocks` link and
 unlink reload. #37 builds on the classes and fields.
 
-A card waiting for answers (#447: `questions` set, `answers` empty, not in done) gets the
-`waiting` class: a pale yellow background (`#fff4cc`, a shade deeper on hover) and a
-"needs answers" pill. It is a background only, so the blocked/blocking stripe, the
+A card waiting for answers (#447) gets the `waiting` class: the run's own skip rule
+(run.md §2) exactly, a card in its queue lanes (`plan`, `develop`, `test`; `QUEUE_LANES`),
+not archived, `questions` not blank and `answers` blank (whitespace is blank, as
+`IsNullOrWhiteSpace`), so one saved answer drops it, as it ends the run's skip. It shows a
+pale yellow background (`#fff4cc`, a shade deeper on hover) and a "needs answers" pill
+(`#ffd666`, still a shape on the hover shade); a `blocks` pill on it turns white, its own
+pale yellow would vanish. It is a background only, so the blocked/blocking stripe, the
 selected outline, the `.drop-at` line, the dragging opacity and the dots all show over it.
 The board has no dark theme. `cardNode` computes it from the card's own fields, so any
 re-render (poll, own write) keeps it right.

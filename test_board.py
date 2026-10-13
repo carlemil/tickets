@@ -441,7 +441,7 @@ def test_every_event_kind_reads_as_a_sentence(page):
 
 def test_a_card_waiting_for_answers_is_tinted_and_pilled_until_answered(page):
     """#447: questions filled and answers empty marks the card; answered, cleared or done does not."""
-    a = core.create_card("waits", actor="ce", project="Home")["id"]
+    a = core.create_card("waits", actor="ce", project="Home", lane="plan")["id"]
     card = lambda: page.locator(f'.card[data-id="{a}"]')
     poll = lambda: page.evaluate("loadStatus()")
     core.update_card(a, "ce", questions="1. which color?")
@@ -456,9 +456,60 @@ def test_a_card_waiting_for_answers_is_tinted_and_pilled_until_answered(page):
     core.update_card(a, "ce", answers="")
     poll()
     page.wait_for_selector(f'.card.waiting[data-id="{a}"]')
+    core.update_card(a, "ce", answers=" \n ")   # whitespace is empty, as the run's IsNullOrWhiteSpace
+    poll()
+    page.wait_for_selector(f'.card.waiting[data-id="{a}"]')
     core.update_card(a, "ce", lane="done")
     poll()
     page.wait_for_selector(f'.card[data-id="{a}"]:not(.waiting)')
+
+
+def test_only_cards_the_run_would_skip_for_answers_are_tinted(page):
+    """#447: the run's rule exactly (run.md §2): plan/develop/test, not archived, questions
+    filled (not just whitespace), answers empty; its stripe, pills and outline still show."""
+    q = "1. which color?"
+    ids = {}
+    for name, lane, f in [("plan", "plan", {}), ("develop", "develop", {}), ("test", "test", {}),
+                          ("todo", "todo", {}), ("verify", "verify", {}),
+                          ("blank", "plan", {"questions": "  \n"}),
+                          ("answered", "plan", {"questions": "", "answers": "1. red"})]:
+        ids[name] = core.create_card(name, actor="ce", project="Home", lane=lane)["id"]
+        core.update_card(ids[name], "ce", **({"questions": q} | f))
+    core.link_cards(ids["plan"], ids["develop"], "blocks", "ce")
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{ids["test"]}"]', modifiers=["Control"])
+    page.wait_for_selector(f'.card.selected[data-id="{ids["test"]}"]')
+    waiting = each(page, ".card.waiting", "ns => ns.map(n => +n.dataset.id)")
+    assert sorted(waiting) == sorted([ids["plan"], ids["develop"], ids["test"]])
+    bg = lambda i: page.locator(f'.card[data-id="{i}"]').evaluate(
+        "n => getComputedStyle(n).backgroundColor")
+    page.mouse.move(0, 0)
+    assert bg(ids["test"]) == "rgb(255, 244, 204)"
+    assert page.locator(f'.card[data-id="{ids["test"]}"]').evaluate(
+        "n => getComputedStyle(n).outlineStyle") == "solid", "the selected outline shows over it"
+    assert page.locator(f'.card[data-id="{ids["develop"]}"]').evaluate(
+        "n => getComputedStyle(n, '::before').backgroundColor") == "rgb(191, 38, 0)", "and the stripe"
+    assert page.locator(f'.card[data-id="{ids["plan"]}"] .pill.blocks').evaluate(
+        "n => getComputedStyle(n).backgroundColor") == "rgb(255, 255, 255)", "a blocks pill keeps its shape"
+    core.update_card(ids["plan"], "ce", archived=True)
+    page.check("#showArch")
+    page.wait_for_selector(f'.card[data-id="{ids["develop"]}"]', state="detached")
+    page.wait_for_selector(f'.card[data-id="{ids["plan"]}"]')
+    assert page.locator(f'.card.waiting[data-id="{ids["plan"]}"]').count() == 0, "archived: never"
+
+
+def test_answering_in_the_panel_drops_the_tint_without_a_reload(page):
+    """#447: the board's own answer write re-renders the card, no poll, no reload."""
+    cid = core.create_card("ask", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(cid, "claude-agent", plan="p", questions="1. Colour?\n   - red\n   - blue")
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card.waiting[data-id="{cid}"]')
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    human_click(page, "#panel .choice >> nth=0 >> input >> nth=1")
+    wait_saved(page, cid, "answers", "1. blue")
+    page.wait_for_selector(f'.card[data-id="{cid}"]:not(.waiting)')
+    assert page.locator(f'.card[data-id="{cid}"] .pill.waiting').count() == 0
 
 
 def test_blocked_and_blocking_cards_are_marked_and_unmarked_by_the_poll(page):

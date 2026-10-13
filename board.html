@@ -98,12 +98,14 @@
   .card.blocked.blocking::before { background: linear-gradient(var(--warn) 50%, #ff991f 50%); }
   .pill.blocked-by { background: #ffebe6; color: var(--warn); }
   .pill.blocks { background: #fffae6; color: #974f0c; }
-  /* #447: waiting for answers (questions set, answers empty): a pale yellow tint on the card
+  /* #447: waiting for answers (the run's skip: plan/develop/test, questions set, answers
+     empty, not archived): a pale yellow tint on the card
      itself, so it pops in the list without touching the stripe (::before), the selected
      outline, the drop-at shadow, the dragging opacity or the dots; a pill says it in words */
   .card.waiting { background: #fff4cc; }
   .card.waiting:hover { background: #ffeeb3; }
-  .pill.waiting { background: #ffe58f; color: #7a4a00; }
+  .pill.waiting { background: #ffd666; color: #7a4a00; }   /* still a shape on the hover tint */
+  .card.waiting .pill.blocks { background: #fff; }   /* its own pale yellow vanishes on the tint */
   /* #37: an arrow from each blocking card to each card it blocks, both on screen. One svg
      over the whole board, in its scroll coordinates, so it scrolls with it; clicks and
      drags go through. Faint, so many links don't drown the cards; a hovered card's are lit */
@@ -237,6 +239,7 @@
 
 <script>
 const LANES = ["todo", "plan", "develop", "test", "verify", "done"];
+const QUEUE_LANES = ["plan", "develop", "test"];   // the lanes the run works (run.md §2)
 const $ = (s, r = document) => r.querySelector(s);
 
 let cards = [];      // current board (filtered)
@@ -439,7 +442,10 @@ function cardNode(c) {
   const by = c.lane === "done" ? [] : c.blocked_by, blocks = c.lane === "done" ? [] : c.blocking;
   n.classList.toggle("blocked", by.length > 0);
   n.classList.toggle("blocking", blocks.length > 0);
-  const waiting = c.lane !== "done" && !!c.questions.trim() && !c.answers.trim();   // #447
+  // #447: the run's "waiting for answers" skip (run.md §2) exactly: a card in its queue lanes,
+  // not archived, questions filled and answers empty (whitespace counts as empty)
+  const waiting = QUEUE_LANES.includes(c.lane) && !c.archived
+    && !!c.questions.trim() && !c.answers.trim();
   n.classList.toggle("waiting", waiting);
   if (waiting) meta.append(Object.assign(document.createElement("span"),
     { className: "pill waiting", title: "the plan has open questions: a person must answer them",
