@@ -2526,6 +2526,30 @@ def test_an_open_question_s_text_leads_its_options_with_a_gap_between_questions(
     assert g1["y"] - (g0["y"] + g0["height"]) >= 8, "a gap between one question and the next"
 
 
+def test_an_open_question_s_lead_line_is_plain_text_and_wraps_in_a_narrow_panel(page):
+    long = "Should the export " + "really " * 30 + "include archived cards?"
+    cid = core.create_card("lead2", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(cid, "claude-agent", plan="p", questions=(
+        "1. Keep <b>bold</b> & <i>tags</i>?\n   - yes\n   - no\n"
+        "2. No options here\n"
+        f"3. {long}\n   - yes (recommended)\n   - no"), answers="3. no")
+    page.set_viewport_size({"width": 420, "height": 700})
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    q = page.locator("#panel .choice .q")
+    assert q.all_inner_texts() == ["1. Keep <b>bold</b> & <i>tags</i>?", f"3. {long.strip()}"], \
+        "markup in a question shows as text; a question with no options has no line"
+    assert page.locator("#panel .choice .q b, #panel .choice .q i").count() == 0
+    assert q.nth(1).bounding_box()["height"] > 2 * q.nth(0).bounding_box()["height"], \
+        "a long question wraps"
+    assert each(page, "#panel .choice", "rs => rs.map(r => r.scrollWidth <= r.clientWidth)") \
+        == [True, True], "nothing overflows the narrow panel"
+    assert each(page, "#panel .choice input:checked",
+                "rs => rs.map(r => r.parentNode.textContent.trim())") == ["no"], \
+        "a picked answer still shows checked under its question"
+
+
 def test_an_option_click_right_after_typing_an_answer_keeps_both(page):
     """Typing in "your answers" then clicking a radio: the mousedown saves the typing and
     its re-render must not eat the click, nor the pick drop what was typed."""

@@ -617,9 +617,9 @@ answers" grow like the description. A question may list its choices as indented 
 bullets under it, one suffixed ` (recommended)` — the AskUserQuestion shape, still plain
 text (#4). A choice written as a top-level line is numbered as a question of its own and
 gets no radios, so the plan stage's rule is: choices always indented, and re-read after the
-post (#432). Under the questions box each such question gets a row of radios, led by its
-own `N. <question>` line and spaced from the next question (#433) (the
-recommended one badged, none preselected); a pick replaces or adds that question's
+post (#432). Under the questions box each such question gets a row of radios (the
+recommended one badged, none preselected), led by its own `N. <question>` line and spaced
+from the next question (#433); a pick replaces or adds that question's
 top-level `N. <option>` line in the answers and keeps every other line. The description box grows with its text, from 10 lines
 up to 50, then scrolls
 (CSS `field-sizing: content`). Lanes run to the bottom of the window even when empty,
