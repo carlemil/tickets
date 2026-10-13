@@ -1043,6 +1043,12 @@ function renderPanel() {
   const pj = document.createElement("select");
   for (const x of projects)   // a card from before projects may spell its project differently
     pj.append(new Option(x.name, x.name, false, x.name.toLowerCase() === c.project.toLowerCase()));
+  if (!projects.some(x => x.name.toLowerCase() === c.project.toLowerCase())) {
+    // the project was deleted (#437): show the card's own name, not the first project
+    const gone = new Option(c.project, c.project, false, true);
+    gone.disabled = true;
+    pj.prepend(gone);
+  }
   pj.onchange = () => patch({ project: pj.value });
   p.append(field("project", pj));
 
@@ -1289,7 +1295,7 @@ function renderProjects(p, dismiss) {
     const del = Object.assign(document.createElement("button"),
       { className: "danger", textContent: "delete project…" });
     del.onclick = () => confirmDelete(name);
-    block(x.name, f, x.name.toLowerCase() === NO_PROJECT.toLowerCase() ? null : del);
+    block(x.name, f, del);
   }
 
   const f = inputs();
@@ -1319,8 +1325,6 @@ function landPicker(land = "merge") {
   return s;
 }
 
-const NO_PROJECT = "No Project";   // core.NO_PROJECT: where a deleted project's cards go
-
 // Deleting is the one project change that cannot be undone, so it spells out what happens
 // to the cards and waits for an explicit "Delete project". Esc or Cancel does nothing.
 async function confirmDelete(name) {
@@ -1333,8 +1337,9 @@ async function confirmDelete(name) {
   const n = active + archived;
   $("#delTitle").textContent = `Delete project “${name}”?`;
   $("#delMsg").textContent = n === 0 ? "It has no cards. " : (
-      `Its ${n} card${n === 1 ? "" : "s"}${archived ? ` (${archived} archived)` : ""} will move ` +
-      `to “${NO_PROJECT}”, where agents will not work on them. `) +
+      `Its ${n} card${n === 1 ? "" : "s"}${archived ? ` (${archived} archived already)` : ""} ` +
+      `will be archived and stay hidden under “${name}”; a project made with that name ` +
+      `gets them back, still archived. `) +
     "Its folder, instructions and color are forgotten; nothing on disk is touched. " +
     "This cannot be undone.";
   const d = $("#delProject");
@@ -1682,7 +1687,7 @@ const TIPS = [
   ["#panel .project input[type=text]:first-of-type", "the project's name, as cards show it"],
   ["#panel .project input[type=text]:nth-of-type(2)", "the folder the agent works in for this project's cards"],
   ["#panel .project textarea", "board-specific extras for this project's agents, e.g. the deploy target; the repo's CLAUDE.md holds its rules"],
-  ["#panel .project .danger", "delete the project: its cards move to No Project, where agents leave them alone"],
+  ["#panel .project .danger", "delete the project: its cards are archived and stay hidden under its name"],
   ["#panel .project .primary", "create the project"],
   ["#delProject button[value=cancel]", "keep the project"],
   ["#delProject button[value=delete]", "delete the project for good"],

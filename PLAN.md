@@ -768,12 +768,27 @@ existing card's sheet has no such button. The draft re-renders only for checklis
 queued links.
 
 **Deleting a project.** Each project in the settings has "delete project…", which opens a
-native `<dialog>`: it counts the cards (archived too) that will move, says they go to
-"No Project" where agents will not work on them, and that it cannot be undone; only
-"Delete project" acts, Cancel or Esc do nothing. `DELETE /api/projects/{name}` →
-`core.delete_project` moves the cards to `NO_PROJECT` (created on first use, grey; no
-card events, like a rename) and removes the row. "No Project" itself has no delete
-button and the server refuses to delete it. The skill never works a card in it. Renaming "No Project" to something else makes its cards workable again.
+native `<dialog>`: it counts the cards (archived too), says they will be archived and
+stay hidden under the project's name, and that it cannot be undone; only "Delete project"
+acts, Cancel or Esc do nothing. `DELETE /api/projects/{name}` → `core.delete_project`
+archives all the project's cards (no card events, like a rename), keeps their `project`
+text (`cards.project` is plain TEXT, not a foreign key) and removes the row; it answers
+`{deleted, archived}`, `archived` counting the cards it archived (not those already were). There is no "No Project" any more (#437). A card under a deleted
+name is listed only with `archived` and the name as filter, or under "show archived"; the
+sheet shows its project as a disabled option. Creating or moving a card to that name is
+refused (no row). Unarchiving such a card is refused ("its project was deleted: recreate
+it or move the card to a project") unless the same call moves it to a real project;
+`connect()`'s backfill of a row for a card naming no project looks at non-archived cards
+only, or the next request would resurrect the project. Making a project of the same name
+again shows the cards under it (still archived). Agents list non-archived cards only, so
+never work one. `connect()` runs a one-time migration (`PRAGMA user_version` 0 → 1): a
+"No Project" row left by the old design is removed and its cards archived, moved into
+project Tickets when it exists, else left under the old name. Before that, in the same
+transaction, it gives every other card's project a row, archived cards' too (until #437
+every card's project had one, so a pre-projects database's archived-only project is not
+taken for a deleted one). The whole step is one transaction, user_version included: a
+failure leaves the database as it was and the next connect retries. A fresh database
+has no projects at all and sets user_version 1.
 
 "projects…" in the header opens the panel on project settings: name, path, agent
 instructions, a color picker and the land select ("merge into the base branch" / "open a
