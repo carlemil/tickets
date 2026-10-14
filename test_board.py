@@ -2513,7 +2513,7 @@ def test_a_tall_lane_still_grows_past_the_window(page):
     assert plan["height"] == todo["height"], "and the empty lanes match it"
 
 
-def test_plan_questions_and_answers_get_their_own_boxes_once_planned(page):
+def test_plan_box_and_question_rows_once_planned(page):
     fresh = core.create_card("fresh", actor="ce", project="Home")["id"]
     page.evaluate("load()")
     page.click(f'.card[data-id="{fresh}"]')
@@ -2547,8 +2547,10 @@ def test_each_planning_box_shows_only_once_it_holds_something(page):
         page.wait_for_function(f"() => open && open.id === {cid}")
         got = [f for f in ("plan", "answers")
                if page.locator(f"#panel textarea.{f}").count()]
-        if page.locator("#panel h3", has_text="open questions").count():
-            assert page.locator("#panel .choice").count(), "the title comes with its rows"
+        heads = page.locator("#panel h3").all_text_contents()
+        if "open questions" in heads:
+            assert heads.count("open questions") == 1
+            assert page.locator("#panel .choice, #panel .qnote").count(), "the title comes with its rows"
             got.insert(1 if got[:1] == ["plan"] else 0, "questions")
         assert page.locator("#panel textarea.questions").count() == 0, "no questions box (#572)"
         close_sheet(page)
@@ -2559,6 +2561,22 @@ def test_each_planning_box_shows_only_once_it_holds_something(page):
     assert boxes({"questions": "1. red?"}) == ["questions"], "no plan box"
     assert boxes({"answers": "blue"}) == [], "answers alone show nothing"
     assert boxes({"plan": "p", "questions": "1. q?", "answers": "a"}) == ["plan", "questions"]
+    assert boxes({"questions": " \n  "}) == [], "#572: blank questions show no title"
+    assert boxes({"questions": "red or blue"}) == ["questions"], "#572: unnumbered text shows too"
+
+
+def test_question_text_that_is_no_question_stays_readable(page):
+    """#572: with no questions box, text in questions that is neither a numbered question nor
+    an option (a lead-in, a context line under a question) is shown read-only, not lost."""
+    cid = core.create_card("ctx", actor="ce", project="Home", lane="verify")["id"]
+    core.update_card(cid, "claude-agent", questions="Some context.\n1. Which?\n   - A\n   why it matters")
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    assert page.locator("#panel .qnote").all_inner_texts() == ["Some context.", "why it matters"]
+    assert page.locator("#panel .choice .q").inner_text() == "1. Which?"
+    assert page.locator("#panel .choice input[type=radio]").count() == 1
+    close_sheet(page)
 
 
 def test_an_empty_checklist_shows_only_while_a_person_writes_the_card(page):
@@ -2760,9 +2778,13 @@ def test_an_answer_matching_no_option_is_shown_under_its_question(page):
 def test_parse_questions_and_pick_answer(page):
     qs = page.evaluate("q => parseQuestions(q)", "1. Which?\n   - A (recommended)\n   - B\n   more text\n2. Free?\n  * C")
     assert qs == [{"n": 1, "text": "Which?", "options": [{"text": "A", "recommended": True},
-                                                         {"text": "B", "recommended": False}]},
+                                                         {"text": "B", "recommended": False}],
+                   "notes": ["more text"]},
                   {"n": 2, "text": "Free?", "options": [{"text": "C", "recommended": False}]}]
     assert page.evaluate("parseQuestions('')") == []
+    lead = lambda q: page.evaluate("q => questionsLead(q)", q)
+    assert lead("context\n\n1. Which?\n   later") == "context", "#572: text before the first question"
+    assert lead("no number here?") == "no number here?" and lead("1. q?") == ""
     pick = lambda a, n, t: page.evaluate("([a, n, t]) => pickAnswer(a, n, t)", [a, n, t])
     assert pick("", 1, "A") == "1. A"
     assert pick("note\n1. A\n12. x", 1, "B") == "note\n1. B\n12. x", "12. is not 1."
