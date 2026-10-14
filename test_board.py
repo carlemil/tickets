@@ -1804,8 +1804,8 @@ def test_the_project_tag_shows_only_under_all(page):
 # ---------- status bar ----------
 
 def test_the_status_bar_says_when_no_agent_is_working(page):
-    page.wait_for_function("() => document.querySelector('#status').textContent !== ''")
-    assert page.text_content("#status") == "no agent is working on anything"
+    page.wait_for_function("() => document.querySelector('#sum').textContent !== ''")
+    assert page.text_content("#sum") == "no agent is working on anything"
 
 
 def test_the_status_bar_shows_each_agent_and_opens_its_card(page):
@@ -1814,11 +1814,15 @@ def test_the_status_bar_shows_each_agent_and_opens_its_card(page):
     core.set_activity("bot", a, "planning")
     core.set_activity("other-bot", b, "developing")
     page.evaluate("loadStatus()")
+    page.wait_for_function("() => document.querySelector('#sum').textContent.startsWith('2 agents')")
+    assert page.text_content("#sum") == f"2 agents working · #{a} Home, #{b} Home"
+    assert not page.locator("#agents").is_visible()
+    page.click("#agentsBtn")
     jobs = page.locator("#status .job")
     jobs.first.wait_for()
     texts = jobs.all_text_contents()
-    assert texts[0].startswith(f"bot planning #{a} Paint it blue · started "), texts
-    assert texts[1].startswith(f"other-bot developing #{b} Wire <b>it</b>"), "text, not HTML"
+    assert texts[0].startswith(f"bot in Home planning #{a} Paint it blue · started "), texts
+    assert texts[1].startswith(f"other-bot in Home developing #{b} Wire <b>it</b>"), "text, not HTML"
     jobs.nth(1).click()
     page.wait_for_selector("#panel.on")
     assert page.input_value("#panel input[type=text] >> nth=0") == "Wire <b>it</b>"
@@ -1830,12 +1834,28 @@ def test_an_agent_finishing_reloads_the_board(page):
     page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{cid}"]')
     core.set_activity("bot", cid, "planning")
     page.evaluate("loadStatus()")
-    page.locator("#status .job").wait_for()
+    page.wait_for_function("() => document.querySelector('#sum').textContent.startsWith('1 agent ')")
     core.update_card(cid, "claude-agent", lane="develop")   # the agent's work lands...
     core.set_activity("bot")                        # ...and it clears its status
     page.evaluate("loadStatus()")
     page.wait_for_selector(f'.lane[data-lane="develop"] .card[data-id="{cid}"]')
-    assert page.text_content("#status") == "no agent is working on anything"
+    assert page.text_content("#sum") == "no agent is working on anything"
+
+
+def test_the_agents_panel_toggles_and_is_remembered(page):
+    cid = core.create_card("Ship", actor="ce", project="Home", lane="plan")["id"]
+    core.set_activity("bot", cid, "planning")
+    page.evaluate("loadStatus()")
+    page.wait_for_function("() => document.querySelector('#sum').textContent.startsWith('1 agent ')")
+    assert not page.locator("#agents").is_visible()
+    page.click("#agentsBtn")
+    assert page.locator("#agents").is_visible()
+    assert page.get_attribute("#agentsBtn", "aria-expanded") == "true"
+    page.reload()
+    page.wait_for_function("() => document.querySelector('#sum').textContent.startsWith('1 agent ')")
+    assert page.locator("#agents").is_visible()
+    page.click("#agentsBtn")
+    assert not page.locator("#agents").is_visible()
 
 
 
@@ -2241,7 +2261,7 @@ def test_work_on_a_card_off_the_board_pulses_nothing(page):
     page.on("pageerror", lambda e: errors.append(e))
     core.set_activity("bot", away, "planning")
     page.evaluate("loadStatus()")
-    page.locator("#status .job").wait_for()
+    page.wait_for_function("() => document.querySelector('#sum').textContent.startsWith('1 agent ')")
     assert page.locator(".work.working").count() == 0
     assert errors == []
 
