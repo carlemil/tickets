@@ -1839,3 +1839,45 @@ def test_498_no_dot_for_cards_the_run_does_not_hold():
     assert _ids() == [], "waiting for answers"
     core.update_card(w, "ann", answers="this")
     assert _ids() == [w]
+
+
+def test_old_format_choices_after_a_question_are_indented_bullets_not_questions():   # #505
+    old = ("1. How many photos may a trial account keep? Check the sample has room.\n"
+           "2. 15 (recommended): three trial books of 5\n"
+           "3. 10: two books' worth\n"
+           "4. 5: exactly one trial book\n"
+           "5. How many photos may a paid account keep?\n"
+           "6. 1000 (recommended): a large book\n"
+           "7. 500: half\n"
+           "8. The wording of the two refusals. Reply \"ok\" or give the wording you want.")
+    assert core.number(old) == (
+        "1. How many photos may a trial account keep? Check the sample has room.\n"
+        "   - 15: three trial books of 5 (recommended)\n"
+        "   - 10: two books' worth\n"
+        "   - 5: exactly one trial book\n"
+        "2. How many photos may a paid account keep?\n"
+        "   - 1000: a large book (recommended)\n"
+        "   - 500: half\n"
+        "3. The wording of the two refusals. Reply \"ok\" or give the wording you want.")
+
+
+def test_number_leaves_normal_lists_and_label_looking_questions_alone():   # #505
+    assert core.number("1. Which colour?\n2. Which size?") == "1. Which colour?\n2. Which size?"
+    assert core.number("- Note: which one?\n- Which?") == "1. Note: which one?\n2. Which?"
+    assert core.number("1. 15: first line label is a question\n2. Q?") == \
+        "1. 15: first line label is a question\n2. Q?"
+    assert core.number("1. Q?\n   - 5: already a bullet\n2. R?") == "1. Q?\n   - 5: already a bullet\n2. R?"
+    # a real question that only looks like a label: a "?", a label not led by a digit, or
+    # not right after a question (free text between) stays a question
+    for q in ("Timeout 30: seconds or minutes?", "#502 overlap: should the dot stay?",
+              "Step 3: do it", "Option 2: a", "Phase 2: when"):
+        assert core.number(f"1. Q?\n2. {q}") == f"1. Q?\n2. {q}"
+    assert core.number("1. Q?\n\nSome context.\n2. 15: x") == "1. Q?\n\nSome context.\n2. 15: x"
+
+
+def test_old_format_choice_run_takes_plain_siblings_and_one_recommended_suffix():   # #505
+    assert core.number("1. Ship it?\n2. Yes (recommended): now\n3. No: later\n4. Why not?") == \
+        "1. Ship it?\n   - Yes: now (recommended)\n   - No: later\n2. Why not?"
+    assert core.number("1. Q?\n2. 15 (recommended): a (recommended)") == \
+        "1. Q?\n   - 15: a (recommended)"
+    assert core.number("1. Q?\n2. 15: a (recommended)") == "1. Q?\n   - 15: a (recommended)"

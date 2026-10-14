@@ -9,6 +9,8 @@ The board's top-level `function` declarations (`openCard`, `patch`, `load`, `api
 on `window`, so page.evaluate can drive the page's own code rather than re-implementing it.
 """
 
+from contextlib import closing
+
 import pytest
 
 import core
@@ -3864,3 +3866,25 @@ def test_a_stalled_card_is_tinted_and_pilled_and_waiting_wins(page):
     assert page.locator(f'.card.stalled[data-id="{fresh}"]').count() == 0
     assert page.locator(f'.card.stalled[data-id="{asks}"]').count() == 0
     assert page.locator(f'.card.waiting[data-id="{asks}"]').count() == 1
+
+
+def test_old_format_questions_show_choices_as_radios_numbered_in_order(page):   # #505
+    cid = core.create_card("old", actor="ce", project="Home", lane="plan")["id"]
+    core.update_card(cid, "claude-agent", plan="p", questions="1. placeholder?")
+    old = ("1. How many trial photos?\n2. 15 (recommended): three books\n3. 10: two books\n"
+           "4. How many paid photos?\n5. 1000 (recommended): big\n6. 500: half\n"
+           "7. Refusal wording?")
+    with closing(core.connect()) as db, db:
+        db.execute("UPDATE cards SET questions=? WHERE id=?", (old, cid))
+    page.evaluate("load()")
+    page.click(f'.card[data-id="{cid}"]')
+    page.wait_for_function(f"() => open && open.id === {cid}")
+    groups = page.locator("#panel .choice")
+    assert groups.count() == 3
+    assert groups.nth(0).locator("input[type=radio]").count() == 2
+    assert groups.nth(0).locator(".pill").inner_text() == "recommended"
+    assert groups.nth(1).locator("input[type=radio]").count() == 2
+    assert groups.nth(2).locator("input.answer-line").count() == 1
+    assert groups.nth(2).inner_text().startswith("3. Refusal")
+    page.click("#panel .choice >> nth=1 >> input >> nth=1")
+    wait_saved(page, cid, "answers", "2. 500: half")

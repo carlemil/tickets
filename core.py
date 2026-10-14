@@ -673,13 +673,36 @@ def number(questions):
     """Questions for a person, as a list numbered from 1 whoever wrote them: top-level
     bullets and numbers are renumbered in order; indented lines and other text are kept."""
     n, out = 0, []
+    after = run = False   # last non-blank line: a question or its choice / an old-format choice
     for ln in questions.splitlines():
         m = re.match(r"(?:[-*+]|\d+[.)])\s+(.*)", ln)
         if m:
+            # #505: an old-format choice ("15 (recommended): ...") right after a question or
+            # its choices is that question's indented bullet, not a question of its own
+            c = old_choice(m[1], after, run)
+            if c:
+                out.append(f"   - {c[0]}" + (" (recommended)" if c[1] else ""))
+                run = True
+                continue
             n += 1
             ln = f"{n}. {m[1]}"
+            after, run = True, False
+        elif ln.strip():
+            after, run = bool(n and re.match(r"\s+[-*+]\s", ln)), False
         out.append(ln)
     return "\n".join(out)
+
+
+def old_choice(text, after, run):
+    """#505: `(choice, recommended)` when a top-level line's text is an old-format choice:
+    right after a question or its choices, no `?`, a label of at most 30 chars and a colon,
+    the label starting with a digit or carrying `(recommended)` (any label once in a run of
+    such choices). Mirrored by board.html's parseQuestions."""
+    c = after and "?" not in text and re.match(r"([^:]{1,30}?)(\s*\(recommended\))?:\s+(.*)", text, re.I)
+    if not c or not (c[2] or run or re.match(r"\d", c[1])):
+        return None
+    rest = re.sub(r"\s*\(recommended\)\s*$", "", c[3], flags=re.I)
+    return f"{c[1]}: {rest}".strip(), bool(c[2]) or rest != c[3]
 
 
 def update_card(id, actor, **fields):

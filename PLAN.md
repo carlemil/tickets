@@ -692,9 +692,9 @@ it from the plan's steps. The pull request link and session button were already 
 only when set. "plan" is a fixed 10 lines and scrolls, "open questions" grows like the
 description. A question may list its choices as indented `- `
 bullets under it, one suffixed ` (recommended)` — the AskUserQuestion shape, still plain
-text (#4). A choice written as a top-level line is numbered as a question of its own and
-gets no radios, so the plan stage's rule is: choices always indented, and re-read after the
-post (#432). Under the questions box each such question gets a row of radios (the
+text (#4). A choice written as a top-level line is in general numbered as a question of its
+own and gets no radios, so the plan stage's rule is: choices always indented, and re-read
+after the post (#432). Old-format text still copes (#505): a top-level line right after a question or its choices (no other non-blank line between), with no `?`, that starts with a short label (at most 30 chars, led by a digit or carrying `(recommended)`; any label once such a run of choices has begun) and a colon is that question's choice, never a question: `core.number()` (`core.old_choice`) writes it as an indented `- label: ...` bullet with one ` (recommended)` suffix, and the board's `parseQuestions` shows already-stored text the same way, numbering questions by order. A stored old-format card's answers keyed by its old numbers no longer line up: re-save its questions through `core.number()` and renumber the answers (done once, for #290, the only such card). Under the questions box each such question gets a row of radios (the
 recommended one badged, none preselected), led by its own `N. <question>` line and spaced
 from the next question (#433); a pick replaces or adds that question's
 top-level `N. <option>` line in the answers and keeps every other line. The description box grows with its text, from 10 lines

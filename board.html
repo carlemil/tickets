@@ -779,15 +779,28 @@ function field(label, node) {
 // Open questions as core.number() leaves them: "N. question", then any options as indented
 // "- option" bullets, one of them maybe suffixed " (recommended)".
 function parseQuestions(text) {
-  const out = [];
+  const out = [], rec = /\s*\(recommended\)\s*$/i;
+  let after = false, run = false;   // as in core.number / core.old_choice (#505)
   for (const ln of (text || "").split("\n")) {
     let m = ln.match(/^(\d+)[.)]\s+(.*)/);
-    if (m) { out.push({ n: +m[1], text: m[2].trim(), options: [] }); continue; }
+    if (m) {
+      // #505: old stored text has choices as top-level "15 (recommended): ..." lines after a
+      // question: they are its options, and questions are numbered by order, not stored number
+      const c = after && !m[2].includes("?") && m[2].match(/^([^:]{1,30}?)(\s*\(recommended\))?:\s+(.*)/i);
+      if (c && (c[2] || run || /^\d/.test(c[1]))) {
+        out.at(-1).options.push({ text: `${c[1]}: ${c[3].replace(rec, "")}`.trim(), recommended: !!c[2] || rec.test(c[3]) });
+        run = true;
+        continue;
+      }
+      out.push({ n: out.length + 1, text: m[2].trim(), options: [] });
+      after = true; run = false;
+      continue;
+    }
     m = ln.match(/^\s+[-*+]\s+(.*)/);
     if (m && out.length) {
-      const rec = /\s*\(recommended\)\s*$/i;
       out.at(-1).options.push({ text: m[1].replace(rec, "").trim(), recommended: rec.test(m[1]) });
     }
+    if (ln.trim()) { after = !!(m && out.length); run = false; }
   }
   return out;
 }

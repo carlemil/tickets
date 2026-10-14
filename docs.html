@@ -475,7 +475,9 @@ The card stays in its lane, marked blocked, and runs skip it until those cards r
     buttons, the agent's pick marked "recommended"; one without gets a small text input.
     A click or a typed line is saved as <code>N. &lt;answer&gt;</code>; clearing the input
     removes the line. An answer that matches none of a question's options (written by an
-    agent or through the API) is shown under it as "answered: …".</li>
+    agent or through the API) is shown under it as "answered: …". Older cards that wrote
+    a question's choices as numbered lines of their own (<code>2. 15 (recommended): …</code>)
+    still show them as that question's radios, questions numbered in order.</li>
   <li>In <code>verify</code>: read the comments, look at the branch, try the deployed build.
     With "merge into the base branch" the agent has already merged <code>card/&lt;id&gt;</code>
     and pushed the base: the deploy comment says so, or why it skipped the merge (the repo
