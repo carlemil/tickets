@@ -1115,14 +1115,17 @@ function renderPanel() {
 
   // the planning round, each in its own box, shown only once it holds something (#96):
   // the agent writes plan and questions; a person answers in the rows under the questions
-  const shows = { plan: c.plan, questions: c.questions };
-  for (const [f, label] of [["plan", "plan"], ["questions", "open questions"]]) {
-    if (!shows[f]) continue;
+  // (#572: no raw questions box, the rows show each question; agents and the API write them)
+  if (c.plan) {
     const box = Object.assign(document.createElement("textarea"),
-      { value: c[f], className: f === "plan" ? f : "desc " + f });
-    box.onchange = () => patch({ [f]: box.value });
-    p.append(field(label, box));
-    if (f === "questions") p.append(...choices(c));
+      { value: c.plan, className: "plan" });
+    box.onchange = () => patch({ plan: box.value });
+    p.append(field("plan", box));
+  }
+  if (c.questions) {
+    const rows = document.createElement("div");
+    rows.append(...choices(c));
+    p.append(field("open questions", rows));
   }
   const back = answering && p.querySelector(`input.answer-line[data-q="${answering.q}"]`);
   if (back) {

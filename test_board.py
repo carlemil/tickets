@@ -2528,7 +2528,8 @@ def test_plan_questions_and_answers_get_their_own_boxes_once_planned(page):
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
     assert page.locator("#panel textarea.desc >> nth=0").input_value() == "the ask"
-    assert page.locator("#panel textarea.questions").input_value() == "1. red?", "numbered from 1"
+    assert page.locator("#panel textarea.questions").count() == 0, "no raw questions box (#572)"
+    assert page.locator("#panel .choice .q").inner_text() == "1. red?", "numbered from 1"
     assert page.locator("#panel textarea.answers").count() == 0, "no answers box (#436)"
     type_into(page, "#panel .choice input.answer-line", "blue")
     wait_saved(page, cid, "answers", "1. blue")
@@ -2544,8 +2545,12 @@ def test_each_planning_box_shows_only_once_it_holds_something(page):
         page.evaluate("load()")
         page.click(f'.card[data-id="{cid}"]')
         page.wait_for_function(f"() => open && open.id === {cid}")
-        got = [f for f in ("plan", "questions", "answers")
+        got = [f for f in ("plan", "answers")
                if page.locator(f"#panel textarea.{f}").count()]
+        if page.locator("#panel h3", has_text="open questions").count():
+            assert page.locator("#panel .choice").count(), "the title comes with its rows"
+            got.insert(1 if got[:1] == ["plan"] else 0, "questions")
+        assert page.locator("#panel textarea.questions").count() == 0, "no questions box (#572)"
         close_sheet(page)
         return got
 

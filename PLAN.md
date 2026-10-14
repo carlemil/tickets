@@ -680,8 +680,8 @@ toggle yet: add one if real boards get crowded.
 No dark-theme colours: the board has no dark theme yet.
 
 The sheet hides an empty field that only an agent fills at that point and keeps every
-field a person fills in by hand at that point (#96). Plan and open questions each get their own box
-under the comment box (under the description on a draft) once they hold text; there is no "your answers" box (#436): under the questions each
+field a person fills in by hand at that point (#96). Plan gets its own box and open questions a title with the answer rows
+under the comment box (under the description on a draft) once they hold text; there is no raw questions text box (#572: it duplicated the rows, so questions can no longer be edited by hand in the panel; agents and the API still write them) and no "your answers" box (#436): under the questions title each
 one has a row, radios for a question with options and a small one-line input for one without, and
 either writes its `N. <text>` line into `answers` (built on the latest card, so a second pick keeps
 the first, even while the first's PATCH is in flight; an emptied input drops its line; a save's
@@ -689,8 +689,7 @@ re-render keeps the text, focus and caret of the answer input being typed in; an
 matching none of a question's options shows under it as "answered: …"). The checklist shows once it has items;
 empty, it shows only on a new card or a card in todo, since from plan on the agent writes
 it from the plan's steps. The pull request link and session button were already shown
-only when set. "plan" is a fixed 10 lines and scrolls, "open questions" grows like the
-description. A question may list its choices as indented `- `
+only when set. "plan" is a fixed 10 lines and scrolls. A question may list its choices as indented `- `
 bullets under it, one suffixed ` (recommended)` — the AskUserQuestion shape, still plain
 text (#4). A choice written as a top-level line is in general numbered as a question of its
 own and gets no radios, so the plan stage's rule is: choices always indented, and re-read
