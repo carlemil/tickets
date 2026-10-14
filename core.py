@@ -674,6 +674,12 @@ def number(questions):
     for ln in questions.splitlines():
         m = re.match(r"(?:[-*+]|\d+[.)])\s+(.*)", ln)
         if m:
+            # #505: an old-format choice ("15 (recommended): ...") right after a question
+            # is that question's indented bullet, not a question of its own
+            c = n and re.match(r"([^:?]{1,30}?)(\s*\(recommended\))?:\s+(.*)", m[1], re.I)
+            if c and (c[2] or re.search(r"\d", c[1])):
+                out.append(f"   - {c[1]}: {c[3]}" + (" (recommended)" if c[2] else ""))
+                continue
             n += 1
             ln = f"{n}. {m[1]}"
         out.append(ln)

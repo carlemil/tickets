@@ -694,7 +694,7 @@ description. A question may list its choices as indented `- `
 bullets under it, one suffixed ` (recommended)` — the AskUserQuestion shape, still plain
 text (#4). A choice written as a top-level line is numbered as a question of its own and
 gets no radios, so the plan stage's rule is: choices always indented, and re-read after the
-post (#432). Under the questions box each such question gets a row of radios (the
+post (#432). Old-format text still copes (#505): a top-level line right after a question that starts with a short label (at most 30 chars, no `?`, a digit or `(recommended)`) and a colon is that question's choice, never a question: `core.number()` writes it as an indented `- label: ...` bullet, and the board's `parseQuestions` shows already-stored text the same way, numbering questions by order. Under the questions box each such question gets a row of radios (the
 recommended one badged, none preselected), led by its own `N. <question>` line and spaced
 from the next question (#433); a pick replaces or adds that question's
 top-level `N. <option>` line in the answers and keeps every other line. The description box grows with its text, from 10 lines

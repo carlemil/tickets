@@ -782,7 +782,17 @@ function parseQuestions(text) {
   const out = [];
   for (const ln of (text || "").split("\n")) {
     let m = ln.match(/^(\d+)[.)]\s+(.*)/);
-    if (m) { out.push({ n: +m[1], text: m[2].trim(), options: [] }); continue; }
+    if (m) {
+      // #505: old stored text has choices as top-level "15 (recommended): ..." lines after a
+      // question: they are its options, and questions are numbered by order, not stored number
+      const c = out.length && m[2].match(/^([^:?]{1,30}?)(\s*\(recommended\))?:\s+(.*)/i);
+      if (c && (c[2] || /\d/.test(c[1]))) {
+        out.at(-1).options.push({ text: `${c[1]}: ${c[3]}`.trim(), recommended: !!c[2] });
+        continue;
+      }
+      out.push({ n: out.length + 1, text: m[2].trim(), options: [] });
+      continue;
+    }
     m = ln.match(/^\s+[-*+]\s+(.*)/);
     if (m && out.length) {
       const rec = /\s*\(recommended\)\s*$/i;
