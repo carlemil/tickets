@@ -35,7 +35,7 @@ test_e2e.py    one card, browser and MCP, one attributed history
 test_idle_gate.py  the idle gate: which boards let a loop tick through
 skill-start/SKILL.md  /tickets-start: sets a repo up where needed, then works its cards, on a /loop or once
 skill-start/run.md    one run over a project's cards, over MCP (read by /tickets-start, not a skill)
-skill-start/idle_gate.py  UserPromptSubmit hook: answers an idle loop tick before the model wakes
+skill-start/idle_gate.py  UserPromptSubmit hook: answers an idle loop tick before the model wakes (#568: prints `{"continue": false, "stopReason": <idle line>}`, not a block decision, to avoid the "Prompt blocked by a hook" banner; unverified in the UI)
 skill-start/agents/tickets-stage.md  the stage subagent: shell, file, Skill and board tools only (copied to ~/.claude/agents/ by /tickets-start)
 skill-open-board/SKILL.md  /tickets-open-board: opens the board in the browser
 skill-stop/SKILL.md  /tickets-stop: cancels that loop

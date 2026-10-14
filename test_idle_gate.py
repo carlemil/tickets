@@ -47,6 +47,18 @@ def test_an_empty_queue_answers_the_tick_without_the_model(server, proj, here):
     assert gate.idle_line(TICK, here.upper().replace("\\", "/") + "/", server) == line
 
 
+def test_the_hook_output_stops_the_tick_and_carries_the_idle_line():
+    out = gate.hook_output("tickets: nothing to do (2026-10-14 08:00)")
+    assert out["continue"] is False  # processing stops: the model is not called
+    assert out["stopReason"] == "tickets: nothing to do (2026-10-14 08:00)"
+
+
+def test_the_hook_prints_nothing_for_a_prompt_that_is_not_a_tick():
+    r = subprocess.run(["python", "skill-start/idle_gate.py"], capture_output=True, text=True,
+                       input='{"prompt": "fix the bug", "cwd": "."}')
+    assert r.returncode == 0 and r.stdout == ""
+
+
 @pytest.mark.parametrize("lane", ["plan", "develop", "test"])
 def test_a_ready_card_lets_the_tick_through(server, proj, here, lane):
     card(proj, lane)

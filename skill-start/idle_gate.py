@@ -3,7 +3,7 @@
 A tick re-reads the whole session from cache just to answer "nothing to do", which
 costs hundreds of thousands of tokens in a long session. This answers it for free:
 when the prompt is a loop tick and the board has nothing a run would take, the hook
-blocks the prompt and shows the idle line instead. Anything uncertain — board down,
+stops the prompt (continue false) and shows the idle line as the stop reason instead. Anything uncertain — board down,
 no project for this folder, a card that might be workable — lets the tick through,
 and the run itself decides. Stdlib only: it runs on the system python, not the venv.
 """
@@ -57,8 +57,13 @@ def idle_line(prompt, cwd, base=BASE):
     return "tickets: nothing to do (%s)" % time.strftime("%Y-%m-%d %H:%M")
 
 
+def hook_output(line):
+    """The hook's JSON: stop before the model, with the idle line as the stop reason."""
+    return {"continue": False, "stopReason": line}
+
+
 if __name__ == "__main__":
     data = json.load(sys.stdin)
     line = idle_line(data.get("prompt", ""), data.get("cwd", ""))
     if line:
-        print(json.dumps({"decision": "block", "reason": line}))
+        print(json.dumps(hook_output(line)))

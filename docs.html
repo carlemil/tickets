@@ -137,8 +137,9 @@ hand coding tasks to an agent on your machine and review what comes back.</p>
 </ol>
 <p>The <b>idle gate</b> is a <code>UserPromptSubmit</code> hook in
 <code>~/.claude/settings.json</code> (<code>skill-start/idle_gate.py</code>): when a loop
-tick finds no card a run would take, it answers "nothing to do" before the model wakes, so
-an idle tick costs no tokens. It needs a system <code>python</code> on PATH; without one
+tick finds no card a run would take, it stops the tick before the model wakes and shows
+only the "nothing to do" line (the hook returns <code>continue: false</code> with that line
+as the stop reason), so an idle tick costs no tokens. It needs a system <code>python</code> on PATH; without one
 <code>/tickets-start</code> says so and skips it, and idle ticks still work, just not for free.</p>
 <p>The <b>stage agent</b> (<code>skill-start/agents/tickets-stage.md</code>) is what each
 stage of a card runs as (a mechanical deploy runs in the dispatcher itself and needs
