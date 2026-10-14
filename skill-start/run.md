@@ -123,7 +123,7 @@ The **repo** is the git toplevel of the path; the **base** branch is its current
   refused-write check before starting an unassigned card).
 
 A **stalled** card (`stalled` true: `claude-agent`'s, quiet 30 minutes) that this run does not
-hold lost its agent (cut off, crashed, session closed). It is taken over, not skipped (#493): comment `stalled: taking over from session <old>: <what is
+hold lost its agent. It is taken over, not skipped (#493): comment `stalled: taking over from session <old>: <what is
 re-run>`, set `session` to this run's, then work its lane on the existing worktree and branch:
 plan and develop re-run the stage; test starts from the committed state (`git -C <tree> status
 --porcelain` clean, else commit leftovers as the stage does and say so) and runs the full suite.
@@ -187,7 +187,7 @@ Starting a card: `update_card(assignee="claude-agent", session="<session id>")`,
 reads and writes through the trimmed calls (§0). `set_activity` holds one entry for you: the
 card you started last with the count, `set_activity(card_id=…, doing="developing (2 in
 flight)")` (`planning`, `planning and building` for a plan stage that may build, `developing`,
-`testing`); clear it when the last card leaves your hands. Before every board write after a
+`testing`); repeat it at every wake while a stage runs (heartbeat, #502); clear it when the last card leaves your hands. Before every board write after a
 stage, check the card again (the trimmed check): **a person's move wins**: if the lane changed
 under you (other than by your own move or the plan stage's move to `develop`), post your
 output as a comment saying it was moved during the run, and leave the card there.
