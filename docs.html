@@ -88,7 +88,8 @@ board</a> has the details.</p>
   <li data-field="plan"><b>plan</b>: the agent's plan, written in <code>plan</code>. Its
     steps become the checklist. Hidden until the agent writes one.</li>
   <li data-field="open questions"><b>open questions</b>: what the agent needs you to decide
-    before it builds. Below the box each question has a row led by its own line: a question
+    before it builds. Each question has a row led by its own line (any other text the agent
+    wrote with them shows as plain text; there is no box to edit them): a question
     with options gets radio buttons, the agent's pick marked "recommended"; one without gets
     a small one-line text input. A click or a typed line is your answer, saved at once; the
     next run replans with them. There is no separate answers box. Hidden while there are none.</li>
@@ -263,7 +264,7 @@ again.</p>
     open questions with a row of answers under each, the assignee and lane, labels, the checklist, links
     (parent and blocks) and "archive". Fields only the agent fills stay out of the way
     until they hold something: the plan and open questions appear once the agent writes
-    them, and an empty checklist shows only on a
+    them (the questions only as the rows of answers, there is no text box to edit them), and an empty checklist shows only on a
     new card or one in todo, where you may add items yourself. Cards are never deleted, only archived. The log
     leaves out what the dots, the session button and the pull request link already show,
     and an agent taking or dropping a card itself.</li>
