@@ -1,9 +1,12 @@
 import asyncio
 import importlib.util
+import io
+import json
 import os
 import re
 import socket
 import subprocess
+import sys
 import threading
 
 import pytest
@@ -45,6 +48,28 @@ def test_an_empty_queue_answers_the_tick_without_the_model(server, proj, here):
     assert re.fullmatch(r"tickets: nothing to do \(\d{4}-\d\d-\d\d \d\d:\d\d\)", line)
     # the folder matches however it is spelled
     assert gate.idle_line(TICK, here.upper().replace("\\", "/") + "/", server) == line
+
+
+def test_the_hook_output_stops_the_tick_and_carries_the_idle_line():
+    out = gate.hook_output("tickets: nothing to do (2026-10-14 08:00)")
+    assert out["continue"] is False  # processing stops: the model is not called
+    assert out["stopReason"] == "tickets: nothing to do (2026-10-14 08:00)"
+
+
+def test_the_hook_prints_nothing_for_a_prompt_that_is_not_a_tick():
+    r = subprocess.run([sys.executable, "skill-start/idle_gate.py"], capture_output=True,
+                       text=True, input='{"prompt": "fix the bug", "cwd": "."}')
+    assert r.returncode == 0 and r.stdout == ""
+
+
+def test_an_idle_tick_prints_the_stop_json(server, proj, here, monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": TICK, "cwd": here})))
+    gate.main(server)
+    out = capsys.readouterr().out
+    assert '"continue": false' in out  # JSON's lowercase boolean, not Python's False
+    data = json.loads(out)
+    assert data.keys() == {"continue", "stopReason"} and data["continue"] is False
+    assert re.fullmatch(r"tickets: nothing to do \(\d{4}-\d\d-\d\d \d\d:\d\d\)", data["stopReason"])
 
 
 @pytest.mark.parametrize("lane", ["plan", "develop", "test"])
