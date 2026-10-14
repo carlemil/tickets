@@ -266,7 +266,7 @@ in, do not ask again. A `## Steps` section: a numbered list of concrete steps, a
 one line each. Anything needing a person's decision goes in a last `## Open questions`
 section, numbered 1., 2., …; a question with sensible choices lists 2–4 of them as indented
 `- ` bullets, the recommended one first and suffixed ` (recommended)`; otherwise free text.
-A choice is never a top-level line: the board numbers every top-level line as a question and
+A choice is never a top-level line: the board numbers top-level lines as questions and
 offers radios only for the indented `- ` bullets under one (#432).
 Last line `QUESTIONS: NONE` or `QUESTIONS: OPEN`.
 

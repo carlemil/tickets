@@ -1867,3 +1867,17 @@ def test_number_leaves_normal_lists_and_label_looking_questions_alone():   # #50
     assert core.number("1. 15: first line label is a question\n2. Q?") == \
         "1. 15: first line label is a question\n2. Q?"
     assert core.number("1. Q?\n   - 5: already a bullet\n2. R?") == "1. Q?\n   - 5: already a bullet\n2. R?"
+    # a real question that only looks like a label: a "?", a label not led by a digit, or
+    # not right after a question (free text between) stays a question
+    for q in ("Timeout 30: seconds or minutes?", "#502 overlap: should the dot stay?",
+              "Step 3: do it", "Option 2: a", "Phase 2: when"):
+        assert core.number(f"1. Q?\n2. {q}") == f"1. Q?\n2. {q}"
+    assert core.number("1. Q?\n\nSome context.\n2. 15: x") == "1. Q?\n\nSome context.\n2. 15: x"
+
+
+def test_old_format_choice_run_takes_plain_siblings_and_one_recommended_suffix():   # #505
+    assert core.number("1. Ship it?\n2. Yes (recommended): now\n3. No: later\n4. Why not?") == \
+        "1. Ship it?\n   - Yes: now (recommended)\n   - No: later\n2. Why not?"
+    assert core.number("1. Q?\n2. 15 (recommended): a (recommended)") == \
+        "1. Q?\n   - 15: a (recommended)"
+    assert core.number("1. Q?\n2. 15: a (recommended)") == "1. Q?\n   - 15: a (recommended)"
