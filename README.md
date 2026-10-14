@@ -89,7 +89,7 @@ gate (below).
 **The idle gate** keeps the loop from spending tokens when it has nothing to do.
 `skill-start/idle_gate.py` runs as a `UserPromptSubmit` hook in
 `~/.claude/settings.json` and checks the board before each loop tick reaches the model.
-If this folder's project has no card a run would take, it blocks the tick and prints
+If this folder's project has no card a run would take, it stops the tick and shows
 `tickets: nothing to do (<time>)`, so the model never wakes. Otherwise the tick goes
 through as usual. A card that is ready, in progress or has an open PR is one a run would
 take. Cards waiting for your answers, assigned to someone else or blocked by an unfinished
