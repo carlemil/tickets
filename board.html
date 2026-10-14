@@ -192,11 +192,21 @@
   body { padding-bottom: 36px; }   /* room for the status bar over the board's last cards */
   #status {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
-    display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+    display: flex; gap: 8px; flex-wrap: nowrap; align-items: center;
     padding: 6px 16px; font-size: 12px; color: var(--dim);
     background: var(--panel); border-top: 1px solid var(--line);
   }
-  #status .job { cursor: pointer; }
+  #status #sum { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #status #agentsBtn { padding: 0 8px; line-height: 18px; }
+  #status #agents {
+    display: none; position: absolute; left: 0; right: 0; bottom: 100%; max-height: 50vh;
+    overflow: auto; padding: 8px 16px; background: var(--panel); border-top: 1px solid var(--line);
+    box-shadow: 0 -4px 12px rgba(9,30,66,.15);
+  }
+  #status.open #agents { display: block; }
+  #status.open #agents:empty { display: none; }   /* no agent: no empty strip over the board */
+  #status .job { cursor: pointer; display: block; padding: 3px 0; }
+  #status .proj { color: var(--ink); }
   #status .job:hover .t { text-decoration: underline; }
   #status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
                  background: #36b37e; margin-right: 6px; animation: pulse 1.2s infinite; }
@@ -231,7 +241,12 @@
 <div id="err"></div>
 <div id="board"></div>
 <div id="panel"></div>
-<footer id="status"></footer>
+<footer id="status">
+  <span id="sum"></span>
+  <button id="agentsBtn" type="button" aria-expanded="false" aria-controls="agents"
+          title="list the agents at work">&#9650;</button>
+  <div id="agents"></div>
+</footer>
 <dialog id="delProject">
   <form method="dialog">
     <h3 id="delTitle"></h3>
@@ -1626,30 +1641,56 @@ function markTab(b) {
 let version = null;   // the newest event id at the last poll: every card write bumps it
 let recheck = false;   // the open card may be behind: refresh the sheet when it is safe to
 
+// the agents panel above the footer: open state remembered (#575)
+function showAgents(open) {
+  $("#status").classList.toggle("open", open);
+  const b = $("#agentsBtn");
+  b.textContent = open ? "▼" : "▲";
+  b.title = open ? "hide the list of agents at work" : "list the agents at work";
+  b.setAttribute("aria-expanded", open);
+  localStorage.setItem("agentsOpen", open ? "1" : "");
+}
+$("#agentsBtn").onclick = () => showAgents(!$("#status").classList.contains("open"));
+showAgents(localStorage.getItem("agentsOpen") === "1");
+
 let statusCall = 0;
 async function loadStatus() {
-  const bar = $("#status"), call = ++statusCall;
+  const call = ++statusCall;
   let jobs, ver;
   try {
     [jobs, ver] = await Promise.all([api("GET", "/api/activity"), api("GET", "/api/version")]);
-  } catch { if (call === statusCall) bar.textContent = "agent status unavailable"; return; }
+  } catch {
+    if (call !== statusCall) return;
+    $("#sum").textContent = $("#sum").title = "agent status unavailable";
+    $("#agents").textContent = "";   // no stale rows under an unavailable status
+    return;
+  }
   // a poll that started before a newer call must not undo what that call showed
   if (call !== statusCall) return;
-  bar.textContent = jobs.length ? "" : "no agent is working on anything";
+  const agents = new Set(jobs.map(j => j.actor)).size;
+  // the full line as its tooltip too: the bar cuts it with an ellipsis when it is long
+  $("#sum").textContent = $("#sum").title = jobs.length
+    ? `${agents} agent${agents === 1 ? "" : "s"} working · ` + jobs.map(j => `#${j.card_id} ${j.project}`).join(", ")
+    : "no agent is working on anything";
+  const list = $("#agents"), top = list.scrollTop;   // the 5 s rebuild keeps the list's scroll
+  list.textContent = "";
   for (const j of jobs) {
-    const n = document.createElement("span");
+    const n = document.createElement("div");
     n.className = "job";
-    n.title = `${j.project} · ${j.lane}: click to open the card`;
+    n.title = `${j.lane}: click to open the card`;
     n.append(Object.assign(document.createElement("span"), { className: "dot" }),
              Object.assign(document.createElement("span"), { className: "who", textContent: j.actor }),
+             " in ",
+             Object.assign(document.createElement("span"), { className: "proj", textContent: j.project }),
              " " + j.doing + " ",
              Object.assign(document.createElement("span"), { className: "id", textContent: "#" + j.card_id }),
              " ",
              Object.assign(document.createElement("span"), { className: "t", textContent: j.title }),
              " · started " + ago(j.since));
     n.onclick = () => openCard(j.card_id);
-    bar.append(n);
+    list.append(n);
   }
+  list.scrollTop = top;
   // set before any reload, so the rebuilt cards pulse too; the open editor is updated in place
   working = new Set(jobs.map(j => j.card_id));
   for (const d of document.querySelectorAll(".work[data-id]")) markWorking(d);
