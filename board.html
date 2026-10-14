@@ -1633,11 +1633,11 @@ showAgents(localStorage.getItem("agentsOpen") === "1");
 
 let statusCall = 0;
 async function loadStatus() {
-  const bar = $("#status"), call = ++statusCall;
+  const call = ++statusCall;
   let jobs, ver;
   try {
     [jobs, ver] = await Promise.all([api("GET", "/api/activity"), api("GET", "/api/version")]);
-  } catch { if (call === statusCall) bar.textContent = "agent status unavailable"; return; }
+  } catch { if (call === statusCall) $("#sum").textContent = "agent status unavailable"; return; }
   // a poll that started before a newer call must not undo what that call showed
   if (call !== statusCall) return;
   const agents = new Set(jobs.map(j => j.actor)).size;
