@@ -181,7 +181,7 @@ develop stages run side by side within that limit, each in its card's own worktr
 keeps its slot while it waits for the test slot, and keeps slot and worktree from plan into
 develop. At most **one card in `test`** at a time, from the test stage through ship, land,
 deploy and clean-up to `verify`; the next waits. Land merges and pushes of
-the base are yours, one card at a time. Never use the Agent `isolation: "worktree"`.
+the base are yours, one card at a time. Never use the Agent tool's `isolation: "worktree"`.
 
 Starting a card: `update_card(assignee="claude-agent", session="<session id>")`, all your
 reads and writes through the trimmed calls (§0). `set_activity` holds one entry for you: the

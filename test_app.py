@@ -670,6 +670,8 @@ def test_the_runs_row_goes_with_its_hold_on_the_card(client):
     assert client.get("/api/activity").json() == []
     client.patch(f"/api/cards/{c['id']}", json={"actor": "ann", "assignee": "claude-agent", "lane": "todo"})
     assert client.get("/api/activity").json() == []
+    client.patch(f"/api/cards/{c['id']}", json={"actor": "ann", "assignee": "ann", "lane": "develop"})
+    assert client.get("/api/activity").json() == [], "handed to a person"
     app.set_activity("bot", c["id"], "x")
     assert [r["actor"] for r in client.get("/api/activity").json()] == ["bot"]
 

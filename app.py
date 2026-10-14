@@ -475,7 +475,7 @@ def set_activity(actor: str, card_id: int | None = None, doing: str = "") -> lis
     doing="planning". `actor` is you; you have one entry, and setting it replaces it.
     Call it again with no card_id when you stop, so the board does not show you working
     on something you finished. Writes nothing to the card's activity log. Returns every
-    agent's current entry, plus a "working" entry for each other card claude-agent holds
+    agent's current entry (claude-agent's only while it holds that card, #502), plus a "working" entry for each other card claude-agent holds
     in plan/develop/test (#498).
     """
     return core.set_activity(actor, card_id, doing)
