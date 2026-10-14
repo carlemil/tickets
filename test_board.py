@@ -1851,11 +1851,33 @@ def test_the_agents_panel_toggles_and_is_remembered(page):
     page.click("#agentsBtn")
     assert page.locator("#agents").is_visible()
     assert page.get_attribute("#agentsBtn", "aria-expanded") == "true"
+    assert page.get_attribute("#agentsBtn", "title").startswith("hide")
+    assert page.get_attribute("#sum", "title") == f"1 agent working · #{cid} Home", "the whole line"
     page.reload()
     page.wait_for_function("() => document.querySelector('#sum').textContent.startsWith('1 agent ')")
     assert page.locator("#agents").is_visible()
-    page.click("#agentsBtn")
+    core.set_activity("bot")   # open, but no agent left: no empty strip over the board
+    page.evaluate("loadStatus()")
+    page.wait_for_function("() => document.querySelector('#sum').textContent.startsWith('no agent')")
     assert not page.locator("#agents").is_visible()
+    assert page.get_attribute("#agentsBtn", "aria-expanded") == "true"
+    page.click("#agentsBtn")
+    assert page.get_attribute("#agentsBtn", "aria-expanded") == "false"
+    assert page.get_attribute("#agentsBtn", "title") == "list the agents at work"
+
+
+def test_status_unavailable_drops_the_stale_agent_rows(page):
+    cid = core.create_card("Ship", actor="ce", project="Home", lane="plan")["id"]
+    core.set_activity("bot", cid, "planning")
+    page.evaluate("loadStatus()")
+    page.click("#agentsBtn")
+    page.locator("#agents .job").wait_for()
+    page.route("**/api/activity", lambda route: route.abort())
+    page.evaluate("loadStatus()")
+    page.wait_for_function("() => document.querySelector('#sum').textContent === 'agent status unavailable'")
+    assert page.locator("#agents .job").count() == 0
+    assert not page.locator("#agents").is_visible()
+    page.unroute("**/api/activity")
 
 
 

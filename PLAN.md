@@ -722,10 +722,11 @@ lane's "archive all" and the sheet's "archive" cover it.
 
 **Footer summary (#575).** The footer (`#status`) is one line, `#sum`: "N agents working ·
 #id Project, ..." (N counts distinct agents; "no agent is working on anything" when none), cut
-with an ellipsis when long. An up-arrow button (`#agentsBtn`, down when open) toggles `#agents`,
+with an ellipsis when long (the whole line is its tooltip). An up-arrow button (`#agentsBtn`, down when open) toggles `#agents`,
 a panel above the footer with one `.job` row per `/api/activity` row: agent, project, `#id
 title`, doing, started; a click opens the card. Open state is kept in localStorage
-`agentsOpen`. Same feed and poll as above: no route, tool or schema change.
+`agentsOpen`; an open panel with no rows shows nothing, and a failed poll empties it
+("agent status unavailable"). Same feed and poll as above: no route, tool or schema change.
 
 **Follows other writers (#58).** The 5 s status poll also reads `GET /api/version`, the
 newest `events.id`: when it moved, the board reloads once — not under a drag or a held
