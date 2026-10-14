@@ -660,6 +660,20 @@ def test_activity_route_follows_held_cards_not_only_the_row(client):
     assert [r["card_id"] for r in client.get("/api/activity").json()] == [a["id"]]
 
 
+def test_the_runs_row_goes_with_its_hold_on_the_card(client):
+    """#502: released, back to todo or handed to a person: no dot; another actor's row stays."""
+    c = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home",
+                                        "lane": "develop", "assignee": "claude-agent"}).json()
+    app.set_activity("claude-agent", c["id"], "developing")
+    assert [r["doing"] for r in client.get("/api/activity").json()] == ["developing"]
+    client.patch(f"/api/cards/{c['id']}", json={"actor": "ann", "assignee": ""})   # released
+    assert client.get("/api/activity").json() == []
+    client.patch(f"/api/cards/{c['id']}", json={"actor": "ann", "assignee": "claude-agent", "lane": "todo"})
+    assert client.get("/api/activity").json() == []
+    app.set_activity("bot", c["id"], "x")
+    assert [r["actor"] for r in client.get("/api/activity").json()] == ["bot"]
+
+
 def test_activity_can_be_set_and_cleared_over_http(client):
     """The fallback for an agent whose MCP connection failed: set_activity as a POST."""
     c = client.post("/api/cards", json={"title": "a", "actor": "ann", "project": "Home"}).json()

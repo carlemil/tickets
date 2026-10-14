@@ -1809,13 +1809,13 @@ def test_the_status_bar_says_when_no_agent_is_working(page):
 def test_the_status_bar_shows_each_agent_and_opens_its_card(page):
     a = core.create_card("Paint it blue", actor="ce", project="Home", lane="plan")["id"]
     b = core.create_card("Wire <b>it</b>", actor="ce", project="Home", lane="develop")["id"]
-    core.set_activity("claude-agent", a, "planning")
+    core.set_activity("bot", a, "planning")
     core.set_activity("other-bot", b, "developing")
     page.evaluate("loadStatus()")
     jobs = page.locator("#status .job")
     jobs.first.wait_for()
     texts = jobs.all_text_contents()
-    assert texts[0].startswith(f"claude-agent planning #{a} Paint it blue · started "), texts
+    assert texts[0].startswith(f"bot planning #{a} Paint it blue · started "), texts
     assert texts[1].startswith(f"other-bot developing #{b} Wire <b>it</b>"), "text, not HTML"
     jobs.nth(1).click()
     page.wait_for_selector("#panel.on")
@@ -1826,11 +1826,11 @@ def test_an_agent_finishing_reloads_the_board(page):
     cid = core.create_card("Ship it", actor="ce", project="Home", lane="plan")["id"]
     page.evaluate("load()")
     page.wait_for_selector(f'.lane[data-lane="plan"] .card[data-id="{cid}"]')
-    core.set_activity("claude-agent", cid, "planning")
+    core.set_activity("bot", cid, "planning")
     page.evaluate("loadStatus()")
     page.locator("#status .job").wait_for()
     core.update_card(cid, "claude-agent", lane="develop")   # the agent's work lands...
-    core.set_activity("claude-agent")                        # ...and it clears its status
+    core.set_activity("bot")                        # ...and it clears its status
     page.evaluate("loadStatus()")
     page.wait_for_selector(f'.lane[data-lane="develop"] .card[data-id="{cid}"]')
     assert page.text_content("#status") == "no agent is working on anything"
@@ -1860,13 +1860,13 @@ def test_the_board_dot_pulses_while_an_agent_works_the_card(page):
     idle = core.create_card("idle", actor="ce", project="Home")["id"]
     page.evaluate("load()")
     page.wait_for_selector(f'.card[data-id="{idle}"]')
-    core.set_activity("claude-agent", busy, "planning")
+    core.set_activity("bot", busy, "planning")
     page.evaluate("loadStatus()")
     page.wait_for_selector(f'.card[data-id="{busy}"] .work.working')
     assert pulsing(page, f'.card[data-id="{idle}"]') == 0
     title = page.get_attribute(f'.card[data-id="{busy}"] .work', "title")
     assert title == "an agent is working on it now", title
-    core.set_activity("claude-agent")
+    core.set_activity("bot")
     page.evaluate("loadStatus()")
     page.wait_for_function(f"() => !document.querySelector('.card[data-id=\"{busy}\"] .work.working')")
     assert not page.locator(f'.card[data-id="{busy}"] .work').is_visible(), "no agent: no dot"
@@ -1877,12 +1877,12 @@ def test_an_idle_unmerged_card_shows_no_dot_until_something_lights_one(page):
     card = f'.card[data-id="{cid}"]'
     visible_dots = lambda: shown(page, f"{card} .work, {card} .st")
     assert visible_dots() == []
-    core.set_activity("claude-agent", cid, "planning")
+    core.set_activity("bot", cid, "planning")
     page.evaluate("loadStatus()")
     page.wait_for_selector(f"{card} .work.working")
     assert visible_dots() == ["work working"]
     assert page.locator(f'.card[data-id="{other}"] .work').is_visible() is False
-    core.set_activity("claude-agent")
+    core.set_activity("bot")
     page.evaluate("loadStatus()")
     page.wait_for_function(f"() => !document.querySelector('{card} .work.working')")
     assert visible_dots() == []
@@ -1898,7 +1898,7 @@ def test_an_idle_unmerged_card_shows_no_dot_until_something_lights_one(page):
 def test_a_stale_status_poll_does_not_undo_a_newer_one(page):
     cid, = cards_in(page, "racing")
     card = f'.card[data-id="{cid}"]'
-    core.set_activity("claude-agent", cid, "planning")
+    core.set_activity("bot", cid, "planning")
     # the first poll is answered late with the old "nothing running"; the second, newer one first
     page.evaluate("""async () => {
         const real = api;
@@ -1917,7 +1917,7 @@ def test_a_stale_status_poll_does_not_undo_a_newer_one(page):
         window.api = real;
     }""")
     assert page.locator(f"{card} .work.working").is_visible()
-    core.set_activity("claude-agent")
+    core.set_activity("bot")
 
 
 def test_a_board_load_answered_late_does_not_undo_a_newer_one(page):
@@ -2204,7 +2204,7 @@ def test_a_kept_copy_that_was_archived_meanwhile_is_not_drawn(page):
 
 def test_the_pulse_survives_a_board_reload(page):
     cid = core.create_card("busy", actor="ce", project="Home")["id"]
-    core.set_activity("claude-agent", cid, "planning")
+    core.set_activity("bot", cid, "planning")
     page.evaluate("loadStatus()")
     page.wait_for_selector(f'.card[data-id="{cid}"] .work.working')
     page.evaluate("load()")   # rebuilt cards pulse without waiting for the next poll
@@ -2219,11 +2219,11 @@ def test_the_editor_shows_the_work_dot_and_it_pulses_without_a_rerender(page):
     dot = page.locator("#panel .head .work")
     assert dot.get_attribute("class") == "work", "a ring while no agent is on it"
     page.fill("#panel input[type=text] >> nth=0", "half typed")   # not committed yet
-    core.set_activity("claude-agent", cid, "developing")
+    core.set_activity("bot", cid, "developing")
     page.evaluate("loadStatus()")
     page.wait_for_selector("#panel .head .work.working")
     assert page.input_value("#panel input[type=text] >> nth=0") == "half typed", "no re-render"
-    core.set_activity("claude-agent")
+    core.set_activity("bot")
     page.evaluate("loadStatus()")
     page.wait_for_function("() => !document.querySelector('#panel .work.working')")
 
@@ -2237,7 +2237,7 @@ def test_work_on_a_card_off_the_board_pulses_nothing(page):
     page.wait_for_function("() => document.querySelectorAll('.card').length === 1")
     errors = []
     page.on("pageerror", lambda e: errors.append(e))
-    core.set_activity("claude-agent", away, "planning")
+    core.set_activity("bot", away, "planning")
     page.evaluate("loadStatus()")
     page.locator("#status .job").wait_for()
     assert page.locator(".work.working").count() == 0
@@ -2264,7 +2264,7 @@ def test_a_project_tab_pulses_while_an_agent_works_one_of_its_cards(page):
     page.wait_for_function("() => document.querySelectorAll('.card').length === 2")
     assert lit_tabs(page) == [], "nothing pulses while no agent works"
     color = page.evaluate(f"getComputedStyle(document.querySelector('{tab_dot('Other')}')).backgroundColor")
-    core.set_activity("claude-agent", busy, "planning")
+    core.set_activity("bot", busy, "planning")
     page.evaluate("loadStatus()")
     page.wait_for_selector(tab_dot("Other") + ".working")
     assert lit_tabs(page) == ["", "Other"], "its tab and All; not Home"
@@ -2274,7 +2274,7 @@ def test_a_project_tab_pulses_while_an_agent_works_one_of_its_cards(page):
     assert page.evaluate(f"getComputedStyle(document.querySelector('{tab_dot('Other')}')).animationName") == "pulse"
     assert page.evaluate(f"getComputedStyle(document.querySelector('{tab_dot('Other')}')).backgroundColor") == color, \
         "the tab keeps its own color while it pulses"
-    core.set_activity("claude-agent")
+    core.set_activity("bot")
     page.evaluate("loadStatus()")
     page.wait_for_function("() => !document.querySelector('#proj .dot.working')")
     assert page.get_attribute(tab_dot("Other"), "title") is None, "an idle dot says nothing"
@@ -2289,7 +2289,7 @@ def test_the_all_tab_shows_a_neutral_pulsing_dot_while_any_agent_works(page):
     page.evaluate("load()")
     page.wait_for_function("() => document.querySelectorAll('.card').length === 2")
     assert not page.locator(tab_dot("")).is_visible()
-    core.set_activity("claude-agent", a, "planning")
+    core.set_activity("bot", a, "planning")
     core.set_activity("other-bot", b, "developing")
     page.evaluate("loadStatus()")
     page.wait_for_selector(tab_dot("") + ".working")
@@ -2297,7 +2297,7 @@ def test_the_all_tab_shows_a_neutral_pulsing_dot_while_any_agent_works(page):
     assert page.evaluate(f"getComputedStyle(document.querySelector('{tab_dot('')}')).backgroundColor") \
         == "rgb(151, 160, 175)", "grey: All has no project color"
     assert lit_tabs(page) == ["", "Home", "Other"], "two agents, two projects: both tabs"
-    core.set_activity("claude-agent")   # one agent stops: All still lit by the other
+    core.set_activity("bot")   # one agent stops: All still lit by the other
     page.evaluate("loadStatus()")
     page.wait_for_function(f"() => !document.querySelector('{tab_dot('Home')}.working')")
     assert lit_tabs(page) == ["", "Other"]
@@ -2314,14 +2314,14 @@ def test_a_tab_pulses_while_another_tab_is_picked_and_after_a_reload(page):
     page.evaluate("load()")
     page.click('#proj button[value="Home"]')
     page.wait_for_function("() => document.querySelectorAll('.card').length === 1")
-    core.set_activity("claude-agent", away, "planning")
+    core.set_activity("bot", away, "planning")
     page.evaluate("loadStatus()")
     page.wait_for_selector(tab_dot("Other") + ".working")
     assert lit_tabs(page) == ["", "Other"], "the unpicked tab says where the agent is"
     page.evaluate("load()")   # the rebuilt tabs pulse without waiting for the next poll
     page.wait_for_function("() => document.querySelectorAll('.card').length === 1")
     assert lit_tabs(page) == ["", "Other"]
-    core.set_activity("claude-agent")
+    core.set_activity("bot")
 
 
 def test_a_tab_matches_its_cards_project_whatever_the_case(page):
@@ -2845,7 +2845,7 @@ def test_every_control_on_the_board_and_sheet_has_hover_help(page):
                      pr="https://github.com/o/r/pull/7")
     core.update_card(cid, "claude-agent", merged=True, deployed=True)   # lit dots
     core.create_card("done", actor="ce", project="Home", lane="done")   # its archive all
-    core.set_activity("claude-agent", cid, "planning")   # and the work dot
+    core.set_activity("bot", cid, "planning")   # and the work dot
     page.evaluate("load(); loadStatus()")
     page.wait_for_selector(f'.card[data-id="{cid}"] .work.working')
     page.wait_for_selector(".lane[data-lane=done] h2 .arch")
@@ -3058,7 +3058,7 @@ def test_the_editor_dot_sits_in_the_header_number_and_clicking_it_does_nothing(p
     assert page.locator("#panel .head .id .work").count() == 1
     assert page.locator("#panel .sub .work").count() == 0
     assert page.text_content("#panel .head .id") == f"#{cid}"
-    core.set_activity("claude-agent", cid, "planning")   # an idle dot is hidden: light it
+    core.set_activity("bot", cid, "planning")   # an idle dot is hidden: light it
     page.evaluate("loadStatus()")
     page.wait_for_selector("#panel .head .work.working")
     before = core.get_card(cid)

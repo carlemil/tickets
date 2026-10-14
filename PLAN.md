@@ -705,8 +705,10 @@ and all grow together with the tallest.
 **The work dot.** A board card leads with a green dot that shows and pulses while an
 agent's status entry (`/api/activity`) points at the card, and is hidden otherwise (#498: the
 list is the live rows, each kept only while its card is not archived and not in verify/done
-(a run's row on a card it released in a work lane or todo still shows until it is replaced,
-cleared or 30 min old), plus a derived `working` row for every card `claude-agent` holds in plan/develop/test that
+(#502: the run's own `claude-agent` row also goes the moment the run no longer holds its card,
+released or back in todo; the dispatcher repeats its `set_activity` at every wake while a stage
+runs, which keeps the row and the card's quiet clock fresh, but a lone stage past 30 min with no
+wake can still be taken over), plus a derived `working` row for every card `claude-agent` holds in plan/develop/test that
 is not stalled, not waiting for answers and has no live row, so a second card in flight, a
 stage longer than the row's 30 min and a card that left the run's hands all show right in
 `core.list_activity`; the board is unchanged) (#65:

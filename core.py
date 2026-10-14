@@ -369,6 +369,8 @@ def list_activity():
             f" FROM cards WHERE archived = 0 AND assignee = ? AND lane IN ({lanes}) ORDER BY id",
             (STALL_ASSIGNEE, *STALL_LANES))]
         quiet = _quiet(db) if held else {}   # the whole-events scan only when a card is held
+    held_ids = {c["id"] for c in held}   # #502: the run's own row goes with its hold on the card
+    rows = [r for r in rows if r["actor"] != STALL_ASSIGNEE or r["card_id"] in held_ids]
     working = [c for c in held if not _stalled(c, quiet)
                and not ((c["questions"] or "").strip() and not (c["answers"] or "").strip())]
     have = {r["card_id"] for r in rows}
