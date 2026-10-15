@@ -766,7 +766,17 @@ answer, should it still come, is dropped (#88). An answer that lands during a dr
 only once the drag is over (#242): drawing would swap out the dragged card and the drop
 would find nothing, so the card stayed where it was. So does the answer to a card write
 (`replace()`, #265): `cards` is updated at once, the drawing waits for the drop or the
-drag's end. A load that started before a write and is
+drag's end. A `.card.dragging` mark whose `dragend` never came (the dragged node swapped
+out by a render, a drag cancelled outside the window) must not hold all that off for good
+(#672): `dragging()` is the dragged card, and clears a mark with no dragstart or dragover
+for `DRAG_STALE_MS` (5 s; dragover repeats while a drag is held). `clearDrag()` also runs at
+every dragstart, dragend, drop and pointerdown. Whether a dragover or drop is a card's is
+not read from that mark but from the drag: a dragstart here sets `dragId` and an
+`application/x-tickets-card` type on the drag, so a drag held outside the window past the
+watchdog still drops (and is marked again) when it comes back, and a text or file drag is
+never taken for a card under a stale mark. The drop handler cannot fail silently: a
+throw (a DOM card missing from `cards`, or one in `move()`'s first render, caught from its
+promise) shows "could not drop: ..." in the error bar and reloads the board. A load that started before a write and is
 answered after the write's response
 is still the newest, so it merges per card (#105): a card whose copy on screen has a newer
 `updated_at` keeps that copy — unless that copy has left the view the load asked for
