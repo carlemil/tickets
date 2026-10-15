@@ -502,8 +502,10 @@ function cardNode(c) {
 
   n.ondragstart = ev => {
     ev.dataTransfer.setData("text/plain", String(c.id));
+    ev.dataTransfer.setData(CARD_DRAG, String(c.id));   // only a card's drag carries it
     ev.dataTransfer.effectAllowed = "move";
     clearDrag();   // a mark left by a drag whose dragend never came (#672)
+    dragId = c.id;
     dragSeen = Date.now();
     n.classList.add("dragging");
   };
@@ -682,16 +684,27 @@ function slots(col, y, n) {
 // cancelled outside the window) must not leave its mark: a stuck `.card.dragging` held off
 // every draw, load and poll and made the drop throw (#672). dragging() is the card being
 // dragged, or null; a mark with no dragstart/dragover for DRAG_STALE_MS (dragover repeats
-// while a drag is held, even still) is cleared there.
-let dragSeen = 0, DRAG_STALE_MS = 5000;
+// while a drag is held, even still) is cleared there. Whether a drag over the board is a
+// card's is not read from that mark but from the drag itself (its CARD_DRAG type, from a
+// dragstart here): a drag held outside the window past the watchdog still drops when it
+// comes back, and a text or file drag is never taken for a card while a stale mark lasts.
+let dragSeen = 0, DRAG_STALE_MS = 5000, dragId = null;
+const CARD_DRAG = "application/x-tickets-card";
 function clearDrag() {
+  dragId = null;
+  unmark();
+}
+function unmark() {
   for (const x of document.querySelectorAll(".card.dragging")) x.classList.remove("dragging");
   markOver(null);
 }
 function dragging() {
   const n = $(".card.dragging");
-  if (n && Date.now() - dragSeen > DRAG_STALE_MS) { clearDrag(); return null; }
+  if (n && Date.now() - dragSeen > DRAG_STALE_MS) { unmark(); return null; }
   return n;
+}
+function cardDrag(ev) {
+  return dragId !== null && !!ev.dataTransfer && [...ev.dataTransfer.types].includes(CARD_DRAG);
 }
 function markOver(col, before) {
   for (const x of document.querySelectorAll(".lane.over")) if (x !== col) x.classList.remove("over");
@@ -701,8 +714,12 @@ function markOver(col, before) {
   if (before) before.classList.add("drop-at");
 }
 document.addEventListener("dragover", ev => {
-  if (!dragging()) return;   // a card's drag only, not text or files
+  if (!cardDrag(ev)) return;   // a card's drag only, not text or files
   dragSeen = Date.now();
+  if (!$(".card.dragging")) {   // back from past the watchdog: hold renders off again
+    const n = $(`.card[data-id="${dragId}"]`);
+    if (n) n.classList.add("dragging");
+  }
   ev.preventDefault();
   const col = laneAt(ev);
   markOver(col, col && dropBefore(col, ev.clientY));
@@ -710,15 +727,17 @@ document.addEventListener("dragover", ev => {
 document.addEventListener("dragleave", ev => { if (!ev.relatedTarget) markOver(null); });
 document.addEventListener("dragend", () => clearDrag());
 document.addEventListener("drop", ev => {
-  const col = dragging() && laneAt(ev);
+  const col = cardDrag(ev) && laneAt(ev);
   markOver(null);
-  if (!col) return clearDrag();
+  if (!col) return;
   ev.preventDefault();
-  try { dropOn(ev, col); }
-  catch (e) { showErr("could not drop: " + e.message); load(); }   // a card the board lost track of
+  // a card the board lost track of, or a throw in move()'s first render (async: a rejection)
+  const fail = e => { showErr("could not drop: " + e.message); load(); };
+  try { dropOn(ev, col).catch(fail); }
+  catch (e) { fail(e); }
   finally { clearDrag(); }
 });
-function dropOn(ev, col) {
+function dropOn(ev, col) {   // move()'s promise
   const id = Number(ev.dataTransfer.getData("text/plain"));
   // a selected card takes the whole selection with it; any other card goes alone
   // in the board's order, not the order they were picked, except that a blocker goes
@@ -736,7 +755,7 @@ function dropOn(ev, col) {
   }
   if (selected.has(id)) selected.clear();
   const at = slots(col, ev.clientY, ids.length);
-  move(ids, col.dataset.lane, at);
+  return move(ids, col.dataset.lane, at);
 }
 document.addEventListener("keydown", ev => {
   if (ev.key === "Escape" && !open && selected.size) { selected.clear(); renderBoard(); }

@@ -9,7 +9,6 @@ The board's top-level `function` declarations (`openCard`, `patch`, `load`, `api
 on `window`, so page.evaluate can drive the page's own code rather than re-implementing it.
 """
 
-import time
 from contextlib import closing
 
 import pytest
@@ -4032,20 +4031,12 @@ def fire_drag(page, cid, lane, *types):
     }""", [cid, lane, list(types)])
 
 
-def wait_lane(cid, lane):
-    for _ in range(100):
-        if core.get_card(cid)["lane"] == lane:
-            return
-        time.sleep(0.05)
-    raise AssertionError(f"#{cid} never reached {lane}")
-
-
 def test_a_drag_whose_dragend_never_came_does_not_stop_the_next_drop(page):
     a, b = cards_in(page, "stuck", "next")
     fire_drag(page, a, "todo", "dragstart")         # no dragend, no drop
     assert page.locator(".card.dragging").count() == 1
     fire_drag(page, b, "develop", "dragstart", "dragover", "drop")
-    wait_lane(b, "develop")
+    wait_saved(page, b, "lane", "develop")
     assert page.locator(".card.dragging").count() == 0
 
 
@@ -4054,7 +4045,7 @@ def test_many_quick_drops_in_a_row_all_land_and_leave_no_mark(page):
     for cid in ids:
         fire_drag(page, cid, "develop", "dragstart", "dragover", "drop")   # no dragend, as in the report
     for cid in ids:
-        wait_lane(cid, "develop")
+        wait_saved(page, cid, "lane", "develop")
     assert page.locator(".card.dragging, .lane.over, .card.drop-at").count() == 0
 
 
@@ -4062,8 +4053,8 @@ def test_a_dom_card_missing_from_cards_shows_an_error_and_reloads(page):
     a, = cards_in(page, "ghost")
     page.evaluate("id => { cards = cards.filter(c => c.id !== id); }", a)
     fire_drag(page, a, "develop", "dragstart", "dragover", "drop")
-    page.wait_for_function("() => document.querySelector('#err, .err, #status')"
-                           " && document.body.innerText.includes('could not drop')")
+    page.wait_for_selector("#err.on")
+    assert "could not drop: #%d" % a in page.text_content("#err")
     page.wait_for_selector(f'.lane[data-lane="todo"] .card[data-id="{a}"]')   # the reload drew it again
     assert page.locator(".card.dragging").count() == 0
     assert core.get_card(a)["lane"] == "todo"
@@ -4095,12 +4086,43 @@ def test_a_stale_dragging_mark_does_not_hold_the_aged_reload(page):
 
 def test_a_live_drag_is_not_cleared_while_dragover_keeps_coming(page):
     a, = cards_in(page, "held")
-    page.evaluate("DRAG_STALE_MS = 400")
+    page.evaluate("DRAG_STALE_MS = 1500")
     fire_drag(page, a, "todo", "dragstart")
     for _ in range(4):
         page.wait_for_timeout(200)
         fire_drag(page, a, "todo", "dragover")
+        assert page.evaluate("!!dragging()")
     assert page.locator(".card.dragging").count() == 1
+
+
+def test_a_drag_held_outside_the_window_past_the_watchdog_still_drops(page):
+    """No dragover while the pointer is outside the window: the watchdog clears the mark,
+    but the drag is still a card's, so it drops once it is back over the board."""
+    a, = cards_in(page, "away")
+    fire_drag(page, a, "todo", "dragstart")
+    page.evaluate("DRAG_STALE_MS = 100")
+    page.wait_for_timeout(250)
+    assert not page.evaluate("dragging()")
+    assert page.locator(".card.dragging").count() == 0
+    fire_drag(page, a, "develop", "dragover")
+    assert page.locator(f'.card.dragging[data-id="{a}"]').count() == 1   # marked again
+    fire_drag(page, a, "develop", "drop")
+    wait_saved(page, a, "lane", "develop")
+    assert page.locator(".card.dragging, .lane.over").count() == 0
+
+
+def test_a_text_drag_under_a_stuck_mark_is_not_taken_for_a_card(page):
+    a, b = cards_in(page, "stuck", "named")
+    fire_drag(page, a, "todo", "dragstart")             # a fresh mark, its dragend lost
+    page.evaluate("""id => {   // text naming card b dragged in from elsewhere
+        const dt = new DataTransfer(); dt.setData("text/plain", String(id));
+        const col = document.querySelector('.lane[data-lane="done"]');
+        for (const type of ["dragover", "drop"])
+            col.dispatchEvent(new DragEvent(type, {bubbles: true, cancelable: true, dataTransfer: dt}));
+    }""", b)
+    page.wait_for_timeout(300)
+    assert core.get_card(b)["lane"] == "todo" and core.get_card(a)["lane"] == "todo"
+    assert not page.locator("#err.on").count()
 
 
 def test_a_pointer_press_clears_a_stuck_mark(page):
