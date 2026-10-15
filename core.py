@@ -603,10 +603,33 @@ def _blocks(db):
     return out
 
 
-def _mark(card, blocks, quiet=None):
+def _mark(card, blocks, quiet=None, steps=()):
     card["blocked_by"], card["blocking"] = blocks.get(card["id"], ([], []))   # sorted by the ORDER BY
     card["stalled"] = _stalled(card, quiet or {})
+    card["owner_steps"] = card["id"] in steps
     return card
+
+
+# #636: a line starting "Your steps:" in a card's description or a comment: steps the owner
+# runs by hand in the Claude desktop session. A mention mid-line does not count.
+OWNER_STEPS_RE = re.compile(r"^[ \t]*your steps:", re.I | re.M)
+
+
+def _owner_steps(db, id=None):
+    """{card ids} holding owner steps: derived, never stored, a read takes no write lock. Done
+    and archived cards are left out, so the flag clears when the card is done. One LIKE pass over
+    comment events of the live cards (the regex only runs on its few hits)."""
+    one, args = ("", ()) if id is None else (" AND c.id=?", (id,))
+    live = " FROM cards c WHERE c.lane!='done' AND NOT c.archived" + one
+    out = {r[0] for r in db.execute("SELECT c.id, c.description" + live, args)
+           if OWNER_STEPS_RE.search(r[1])}
+    for cid, detail in db.execute(
+        "SELECT e.card_id, e.detail FROM events e WHERE e.kind='comment' AND e.detail LIKE '%steps:%'"
+        " AND e.card_id IN (SELECT c.id" + live + ")", args
+    ):
+        if cid not in out and OWNER_STEPS_RE.search(json.loads(detail).get("text", "")):
+            out.add(cid)
+    return out
 
 
 def _quiet(db, id=None):
@@ -635,7 +658,7 @@ def _stalled(card, quiet, now=None):
 
 def get_card(id):
     with closing(connect()) as db:
-        card = _mark(_load(db, id), _blocks(db), _quiet(db, id))
+        card = _mark(_load(db, id), _blocks(db), _quiet(db, id), _owner_steps(db, id))
         card["events"] = [
             {**dict(r), "detail": json.loads(r["detail"])}
             for r in db.execute("SELECT * FROM events WHERE card_id=? ORDER BY id", (id,))
@@ -662,8 +685,8 @@ def list_cards(lane=None, assignee=None, label=None, project=None, archived=Fals
         args.append(project)
     sql = "SELECT * FROM cards WHERE " + " AND ".join(where)
     with closing(connect()) as db:
-        blocks, quiet = _blocks(db), _quiet(db)
-        cards = [_mark(_card(r), blocks, quiet) for r in db.execute(sql + " ORDER BY pos, id", args)]
+        blocks, quiet, steps = _blocks(db), _quiet(db), _owner_steps(db)
+        cards = [_mark(_card(r), blocks, quiet, steps) for r in db.execute(sql + " ORDER BY pos, id", args)]
     # ponytail: label filter scans in Python — fine to a few thousand cards.
     # Past that, index labels with json1 (json_each) and push it into the WHERE clause.
     return [c for c in cards if label is None or label in c["labels"]]

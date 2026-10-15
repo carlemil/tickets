@@ -653,6 +653,17 @@ version, so the board also reloads when its last load is 5 minutes old. The tint
 salmon `#ffe0d6` (hover `#ffd2c4`), the pill `#ff9d80`; a card cannot be both: `waiting` wins,
 a person must act first. The board only marks; the run recovers (run.md §2, Failure).
 
+Owner steps (#636): a card holding steps the owner must run by hand in the Claude desktop session
+is tinted blue (`#d6e8ff`, a 2px `#2f6fd6` ring) with a "your steps" pill, in every lane but done.
+The convention: a line starting `Your steps:` (any case, leading blanks allowed, not mid-line) in
+the description or in any comment; run.md ("Steps for the owner") tells stages to write it. The
+server derives `owner_steps` on every card payload (`core._owner_steps`, like `stalled`; nothing
+stored, reads never write): done and archived cards are left out, so moving the card to done
+clears it. One `LIKE` pass over the comment events of the live cards per list, the regex only on
+its hits; `get_card` checks only its own card. The tint wins the other tints (its ring keeps it
+visible beside the stripe); the other pills stay. The card panel shows the steps block (that line
+to the next blank line, newest comment first, else the description) first, above the project.
+
 Arrows (#37) go from each blocking card to each card it blocks: one inline
 `<svg id="links">`, the last child of `#board` (now `position: relative`), sized to the
 board's scroll size, `pointer-events: none` so clicks, selection and drags go through;

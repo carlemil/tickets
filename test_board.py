@@ -3957,3 +3957,31 @@ def test_old_format_questions_show_choices_as_radios_numbered_in_order(page):   
     assert groups.nth(2).inner_text().startswith("3. Refusal")
     page.click("#panel .choice >> nth=1 >> input >> nth=1")
     wait_saved(page, cid, "answers", "2. 500: half")
+
+
+def test_owner_steps_card_is_tinted_and_pilled_in_every_lane_but_done(page):   # #636
+    ids = {}
+    for lane in ("plan", "develop", "test", "verify", "done"):
+        ids[lane] = core.create_card(f"steps {lane}", actor="ce", project="Home", lane=lane,
+                                     description="Your steps:\n1. restart the backend")["id"]
+    plain = core.create_card("plain", actor="ce", project="Home", lane="verify")["id"]
+    page.evaluate("load()")
+    for lane in ("plan", "develop", "test", "verify"):
+        page.wait_for_selector(f'.card.owner-steps[data-id="{ids[lane]}"]')
+        assert page.locator(f'.card[data-id="{ids[lane]}"] .pill.owner-steps').text_content() == "your steps"
+    assert page.locator(f'.card[data-id="{ids["verify"]}"]').evaluate(
+        "n => getComputedStyle(n).backgroundColor") == "rgb(214, 232, 255)"
+    assert page.locator(f'.card.owner-steps[data-id="{ids["done"]}"]').count() == 0
+    assert page.locator(f'.card.owner-steps[data-id="{plain}"]').count() == 0
+
+
+def test_owner_steps_are_shown_first_in_the_card_panel(page):   # #636
+    cid = core.create_card("panel", actor="ce", project="Home", lane="verify")["id"]
+    core.comment(cid, "claude-agent", "built.\n\nYour steps:\n1. hard refresh\n2. run /mcp\n\nbye")
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{cid}"]')
+    page.evaluate(f"openCard({cid})")
+    box = page.wait_for_selector("#panel .owner-steps-box")
+    assert box.text_content() == "Your steps:\n1. hard refresh\n2. run /mcp"
+    assert page.evaluate("document.querySelector('#panel .owner-steps-box').parentElement"
+                         " === document.querySelector('#panel h3').parentElement")

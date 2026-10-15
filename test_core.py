@@ -1881,3 +1881,44 @@ def test_old_format_choice_run_takes_plain_siblings_and_one_recommended_suffix()
     assert core.number("1. Q?\n2. 15 (recommended): a (recommended)") == \
         "1. Q?\n   - 15: a (recommended)"
     assert core.number("1. Q?\n2. 15: a (recommended)") == "1. Q?\n   - 15: a (recommended)"
+
+
+# ---------- owner steps (#636) ----------
+
+def _mine(cid):
+    got = core.get_card(cid)["owner_steps"]
+    assert got == [c for c in core.list_cards() if c["id"] == cid][0]["owner_steps"]
+    return got
+
+
+def test_owner_steps_from_a_description_line():
+    assert not _mine(card()["id"]), "a plain card"
+    c = card(description="Do it.\nYour steps:\n1. restart the backend")["id"]
+    assert _mine(c)
+    assert _mine(card(description="  YOUR STEPS: hard refresh")["id"]), "case and indent"
+    assert not _mine(card(description="the line 'Your steps:' mid-line, or your steps here")["id"])
+
+
+def test_owner_steps_from_a_comment_by_anyone_and_not_from_other_text():
+    c = card()["id"]
+    core.comment(c, "ann", "no marker, just steps")
+    assert not _mine(c)
+    core.comment(c, "claude-agent", "built.\n\nYour steps:\n- run /mcp and reconnect")
+    assert _mine(c)
+    d = card(lane="verify")["id"]
+    core.comment(d, "ann", "Your steps: restart")
+    assert _mine(d), "verify counts"
+
+
+def test_owner_steps_clear_when_done_or_archived_and_return_on_rework():
+    c = card(description="Your steps: restart")["id"]
+    core.comment(c, "claude-agent", "Your steps: reconnect")
+    assert _mine(c)
+    core.update_card(c, "ann", lane="done")
+    assert not _mine(c)
+    core.update_card(c, "ann", lane="verify")
+    assert _mine(c)
+    core.update_card(c, "ann", archived=True)
+    assert not core.get_card(c)["owner_steps"]
+    core.update_card(c, "ann", archived=False, description="plain")
+    assert _mine(c), "the comment still holds them"
