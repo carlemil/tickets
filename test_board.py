@@ -3985,3 +3985,30 @@ def test_owner_steps_are_shown_first_in_the_card_panel(page):   # #636
     assert box.text_content() == "Your steps:\n1. hard refresh\n2. run /mcp"
     assert page.evaluate("document.querySelector('#panel .owner-steps-box').parentElement"
                          " === document.querySelector('#panel h3').parentElement")
+
+
+def test_owner_steps_panel_block_is_text_ends_at_a_crlf_blank_and_takes_markdown(page):   # #636
+    cid = core.create_card("crlf", actor="ce", project="Home", lane="test",
+                           description="Your steps: an old one")["id"]
+    core.comment(cid, "ann", "ok.\r\n\r\n**Your steps:**\r\n1. <b>x</b><img src=x onerror=alert(1)>\r\n\r\ntail")
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card.owner-steps[data-id="{cid}"]')
+    page.evaluate(f"openCard({cid})")
+    box = page.wait_for_selector("#panel .owner-steps-box")
+    assert box.text_content() == "**Your steps:**\n1. <b>x</b><img src=x onerror=alert(1)>"
+    assert page.locator("#panel .owner-steps-box *").count() == 0   # escaped, no markup
+
+
+def test_owner_steps_ring_keeps_waiting_yellow_and_the_drop_line(page):   # #636
+    cid = core.create_card("both", actor="ce", project="Home", lane="plan",
+                           description="Your steps: restart")["id"]
+    core.update_card(cid, "claude-agent", questions="1. which?")
+    page.evaluate("load()")
+    n = page.locator(f'.card.owner-steps.waiting[data-id="{cid}"]')
+    n.wait_for()
+    assert n.evaluate("n => getComputedStyle(n).backgroundColor") == "rgb(255, 244, 204)"   # waiting wins
+    assert "rgb(47, 111, 214)" in n.evaluate("n => getComputedStyle(n).boxShadow")
+    assert n.locator(".pill.owner-steps").count() == 1 and n.locator(".pill.waiting").count() == 1
+    n.evaluate("n => n.classList.add('drop-at')")
+    shadow = n.evaluate("n => getComputedStyle(n).boxShadow")
+    assert shadow.count("inset") == 2 and "rgb(47, 111, 214)" in shadow   # drop line and ring

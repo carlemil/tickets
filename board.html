@@ -110,10 +110,14 @@
   .card.stalled { background: #ffe0d6; }
   .card.stalled:hover { background: #ffd2c4; }
   .pill.stalled { background: #ff9d80; color: #7a2000; }
-  /* #636: steps the owner runs by hand in the Claude desktop session: a blue tint and a pill, in
-     every lane but done; after the other tints so it wins them, the pills stay as they are */
-  .card.owner-steps { background: #d6e8ff; box-shadow: inset 0 0 0 2px #2f6fd6; }
-  .card.owner-steps:hover { background: #c4dcff; }
+  /* #636: steps the owner runs by hand in the Claude desktop session: a blue ring, tint and pill,
+     in every lane but done. The tint wins stalled; waiting keeps its yellow (a person answers
+     first), the ring and pill still show. The ring keeps the base shadow and the drop-at line */
+  .card.owner-steps { box-shadow: inset 0 0 0 2px #2f6fd6, 0 1px 1px rgba(9,30,66,.25); }
+  .card.owner-steps.drop-at { box-shadow: inset 0 3px 0 var(--accent), inset 0 0 0 2px #2f6fd6; }
+  .card.owner-steps:not(.waiting) { background: #d6e8ff; }
+  .card.owner-steps:not(.waiting):hover { background: #c4dcff; }
+  .card.owner-steps .pill.who { background: #fff; }   /* its own pale blue vanishes on the tint */
   .pill.owner-steps { background: #2f6fd6; color: #fff; font-weight: 600; }
   #panel .owner-steps-box { white-space: pre-wrap; background: #d6e8ff; border: 2px solid #2f6fd6;
     border-radius: 6px; padding: 8px 10px; }
@@ -801,12 +805,15 @@ const stale = card => open && open.id === card.id && lastEvent(card) < lastEvent
 // #636: the "Your steps:" block (that line to the next blank line) of the newest comment holding
 // one, else of the description; mirrors core.OWNER_STEPS_RE
 function ownerSteps(c) {
-  const find = text => {
-    const m = /^[ \t]*your steps:[^\n]*(?:\n(?![ \t]*\n)[^\n]*)*/im.exec(text || "");
+  const find = text => {   // CRLF first, so a \r\n\r\n blank line ends the block too
+    const m = /^[ \t#>*_-]*your steps[*_]*:[^\n]*(?:\n(?![ \t]*(?:\n|$))[^\n]*)*/im
+      .exec((text || "").replace(/\r\n?/g, "\n"));
     return m ? m[0].trim() : "";
   };
-  for (const e of [...(c.events || [])].reverse())
-    if (e.kind === "comment" && find(e.detail.text)) return find(e.detail.text);
+  for (const e of [...(c.events || [])].reverse()) {
+    const s = e.kind === "comment" && find(e.detail.text);
+    if (s) return s;
+  }
   return find(c.description);
 }
 
@@ -1123,7 +1130,7 @@ function renderPanel() {
       { className: "sub", textContent: `new card · ${c.project} · created when you close it` }));
   }
 
-  const steps = c.id && c.lane !== "done" && !c.archived ? ownerSteps(c) : "";
+  const steps = c.id && c.owner_steps && c.lane !== "done" && !c.archived ? ownerSteps(c) : "";
   if (steps) p.append(field("your steps", Object.assign(document.createElement("div"),
     { className: "owner-steps-box", textContent: steps })));
 

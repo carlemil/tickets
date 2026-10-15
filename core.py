@@ -611,21 +611,24 @@ def _mark(card, blocks, quiet=None, steps=()):
 
 
 # #636: a line starting "Your steps:" in a card's description or a comment: steps the owner
-# runs by hand in the Claude desktop session. A mention mid-line does not count.
-OWNER_STEPS_RE = re.compile(r"^[ \t]*your steps:", re.I | re.M)
+# runs by hand in the Claude desktop session. A mention mid-line does not count; markdown
+# dressing in front ("## ", "**", "- ", "> ") does. Mirrored by board.html ownerSteps.
+OWNER_STEPS_RE = re.compile(r"^[ \t#>*_-]*your steps[*_]*:", re.I | re.M)
 
 
 def _owner_steps(db, id=None):
     """{card ids} holding owner steps: derived, never stored, a read takes no write lock. Done
-    and archived cards are left out, so the flag clears when the card is done. One LIKE pass over
-    comment events of the live cards (the regex only runs on its few hits)."""
+    and archived cards are left out, so the flag clears when the card is done. One LIKE pass
+    (SQLite's LIKE ignores ASCII case) over the descriptions and over the comment events of the
+    live cards; the regex only runs on its few hits."""
     one, args = ("", ()) if id is None else (" AND c.id=?", (id,))
     live = " FROM cards c WHERE c.lane!='done' AND NOT c.archived" + one
-    out = {r[0] for r in db.execute("SELECT c.id, c.description" + live, args)
-           if OWNER_STEPS_RE.search(r[1])}
+    out = {cid for cid, text in db.execute(
+        "SELECT c.id, c.description" + live + " AND c.description LIKE '%your steps%'", args)
+        if OWNER_STEPS_RE.search(text)}
     for cid, detail in db.execute(
-        "SELECT e.card_id, e.detail FROM events e WHERE e.kind='comment' AND e.detail LIKE '%steps:%'"
-        " AND e.card_id IN (SELECT c.id" + live + ")", args
+        "SELECT e.card_id, e.detail FROM events e WHERE e.kind='comment'"
+        " AND e.detail LIKE '%your steps%' AND e.card_id IN (SELECT c.id" + live + ")", args
     ):
         if cid not in out and OWNER_STEPS_RE.search(json.loads(detail).get("text", "")):
             out.add(cid)
@@ -685,7 +688,9 @@ def list_cards(lane=None, assignee=None, label=None, project=None, archived=Fals
         args.append(project)
     sql = "SELECT * FROM cards WHERE " + " AND ".join(where)
     with closing(connect()) as db:
-        blocks, quiet, steps = _blocks(db), _quiet(db), _owner_steps(db)
+        # no card listed can hold the flag when only archived or done cards are asked for
+        steps = set() if archived or lane == "done" else _owner_steps(db)
+        blocks, quiet = _blocks(db), _quiet(db)
         cards = [_mark(_card(r), blocks, quiet, steps) for r in db.execute(sql + " ORDER BY pos, id", args)]
     # ponytail: label filter scans in Python — fine to a few thousand cards.
     # Past that, index labels with json1 (json_each) and push it into the WHERE clause.

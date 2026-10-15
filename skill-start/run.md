@@ -521,8 +521,8 @@ kind="blocks")`; comment the new ids on the card and leave it in its lane.
 
 A step only the owner can run by hand in the Claude desktop session (restart the backend, `/mcp`
 reconnect, a hard refresh, watching a live tick) goes in the stage's comment under a line that
-starts `Your steps:`, one step per line. The board highlights the card from that line until it is
-done; ask for it in every brief. It is not a `## Blocked by` task (those need a person, not a command).
+starts `Your steps:`, one step per line; with none, no such line (not even `Your steps: none`).
+The board highlights the card from that line until it is done; ask for it in every brief. It is not a `## Blocked by` task (those need a person, not a command).
 
 ### Failure
 

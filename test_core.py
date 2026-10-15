@@ -1922,3 +1922,24 @@ def test_owner_steps_clear_when_done_or_archived_and_return_on_rework():
     assert not core.get_card(c)["owner_steps"]
     core.update_card(c, "ann", archived=False, description="plain")
     assert _mine(c), "the comment still holds them"
+
+
+def test_owner_steps_markdown_dressing_counts_but_prose_does_not():
+    for text in ("## Your steps:\n1. x", "**Your steps:**\n- x", "- your Steps: x", "> YOUR STEPS: x",
+                 "\t__Your steps__: x"):
+        assert _mine(card(description=text)["id"]), text
+    for text in ("Do these, your steps: x", "## Your steps\n1. x", "Your stepsx: y", "your step: x"):
+        assert not _mine(card(description=text)["id"]), text
+    c = card()["id"]
+    core.comment(c, "ce", "done.\r\n\r\n**YOUR STEPS:**\r\n1. hard refresh")   # CRLF, any case
+    assert _mine(c)
+
+
+def test_owner_steps_not_computed_for_lists_of_archived_or_done_cards():
+    c = card(description="Your steps: x")["id"]
+    core.update_card(c, "ann", archived=True)
+    assert [x["owner_steps"] for x in core.list_cards(archived=True) if x["id"] == c] == [False]
+    d = card(lane="done", description="Your steps: x")["id"]
+    assert [x["owner_steps"] for x in core.list_cards(lane="done") if x["id"] == d] == [False]
+    e = card(lane="verify", description="Your steps: x")["id"]
+    assert [x["owner_steps"] for x in core.list_cards(lane="verify") if x["id"] == e] == [True]
