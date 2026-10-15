@@ -9,6 +9,7 @@ The board's top-level `function` declarations (`openCard`, `patch`, `load`, `api
 on `window`, so page.evaluate can drive the page's own code rather than re-implementing it.
 """
 
+import time
 from contextlib import closing
 
 import pytest
@@ -4012,3 +4013,98 @@ def test_owner_steps_ring_keeps_waiting_yellow_and_the_drop_line(page):   # #636
     n.evaluate("n => n.classList.add('drop-at')")
     shadow = n.evaluate("n => getComputedStyle(n).boxShadow")
     assert shadow.count("inset") == 2 and "rgb(47, 111, 214)" in shadow   # drop line and ring
+
+
+# ---- a stuck .dragging mark recovers by itself (#672) ----
+
+def fire_drag(page, cid, lane, *types):
+    """A synthetic drag of card `cid`; `lane` is where the dragover/drop land."""
+    page.evaluate("""([id, lane, types]) => {
+        window.__dt = window.__dt || new DataTransfer();
+        const col = document.querySelector(`.lane[data-lane="${lane}"]`);
+        const y = col.getBoundingClientRect().bottom;
+        for (const t of types) {
+            const el = t === "dragstart" || t === "dragend"
+                ? document.querySelector(`.card[data-id="${id}"]`) : col;
+            el.dispatchEvent(new DragEvent(t,
+                {bubbles: true, cancelable: true, dataTransfer: window.__dt, clientY: y}));
+        }
+    }""", [cid, lane, list(types)])
+
+
+def wait_lane(cid, lane):
+    for _ in range(100):
+        if core.get_card(cid)["lane"] == lane:
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"#{cid} never reached {lane}")
+
+
+def test_a_drag_whose_dragend_never_came_does_not_stop_the_next_drop(page):
+    a, b = cards_in(page, "stuck", "next")
+    fire_drag(page, a, "todo", "dragstart")         # no dragend, no drop
+    assert page.locator(".card.dragging").count() == 1
+    fire_drag(page, b, "develop", "dragstart", "dragover", "drop")
+    wait_lane(b, "develop")
+    assert page.locator(".card.dragging").count() == 0
+
+
+def test_many_quick_drops_in_a_row_all_land_and_leave_no_mark(page):
+    ids = cards_in(page, *[f"quick {i}" for i in range(12)])
+    for cid in ids:
+        fire_drag(page, cid, "develop", "dragstart", "dragover", "drop")   # no dragend, as in the report
+    for cid in ids:
+        wait_lane(cid, "develop")
+    assert page.locator(".card.dragging, .lane.over, .card.drop-at").count() == 0
+
+
+def test_a_dom_card_missing_from_cards_shows_an_error_and_reloads(page):
+    a, = cards_in(page, "ghost")
+    page.evaluate("id => { cards = cards.filter(c => c.id !== id); }", a)
+    fire_drag(page, a, "develop", "dragstart", "dragover", "drop")
+    page.wait_for_function("() => document.querySelector('#err, .err, #status')"
+                           " && document.body.innerText.includes('could not drop')")
+    page.wait_for_selector(f'.lane[data-lane="todo"] .card[data-id="{a}"]')   # the reload drew it again
+    assert page.locator(".card.dragging").count() == 0
+    assert core.get_card(a)["lane"] == "todo"
+
+
+def test_a_stale_dragging_mark_is_cleared_by_the_watchdog_and_the_poll_goes_on(page):
+    a, = cards_in(page, "stuck")
+    polled(page)
+    fire_drag(page, a, "todo", "dragstart")
+    page.evaluate("DRAG_STALE_MS = 100")
+    page.wait_for_timeout(250)
+    new = core.create_card("made meanwhile", actor="ce", project="Home")["id"]
+    page.evaluate("loadStatus()")
+    page.wait_for_selector(f'.card[data-id="{new}"]')
+    assert page.locator(".card.dragging").count() == 0
+
+
+def test_a_stale_dragging_mark_does_not_hold_the_aged_reload(page):
+    a, = cards_in(page, "stuck")
+    polled(page)
+    fire_drag(page, a, "todo", "dragstart")
+    page.evaluate("DRAG_STALE_MS = 100")
+    page.wait_for_timeout(250)
+    new = core.create_card("made meanwhile", actor="ce", project="Home")["id"]
+    page.evaluate("version = null; loadedAt = 0")   # nothing changed: only the age is due
+    page.evaluate("loadStatus()")
+    page.wait_for_selector(f'.card[data-id="{new}"]')
+
+
+def test_a_live_drag_is_not_cleared_while_dragover_keeps_coming(page):
+    a, = cards_in(page, "held")
+    page.evaluate("DRAG_STALE_MS = 400")
+    fire_drag(page, a, "todo", "dragstart")
+    for _ in range(4):
+        page.wait_for_timeout(200)
+        fire_drag(page, a, "todo", "dragover")
+    assert page.locator(".card.dragging").count() == 1
+
+
+def test_a_pointer_press_clears_a_stuck_mark(page):
+    a, = cards_in(page, "stuck")
+    fire_drag(page, a, "todo", "dragstart")
+    page.evaluate("document.body.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}))")
+    assert page.locator(".card.dragging").count() == 0

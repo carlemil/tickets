@@ -503,9 +503,11 @@ function cardNode(c) {
   n.ondragstart = ev => {
     ev.dataTransfer.setData("text/plain", String(c.id));
     ev.dataTransfer.effectAllowed = "move";
+    clearDrag();   // a mark left by a drag whose dragend never came (#672)
+    dragSeen = Date.now();
     n.classList.add("dragging");
   };
-  n.ondragend = () => n.classList.remove("dragging");
+  n.ondragend = () => clearDrag();
   n.onclick = ev => {
     if (ev.ctrlKey || ev.metaKey) {
       selected.has(c.id) ? selected.delete(c.id) : selected.add(c.id);
@@ -676,6 +678,21 @@ function slots(col, y, n) {
   const lo = k ? at(k - 1) : hi - 1;
   return [...Array(n).keys()].map(i => lo + (hi - lo) * (i + 1) / (n + 1));
 }
+// A drag whose dragend never came (the dragged node was swapped out by a render, a drag
+// cancelled outside the window) must not leave its mark: a stuck `.card.dragging` held off
+// every draw, load and poll and made the drop throw (#672). dragging() is the card being
+// dragged, or null; a mark with no dragstart/dragover for DRAG_STALE_MS (dragover repeats
+// while a drag is held, even still) is cleared there.
+let dragSeen = 0, DRAG_STALE_MS = 5000;
+function clearDrag() {
+  for (const x of document.querySelectorAll(".card.dragging")) x.classList.remove("dragging");
+  markOver(null);
+}
+function dragging() {
+  const n = $(".card.dragging");
+  if (n && Date.now() - dragSeen > DRAG_STALE_MS) { clearDrag(); return null; }
+  return n;
+}
 function markOver(col, before) {
   for (const x of document.querySelectorAll(".lane.over")) if (x !== col) x.classList.remove("over");
   for (const x of document.querySelectorAll(".card.drop-at"))
@@ -684,24 +701,31 @@ function markOver(col, before) {
   if (before) before.classList.add("drop-at");
 }
 document.addEventListener("dragover", ev => {
-  if (!$(".card.dragging")) return;   // a card's drag only, not text or files
+  if (!dragging()) return;   // a card's drag only, not text or files
+  dragSeen = Date.now();
   ev.preventDefault();
   const col = laneAt(ev);
   markOver(col, col && dropBefore(col, ev.clientY));
 });
 document.addEventListener("dragleave", ev => { if (!ev.relatedTarget) markOver(null); });
-document.addEventListener("dragend", () => markOver(null));
+document.addEventListener("dragend", () => clearDrag());
 document.addEventListener("drop", ev => {
-  const col = $(".card.dragging") && laneAt(ev);
+  const col = dragging() && laneAt(ev);
   markOver(null);
-  if (!col) return;
+  if (!col) return clearDrag();
   ev.preventDefault();
+  try { dropOn(ev, col); }
+  catch (e) { showErr("could not drop: " + e.message); load(); }   // a card the board lost track of
+  finally { clearDrag(); }
+});
+function dropOn(ev, col) {
   const id = Number(ev.dataTransfer.getData("text/plain"));
   // a selected card takes the whole selection with it; any other card goes alone
   // in the board's order, not the order they were picked, except that a blocker goes
   // above the cards it blocks (one from a later lane, or a pair already the wrong way
   // round) so the pair lands as one (#449)
   const of = i => cards.find(c => c.id === i);
+  if (!of(id)) throw new Error("#" + id + " is not on the board any more");
   const board = (selected.has(id) ? [...selected] : [id]).filter(of).sort((x, y) =>
     LANES.indexOf(of(x).lane) - LANES.indexOf(of(y).lane) || of(x).pos - of(y).pos || x - y);
   const waits = (x, y) => of(x).blocked_by.includes(y) && !of(x).blocking.includes(y);
@@ -713,7 +737,7 @@ document.addEventListener("drop", ev => {
   if (selected.has(id)) selected.clear();
   const at = slots(col, ev.clientY, ids.length);
   move(ids, col.dataset.lane, at);
-});
+}
 document.addEventListener("keydown", ev => {
   if (ev.key === "Escape" && !open && selected.size) { selected.clear(); renderBoard(); }
 });
@@ -779,11 +803,11 @@ function replace(card) {
 // updated in `cards`, only the drawing waits for the drop (which redraws) or the drag's end.
 let drawWaits = false;
 function drawAfterDrag() {
-  if (!$(".card.dragging")) return renderBoard();
+  if (!dragging()) return renderBoard();
   if (drawWaits) return;
   drawWaits = true;
   const wait = () => {
-    if ($(".card.dragging")) return setTimeout(wait, 100);
+    if (dragging()) return setTimeout(wait, 100);
     drawWaits = false;
     renderBoard();
   };
@@ -953,7 +977,7 @@ async function patch(body) {
 let pointerHeld = false, renderPending = false;
 // Not on a <select>: its native popup can swallow the pointerup, which would leave every
 // later render waiting, and a select is not a button a re-render can steal a click from.
-addEventListener("pointerdown", e => { pointerHeld = e.target.tagName !== "SELECT"; }, true);
+addEventListener("pointerdown", e => { pointerHeld = e.target.tagName !== "SELECT"; clearDrag(); }, true);
 for (const ev of ["pointerup", "pointercancel", "dragend"])
   addEventListener(ev, () => {
     pointerHeld = false;
@@ -1646,7 +1670,7 @@ async function loadBoard(call) {
   if (call !== loads) return loading;
   // An answer landing mid-drag would redraw the board and swap out the dragged card, so the
   // drop finds no card to move (#242): it draws once the drag is over (a newer load wins).
-  while ($(".card.dragging")) {
+  while (dragging()) {
     await new Promise(ok => setTimeout(ok, 100));
     if (call !== loads) return loading;
   }
@@ -1737,13 +1761,13 @@ async function loadStatus() {
   // agent creates, a move, a comment): reload the board then, once, but never under a drag.
   // A version change seen while a pointer is held is not recorded, so the next poll retries.
   const now = jobs.map(j => j.card_id).join();
-  const dragging = !!$(".card.dragging");
-  const finished = busy !== null && now !== busy && !dragging;
-  const changed = version !== null && ver.event !== version && !dragging && !pointerHeld;
+  const held = !!dragging();
+  const finished = busy !== null && now !== busy && !held;
+  const changed = version !== null && ver.event !== version && !held && !pointerHeld;
   // With a load still pending the reload waits for its answer instead (until the LOST_AFTER-th
   // such poll). A failed load's retry and a due reload wait for a released pointer, as a
   // change does: a due reload behind a failed load is retried with it (#202, see load()).
-  const due = (loadFailed || reloadDue || Date.now() - loadedAt > AGED_MS) && !dragging && !pointerHeld;
+  const due = (loadFailed || reloadDue || Date.now() - loadedAt > AGED_MS) && !held && !pointerHeld;
   if (finished || changed || due) {
     if (loadPending && ++heldPolls < LOST_AFTER) reloadDue = true;
     else load();
