@@ -110,6 +110,17 @@
   .card.stalled { background: #ffe0d6; }
   .card.stalled:hover { background: #ffd2c4; }
   .pill.stalled { background: #ff9d80; color: #7a2000; }
+  /* #636: steps the owner runs by hand in the Claude desktop session: a blue ring, tint and pill,
+     in every lane but done. The tint wins stalled; waiting keeps its yellow (a person answers
+     first), the ring and pill still show. The ring keeps the base shadow and the drop-at line */
+  .card.owner-steps { box-shadow: inset 0 0 0 2px #2f6fd6, 0 1px 1px rgba(9,30,66,.25); }
+  .card.owner-steps.drop-at { box-shadow: inset 0 3px 0 var(--accent), inset 0 0 0 2px #2f6fd6; }
+  .card.owner-steps:not(.waiting) { background: #d6e8ff; }
+  .card.owner-steps:not(.waiting):hover { background: #c4dcff; }
+  .card.owner-steps .pill.who { background: #fff; }   /* its own pale blue vanishes on the tint */
+  .pill.owner-steps { background: #2f6fd6; color: #fff; font-weight: 600; }
+  #panel .owner-steps-box { white-space: pre-wrap; background: #d6e8ff; border: 2px solid #2f6fd6;
+    border-radius: 6px; padding: 8px 10px; }
   /* #37: an arrow from each blocking card to each card it blocks, both on screen. One svg
      over the whole board, in its scroll coordinates, so it scrolls with it; clicks and
      drags go through. Faint, so many links don't drown the cards; a hovered card's are lit */
@@ -476,6 +487,11 @@ function cardNode(c) {
   if (stalled) meta.append(Object.assign(document.createElement("span"),
     { className: "pill stalled", title: "no activity for 30 min and no live session: the next run takes it over",
       textContent: "stalled" }));
+  const mine = !!c.owner_steps && c.lane !== "done" && !c.archived;   // optimistic drops into done too
+  n.classList.toggle("owner-steps", mine);
+  if (mine) meta.append(Object.assign(document.createElement("span"),
+    { className: "pill owner-steps", title: "steps for you to run by hand in the Claude desktop session: open the card",
+      textContent: "your steps" }));
   if (by.length) meta.append(Object.assign(document.createElement("span"),
     { className: "pill blocked-by", title: "blocked: can't start until these reach verify (with an open PR, or in a PR project with none: once merged) or done",
       textContent: "blocked by " + by.map(i => "#" + i).join(" ") }));
@@ -785,6 +801,21 @@ async function openCard(id) {
 
 const lastEvent = c => c.events[c.events.length - 1].id;
 const stale = card => open && open.id === card.id && lastEvent(card) < lastEvent(open);
+
+// #636: the "Your steps:" block (that line to the next blank line) of the newest comment holding
+// one, else of the description; mirrors core.OWNER_STEPS_RE
+function ownerSteps(c) {
+  const find = text => {   // CRLF first, so a \r\n\r\n blank line ends the block too
+    const m = /^[ \t#>*_-]*your steps[*_]*:[^\n]*(?:\n(?![ \t]*(?:\n|$))[^\n]*)*/im
+      .exec((text || "").replace(/\r\n?/g, "\n"));
+    return m ? m[0].trim() : "";
+  };
+  for (const e of [...(c.events || [])].reverse()) {
+    const s = e.kind === "comment" && find(e.detail.text);
+    if (s) return s;
+  }
+  return find(c.description);
+}
 
 function field(label, node) {
   const w = document.createElement("div");
@@ -1098,6 +1129,10 @@ function renderPanel() {
     p.append(Object.assign(document.createElement("div"),
       { className: "sub", textContent: `new card · ${c.project} · created when you close it` }));
   }
+
+  const steps = c.id && c.owner_steps && c.lane !== "done" && !c.archived ? ownerSteps(c) : "";
+  if (steps) p.append(field("your steps", Object.assign(document.createElement("div"),
+    { className: "owner-steps-box", textContent: steps })));
 
   const pj = document.createElement("select");
   for (const x of projects)   // a card from before projects may spell its project differently
@@ -1737,6 +1772,7 @@ async function refreshOpen() {
 const FIELD_TIPS = {
   "title": "what needs doing, in a line",
   "project": "the project this card belongs to: the agent works in that project's folder",
+  "your steps": "steps for you to run by hand in the Claude desktop session, taken from a line starting 'Your steps:' in the description or a comment",
   "description": "the request: what you want done and why. The agent reads it, never rewrites it",
   "plan": "the implementation plan the planning agent wrote. Edit it if you want it done differently",
   "open questions": "what the plan needs a person to decide before the work can go on",
