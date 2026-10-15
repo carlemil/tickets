@@ -314,7 +314,7 @@ prompt for an `ssh` to the Mac mini, blocked by the auto-mode check) no text rul
 only an allow rule in the session's settings does, so the summary names the command or path
 that held the run (as for a refused write) and docs.html points to `/permissions`. No
 settings are edited by the run. Fitting this under the #216 size guard left run.md at ~39,930 (#494 trimmed it to ~39,410)
-of its 40,000 chars: the next rule it gains has to trim something first.
+of its former 40,000 chars; the limit is now 50,000 (owner, 2026-10-15).
 
 **A cut-off stage does not strand its card (#493).** A stage agent cut off (API rate or quota
 limit, crash, session closing) used to leave its card in plan/develop/test, assigned to
@@ -334,7 +334,7 @@ clears the activity line (a dead dispatcher's line also expires, above), and the
 `card/<id>` worktree or branch with no card in plan/develop/test, never removing it. A card
 whose last note is a refused write keeps its #147 handling. Defaults, not owner questions:
 30 minutes, board marks only, the run recovers. run.md trimmed ~1,300 chars of prose first (now
-~39,970 of 40,000).
+~39,970, then of a 40,000 limit now raised to 50,000).
 
 It replaced `agent.py` (a process polling the board every 15 s and running headless
 `claude -p` on any card assigned to it or set to auto advance), and with it the board's
@@ -471,7 +471,7 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
 **Why run.md says what it says (#216).** The dispatcher reads `run.md` on every working tick
 and pastes much of it into every stage brief, so its size is paid many times per run. It
 holds the rules only (736 lines / 53,281 chars before #216, 539 / 39,147 after; a guard keeps
-it under 40,000 chars and free of dated history); the reasons and history behind them live
+it under 50,000 chars and free of dated history); the reasons and history behind them live
 here:
 - *Lean board calls (#186).* The owner's call on 2026-10-11, after a 5-card run took the
   5-hour limit to 86%: the MCP tools answer with the whole card, `get_card` and every write

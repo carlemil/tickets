@@ -186,7 +186,7 @@ def test_run_md_holds_rules_not_history():
     # #216: the dispatcher reads run.md on every working tick and pastes much of it into
     # every brief; the reasons and history behind its rules live in PLAN.md (The run).
     raw = open("skill-start/run.md", encoding="utf-8").read()
-    assert len(raw) < 40000, len(raw)  # was 53,281 chars before #216
+    assert len(raw) < 50000, len(raw)  # was 53,281 chars before #216
     text = " ".join(raw.split())
     # built from parts: a quoted full name would make every PLAN edit non-docs-only (#163);
     # for the same reason no test reads PLAN's text
