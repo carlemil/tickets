@@ -610,7 +610,10 @@ Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefaul
 `drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: project,
 description, then right under it the activity log and comment box (#95; a saved card
 only, a draft has neither, #94), then the plan
-round, assignee and lane, labels, checklist, links. The board writes as `User`, a fixed
+round, assignee and checklist. A saved card's edit sheet omits the lane picker, labels
+and links (both parent and blocks); edits preserve their stored values (#689). Drag on
+the board to move lanes, or use "move to done" in verify. New-card drafts retain the
+lane, labels and links controls for creation. The board writes as `User`, a fixed
 name, and agents write under their own names. Project tabs (#63:
 "All" first, then one per project with its color dot; the pick is persisted) filter the
 board — an agent and a human both scope to one project. Crowded, the strip scrolls
