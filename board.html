@@ -1124,7 +1124,7 @@ function renderPanel() {
     const idSpan = Object.assign(document.createElement("span"), { className: "id", textContent: "#" + c.id });
     idSpan.prepend(workDot(c), ...statusDots(c));
     head.append(idSpan, title, arch, ...(fin ? [fin] : []), shut);
-    // project and lane are fields of their own on the sheet: this line says only who made it, when
+    // this line says only who made it, when
     const sub = Object.assign(document.createElement("div"), { className: "sub" });
     sub.append(Object.assign(document.createElement("span"),
                  { textContent: "created " + ago(c.created_at),
@@ -1255,22 +1255,28 @@ function renderPanel() {
     asg.append(new Option(c.assignee, c.assignee, false, true));
   asg.onchange = () => patch({ assignee: asg.value || null });
 
-  const lane = document.createElement("select");
-  for (const v of LANES) lane.append(new Option(v, v, false, v === c.lane));
-  lane.onchange = () => patch({ lane: lane.value });
-
-  for (const [name, node] of [["assignee", asg], ["lane", lane]]) {
+  const fields = [["assignee", asg]];
+  // Saved cards move on the board; only creation needs a lane picker (#689).
+  if (!c.id) {
+    const lane = document.createElement("select");
+    for (const v of LANES) lane.append(new Option(v, v, false, v === c.lane));
+    lane.onchange = () => patch({ lane: lane.value });
+    fields.push(["lane", lane]);
+  }
+  for (const [name, node] of fields) {
     const w = field(name, node);
     w.style.flex = "1 1 45%";
     row.append(w);
   }
   p.append(row);
 
-  const labels = Object.assign(document.createElement("input"),
-    { type: "text", value: c.labels.join(", "), placeholder: "comma, separated" });
-  labels.onchange = () => patch({
-    labels: labels.value.split(",").map(s => s.trim()).filter(Boolean) });
-  p.append(field("labels", labels));
+  if (!c.id) {
+    const labels = Object.assign(document.createElement("input"),
+      { type: "text", value: c.labels.join(", "), placeholder: "comma, separated" });
+    labels.onchange = () => patch({
+      labels: labels.value.split(",").map(s => s.trim()).filter(Boolean) });
+    p.append(field("labels", labels));
+  }
 
   // checklist: PATCH replaces the whole list, so send every item back with one flag flipped
   const list = document.createElement("div");
@@ -1294,23 +1300,20 @@ function renderPanel() {
   // from plan on the agent writes the checklist from the plan's steps: an empty one shows
   // only while a person is writing the card (a draft, or todo) (#96)
   if (c.checklist.length || !c.id || c.lane === "todo") p.append(field("checklist", list));
+  // Existing links stay on the card, but their editor is only offered during creation.
+  if (c.id) return;
   // Links cannot be written before the card exists, so a draft holds them and "create"
   // sends them after it.
   const links = document.createElement("ul");
   links.className = "links";
   for (const l of c.links) {
     const li = document.createElement("li");
-    const other = !c.id || l.from_id === c.id ? `→ #${l.to_id}` : `← #${l.from_id}`;
+    const other = `→ #${l.to_id}`;
     li.append(document.createTextNode(`${l.kind} ${other}`));
     const rm = Object.assign(document.createElement("button"), { textContent: "unlink" });
-    rm.onclick = async () => {
-      if (!c.id) { c.links = c.links.filter(x => x !== l); return renderPanel(); }
-      try {
-        await api("DELETE", "/api/links",
-                  { from_id: l.from_id, to_id: l.to_id, kind: l.kind });
-        openCard(c.id);
-        if (l.kind === "blocks") load();   // both ends' marks change
-      } catch (e) { showErr(e.message); }
+    rm.onclick = () => {
+      c.links = c.links.filter(x => x !== l);
+      renderPanel();
     };
     li.append(rm);
     links.append(li);
@@ -1322,32 +1325,24 @@ function renderPanel() {
   const lkind = document.createElement("select");
   for (const k of ["parent", "blocks"]) lkind.append(new Option(k, k));
   const lgo = Object.assign(document.createElement("button"), { textContent: "link" });
-  lgo.onclick = async () => {
-    if (!c.id) {
-      // Refuse a bad link now, not after create. The check stays on the draft while it
-      // runs: closing meanwhile waits for it, so the card is not created without it (#104).
-      const to = Number(lid.value), kind = lkind.value;
-      const check = api("GET", "/api/cards/" + to).then(() => {
-        if (open !== c && !c.creating) return;   // cancelled or switched meanwhile
-        if (!c.links.some(l => l.to_id === to && l.kind === kind))
-          c.links.push({ to_id: to, kind });
-        if (open === c) renderPanel();
-      }, e => showErr(e.message)).finally(() => c.checks.delete(check));
-      c.checks.add(check);
-      return check;
-    }
-    try {
-      await api("POST", "/api/links",
-                { from_id: c.id, to_id: Number(lid.value), kind: lkind.value });
-      openCard(c.id);
-      if (lkind.value === "blocks") load();   // both ends' marks change
-    } catch (e) { showErr(e.message); }
+  lgo.onclick = () => {
+    // Refuse a bad link now, not after create. The check stays on the draft while it
+    // runs: closing meanwhile waits for it, so the card is not created without it (#104).
+    const to = Number(lid.value), kind = lkind.value;
+    const check = api("GET", "/api/cards/" + to).then(() => {
+      if (open !== c && !c.creating) return;   // cancelled or switched meanwhile
+      if (!c.links.some(l => l.to_id === to && l.kind === kind))
+        c.links.push({ to_id: to, kind });
+      if (open === c) renderPanel();
+    }, e => showErr(e.message)).finally(() => c.checks.delete(check));
+    c.checks.add(check);
+    return check;
   };
   lk.append(document.createTextNode("this is a "), lkind,
             document.createTextNode(" of "), lid, lgo);
   links.append(lk);
   p.append(field("links", links));
-  if (!c.id) title.focus();
+  title.focus();
 }
 
 // ---------- header controls ----------

@@ -146,23 +146,19 @@ def test_panel_edits_each_save_on_change(page):
     page.wait_for_selector("#panel.on")
     type_into(page, "#panel input[type=text] >> nth=0", "renamed in the panel")  # title
     wait_saved(page, cid, "title", "renamed in the panel")
-    type_into(page, "#panel input[placeholder='comma, separated']", "ui, api")
-    wait_saved(page, cid, "labels", ["ui", "api"])
     # in todo first: out of it, an empty checklist is hidden (#96)
     page.fill("#panel input[placeholder='+ checklist item (enter)']", "first item")
     page.press("#panel input[placeholder='+ checklist item (enter)']", "Enter")
     wait_saved(page, cid, "checklist", [{"text": "first item", "done": False}])
     page.check("#panel .chk input[type=checkbox]")
     wait_saved(page, cid, "checklist", [{"text": "first item", "done": True}])
-    page.select_option("#panel select >> nth=2", "test")          # lane
-    wait_saved(page, cid, "lane", "test")
     page.fill("#panel .say-box", "looks good")
     page.click("#panel button:has-text('comment')")
     page.wait_for_selector("#panel .log li.comment")
 
     c = core.get_card(cid)
     assert c["title"] == "renamed in the panel", c
-    assert c["labels"] == ["ui", "api"] and c["lane"] == "test", c
+    assert c["labels"] == [] and c["lane"] == "todo", c
     assert c["checklist"] == [{"text": "first item", "done": True}], c["checklist"]
     assert c["events"][-1]["detail"]["text"] == "looks good", c["events"][-1]
     assert {e["actor"] for e in c["events"]} == {"User"}, "every edit is attributed"
@@ -793,30 +789,40 @@ def test_arrow_heads_point_along_the_last_stretch_of_the_line(page):
     assert head == line, "the head is the line's colour"
 
 
-def test_assignee_and_links_from_the_panel(page):
+def test_edit_sheet_hides_metadata_and_preserves_it_when_saving(page):
     core.ensure_user("bob")
     other = core.create_card("other", actor="ce", project="Home")
+    cid = core.create_card("linked one", actor="User", project="Home",
+                           lane="test", labels=["small", "ui"])["id"]
+    core.link_cards(cid, other["id"], "parent", "User")
+    core.link_cards(other["id"], cid, "blocks", "User")
+    before = core.get_card(cid)
     page.evaluate("load()")
-    cid = add_card(page, "linked one")
+    page.wait_for_function("() => users.includes('bob')")
+    heads = sheet_heads(page, cid)
+    for hidden in ("lane", "labels", "links", "parents"):
+        assert hidden not in heads, heads
+    assert page.locator("#panel select").count() == 2  # project and assignee only
+    assert page.locator("#panel .links, #panel input[type=number], "
+                        "#panel input[placeholder='comma, separated']").count() == 0
     page.select_option("#panel select >> nth=1", "bob")           # assignee
     wait_saved(page, cid, "assignee", "bob")
-    page.fill("#panel input[type=number]", str(other["id"]))
-    page.select_option("#panel .links select", "blocks")
-    page.click("#panel button:text('link')")
-    page.wait_for_function("() => window.__inflight === 0")
-    page.wait_for_selector("#panel button:text('unlink')")
-    assert core.get_card(cid)["links"] == [
-        {"from_id": cid, "to_id": other["id"], "kind": "blocks"}]
-    page.click("#panel button:text('unlink')")
-    page.wait_for_function("() => window.__inflight === 0")
-    page.wait_for_selector("#panel button:text('unlink')", state="detached")
-    assert core.get_card(cid)["links"] == []
     page.select_option("#panel select >> nth=1", "")              # back to nobody
     wait_saved(page, cid, "assignee", None)
+    type_into(page, "#panel input[type=text] >> nth=0", "edited title")
+    wait_saved(page, cid, "title", "edited title")
+    page.fill("#panel textarea.desc", "saved on close")
+    close_sheet(page)
+    wait_saved(page, cid, "description", "saved on close")
+    after = core.get_card(cid)
+    for key in ("lane", "labels", "links"):
+        assert after[key] == before[key], key
+    sheet_heads(page, cid)
+    assert page.input_value("#panel textarea.desc") == "saved on close"
 
 
 def test_linking_to_a_missing_card_shows_the_error(page):
-    add_card(page, "lonely")
+    page.click("#add")
     page.fill("#panel input[type=number]", "999")
     page.click("#panel button:text('link')")
     page.wait_for_selector("#err.on")
@@ -849,9 +855,9 @@ def test_a_slow_patch_response_does_not_roll_back_a_newer_panel(page):
         page.wait_for_timeout(20)
     page.evaluate(f"""api("POST", "/api/links", {{from_id: {cid}, to_id: {other['id']},
                                                    kind: "blocks"}}).then(() => openCard({cid}))""")
-    page.wait_for_selector("#panel button:text('unlink')")
+    page.wait_for_function("() => open.links.length === 1")
     page.wait_for_function("() => window.__inflight === 0")   # the slow PATCH has landed
-    assert page.locator("#panel button:text('unlink')").count() == 1, \
+    assert page.evaluate("open.links.length") == 1, \
         "the late PATCH response rolled the panel back"
     assert page.input_value("#panel input[type=text] >> nth=0") == "renamed slowly"
 
@@ -1279,12 +1285,16 @@ def test_a_press_on_a_select_does_not_hold_back_renders(page):
     """A select's native popup can swallow the pointerup, so a pointerdown on one must not
     count as a held pointer, or the panel would stop re-rendering until the next click."""
     cid = add_card(page, "select press")
-    page.eval_on_selector("#panel select >> nth=2", """s => s.dispatchEvent(
+    core.create_project("Elsewhere")
+    page.evaluate("load()")
+    page.wait_for_function("() => projects.some(p => p.name === 'Elsewhere')")
+    page.evaluate("renderPanel()")
+    page.eval_on_selector("#panel select >> nth=0", """s => s.dispatchEvent(
         new PointerEvent("pointerdown", {bubbles: true}))""")     # and no pointerup, ever
-    page.select_option("#panel select >> nth=2", "test")
-    wait_saved(page, cid, "lane", "test")
+    page.select_option("#panel select >> nth=0", "Elsewhere")
+    wait_saved(page, cid, "project", "Elsewhere")
     page.wait_for_function(
-        "() => document.querySelector('#panel .log').textContent.includes('todo to test')")
+        "() => document.querySelector('#panel .log').textContent.includes('Elsewhere')")
 
 
 # ---------- no default project ----------
@@ -1326,12 +1336,12 @@ def sheet_heads(page, cid):
 
 def test_the_comments_sit_right_under_the_description(page):
     """#95: the log with its comments, then the comment box, come straight after the
-    description -- above the plan round, assignee, lane, labels, checklist and links."""
+    description -- above the plan round, assignee and checklist."""
     cid = core.create_card("plain", actor="ce", project="Home")["id"]
     core.comment(cid, "claude-agent", "an agent's note")
     heads = sheet_heads(page, cid)
     assert heads[:4] == ["project", "description", "activity", "say something"], heads
-    for later in ("assignee", "lane", "labels", "checklist", "links"):
+    for later in ("assignee", "checklist"):
         assert heads.index(later) > heads.index("say something"), (later, heads)
     desc = page.locator("#panel textarea.desc").bounding_box()
     log = page.locator("#panel .log").bounding_box()
@@ -1613,8 +1623,8 @@ def test_a_comment_being_typed_survives_a_re_render(page):
     half-typed into it must come back with it."""
     cid = add_card(page, "mid-comment")
     page.fill("#panel .say-box", "still writing this")
-    page.select_option("#panel select >> nth=2", "test")   # lane, saves and re-renders
-    wait_saved(page, cid, "lane", "test")
+    type_into(page, "#panel input[type=text] >> nth=0", "changed title")
+    wait_saved(page, cid, "title", "changed title")
     assert page.input_value("#panel .say-box") == "still writing this"
 
 
@@ -1700,8 +1710,8 @@ def test_clicks_inside_the_sheet_never_close_it(page):
     for target in ("#panel h3 >> nth=0", "#panel .sub", "#panel .log"):
         page.click(target)
         assert page.locator("#panel.on").count() == 1, target
-    page.select_option("#panel select >> nth=2", "plan")   # a field whose save re-renders
-    wait_saved(page, cid, "lane", "plan")
+    type_into(page, "#panel input[type=text] >> nth=0", "still staying")
+    wait_saved(page, cid, "title", "still staying")
     page.click("#panel h3 >> nth=0")
     assert page.locator("#panel.on").count() == 1
 
@@ -2995,7 +3005,7 @@ def test_the_line_under_the_header_says_only_when_and_by_whom(page):
 def test_move_to_done_shows_only_in_verify_and_ends_the_card(page):
     cid = add_card(page, "verify me")
     assert "move to done" not in head_parts(page), "not in todo"
-    page.select_option("#panel select >> nth=2", "verify")        # lane
+    page.evaluate("patch({lane: 'verify'})")
     wait_saved(page, cid, "lane", "verify")
     assert head_parts(page)[2:] == ["archive", "move to done", "close"]
     page.click("#panel button:text-is('move to done')")

@@ -37,10 +37,7 @@ MARKERS = [
     ("plan", "h3:plan"),
     ("open questions", "h3:open questions"),
     ("assignee", "h3:assignee"),
-    ("lane", "h3:lane"),
-    ("labels", "h3:labels"),
     ("checklist", "h3:checklist"),
-    ("links", "h3:links"),
 ]
 
 # Draws the badges; returns the keys whose target is not on the sheet (none, when the
@@ -158,7 +155,7 @@ def main():
                 page.wait_for_selector("#board .lane")
                 page.evaluate("id => openCard(id)", card)
                 page.wait_for_selector("#panel.on h3")
-                page.wait_for_selector("#panel .head .work.working")
+                page.wait_for_selector("#panel .head .st.deployed")
                 page.add_style_tag(content=SHOT_CSS)
                 page.evaluate("document.activeElement && document.activeElement.blur()")
                 missing = page.evaluate(MARK_JS, MARKERS)
