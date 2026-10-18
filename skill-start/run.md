@@ -43,7 +43,7 @@ first, so the allow rule `PowerShell(Invoke-RestMethod "http://127.0.0.1:8123/:*
 each call is a fresh shell:
 - **check** (lane, assignee, labels before a stage, a person's move, the land fields):
   `Invoke-RestMethod "http://127.0.0.1:8123/api/cards/<id>" | Select-Object
-  id,lane,assignee,labels,merged,pr`; a linked card for a brief likewise with `id,title,lane`;
+  id,lane,assignee,labels,merged,pr,blocked_by`; a linked card for a brief likewise with `id,title,lane`;
 - **queue** (step 2): `Invoke-RestMethod "http://127.0.0.1:8123/api/cards?project=<name>"
   | ForEach-Object { $_ } | Where-Object lane -in 'plan','develop','test' | Select-Object
   id,title,lane,assignee,session,stalled,labels,blocked_by,@{n='questions';e={-not
@@ -115,14 +115,16 @@ The **repo** is the git toplevel of the path; the **base** branch is its current
 `develop`, then `test`; within a lane, the board's order. Skip, and name in the summary:
 - **waiting for answers:** `questions` filled, `answers` empty;
 - **blocked:** `blocked_by` not empty (the server lists unfinished cards with a `blocks` link
-  to this one);
+  to this one), or a label equal to `blocked` (case-insensitive). Leave the card untouched
+  in its current lane until both holds clear; removing a label alone does not clear linked blockers;
 - **assigned to a person:** `assignee` set to anyone but `claude-agent`;
 - **already in flight:** this run holds it (a stage agent here has it, or it waits for a slot);
 - **released by an API error** (Failure) until its named reset time, else 30 minutes after the
   comment: its latest `claude-agent` comment starts `api error:` (read with the trimmed
   refused-write check before starting an unassigned card).
 
-A **stalled** card (`stalled` true: `claude-agent`'s, quiet 30 minutes) that this run does not
+A **stalled** card (`stalled` true: `claude-agent`'s, quiet 30 minutes) that passes the queue
+checks above and that this run does not
 hold lost its agent. It is taken over, not skipped (#493): comment `stalled: taking over from session <old>: <what is
 re-run>`, set `session` to this run's, then work its lane on the existing worktree and branch:
 plan and develop re-run the stage; test starts from the committed state (`git -C <tree> status
@@ -182,6 +184,13 @@ keeps its slot while it waits for the test slot, and keeps slot and worktree fro
 develop. At most **one card in `test`** at a time, from the test stage through ship, land,
 deploy and clean-up to `verify`; the next waits. Land merges and pushes of
 the base are yours, one card at a time. Never use the Agent tool's `isolation: "worktree"`.
+
+Before starting each stage, including stalled takeover and cards waiting between stages,
+re-read lane, assignee, labels and `blocked_by`. A non-empty `blocked_by` or a case-insensitive
+`blocked` label holds the card: start nothing, leave its lane, assignment and session untouched,
+and make no takeover comment. If held between stages, keep its worktree and stop advancing it
+for this run. A stale agent assignment never overrides either hold. Once both holds clear,
+apply the other queue readiness checks again; a person's move or assignment still wins.
 
 Starting a card: `update_card(assignee="claude-agent", session="<session id>")`, all your
 reads and writes through the trimmed calls (§0). `set_activity` holds one entry for you: the

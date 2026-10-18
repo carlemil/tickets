@@ -467,6 +467,12 @@ an account, a service to enable, a device to plug in), the agent opens a <code>t
 card for each such task, links it as blocking the card, and comments the new cards' numbers.
 The card stays in its lane, marked blocked, and runs skip it until those cards reach
 <code>verify</code> (one with an open pull request: once it is merged) or <code>done</code>.</p>
+<p><b>Holding a card.</b> A label equal to <code>blocked</code> (in any letter case) also
+holds a card in <code>plan</code>, <code>develop</code> or <code>test</code>. Runs leave
+held cards in place, including stalled agent assignments and cards waiting for their next
+stage, and held cards do not wake an idle run. Remove the label to release the manual hold;
+the card becomes eligible only when linked blockers and the other readiness checks also
+clear. Pull-request catch-up for cards already in <code>verify</code> still runs.</p>
 
 <h2 id="workflow">5. How you work with it</h2>
 <ol>

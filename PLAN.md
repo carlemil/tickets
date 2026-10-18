@@ -361,7 +361,13 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   below the card and above the repo's `CLAUDE.md`, which ranks above the skill.
 - **Queue:** the project's cards in `plan`, then `develop`, then `test`, board order
   within a lane. Skipped: questions without answers, a non-empty `blocked_by` (a
-  blocker not yet finished, #62 and #87), assigned to a person. `todo` is the backlog: moving a card to
+  blocker not yet finished, #62 and #87), a case-insensitive `blocked` label (manual hold,
+  #701), assigned to a person. Recheck both holds before every stage, including stalled
+  takeovers and cards waiting between stages; leave held cards' lanes, assignments and
+  sessions untouched. A stale agent assignment does not override a hold. Clearing either
+  hold makes the card eligible only when the other hold and all other readiness checks
+  also clear. The idle gate follows both holds in all three queue lanes; verify PR catch-up
+  remains independent. `todo` is the backlog: moving a card to
   `plan` queues it. One run drains the queue unattended, working each card once.
 - **Several at once (#1).** The session dispatches: each card's stage is a background
   subagent, up to 2 cards in flight by default (a project sets `Cards in flight: N` in its instructions, #193), plan and develop side by side in their
