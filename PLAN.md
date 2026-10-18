@@ -591,7 +591,7 @@ itself, since stopping starts no work.
 **The annotated card (#97).** Right after the contents, "A card at a glance" shows
 `docs-card.png` with a numbered legend. The image is a screenshot of the real sheet, never
 a drawing: `uv run python docs_card.py` fills a card with every field (verify lane, all
-three dots, session, pull request, plan, questions with options, answers, checklist,
+merged/deployed dots, session, pull request, plan, questions with options, answers, checklist,
 labels, parent and blocks links, comments with claude's output) on a throwaway database,
 serves the board from its own process on a free port (never 8123), opens the card in
 Chrome, draws a red badge per entry of `docs_card.MARKERS` and saves the shot. The legend's
@@ -602,7 +602,8 @@ sheet's field headings differ from those `MARKERS` names, in order, or a badge n
 finds its target; the HTTP one checks the PNG is served and the legend matches `MARKERS`.
 Any other change to how the sheet looks needs the script run again by hand. The card it
 builds has every field filled, so #96's hiding of empty fields never drops one from the
-figure.
+figure. The saved-card figure and legend omit the lane, labels and links editors hidden
+by #689; those controls remain available on new-card drafts.
 
 ## Board (`board.html`)
 
