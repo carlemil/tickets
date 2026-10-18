@@ -81,8 +81,8 @@
   .card .t { font-weight: 500; }
   .card .meta { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
                 font-size: 11px; color: var(--dim); }
-  /* archive all in the done header: small, quiet, on the right */
-  .lane h2 .arch { margin: 0 6px 0 auto; font-size: 11px; padding: 0 6px; cursor: pointer;
+  /* bulk actions in lane headers: small, quiet, on the right */
+  .lane h2 .arch, .lane h2 .finish { margin: 0 6px 0 auto; font-size: 11px; padding: 0 6px; cursor: pointer;
                    text-transform: none; letter-spacing: normal; }
   /* the line a dragged card would drop above */
   .card.drop-at { box-shadow: inset 0 3px 0 var(--accent); }
@@ -544,6 +544,11 @@ function renderBoard() {
     const mine = cards.filter(c => c.lane === lane).sort((a, b) => a.pos - b.pos || a.id - b.id);
     const h = document.createElement("h2");
     h.append(document.createTextNode(lane));
+    if (lane === "verify" && mine.length && !$("#showArch").checked)
+      h.append(Object.assign(document.createElement("button"),
+        { className: "finish", textContent: "move all to done",
+          title: "move every card in verify that the board shows to done (this project's only, if one is picked)",
+          onclick: () => finish(mine.map(c => c.id)) }));
     if (lane === "done" && mine.length && !$("#showArch").checked)
       h.append(Object.assign(document.createElement("button"),
         { className: "arch", textContent: "archive all",
@@ -851,6 +856,14 @@ async function move(ids, lane, pos) {
   }
   drawAfterDrag();               // not under a drag started since (#265)
   showErr(left.map(([id]) => "could not move #" + id + ": " + err.get(id)).join("; "));
+}
+
+// Like archive all, complete the displayed lane regardless of the current selection.
+async function finish(ids) {
+  const results = await Promise.allSettled(ids.map(id => api("PATCH", "/api/cards/" + id, { lane: "done" })));
+  const errors = results.flatMap((r, i) => r.status === "rejected" ? ["#" + ids[i] + ": " + r.reason.message] : []);
+  if (errors.length) showErr("could not move all to done: " + errors.join("; "));
+  load();   // reload either way: some may have landed
 }
 
 // archived, not deleted: "show archived" brings them back
