@@ -797,6 +797,8 @@ def test_edit_sheet_hides_metadata_and_preserves_it_when_saving(page):
     core.link_cards(cid, other["id"], "parent", "User")
     core.link_cards(other["id"], cid, "blocks", "User")
     before = core.get_card(cid)
+    page.evaluate("load()")
+    page.wait_for_function("() => users.includes('bob')")
     heads = sheet_heads(page, cid)
     for hidden in ("lane", "labels", "links", "parents"):
         assert hidden not in heads, heads
@@ -1286,6 +1288,7 @@ def test_a_press_on_a_select_does_not_hold_back_renders(page):
     core.create_project("Elsewhere")
     page.evaluate("load()")
     page.wait_for_function("() => projects.some(p => p.name === 'Elsewhere')")
+    page.evaluate("renderPanel()")
     page.eval_on_selector("#panel select >> nth=0", """s => s.dispatchEvent(
         new PointerEvent("pointerdown", {bubbles: true}))""")     # and no pointerup, ever
     page.select_option("#panel select >> nth=0", "Elsewhere")
