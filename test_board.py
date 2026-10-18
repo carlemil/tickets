@@ -3299,17 +3299,16 @@ def todo_order(page):
     return each(page, '.lane[data-lane="todo"] .card', "ns => ns.map(n => +n.dataset.id)")
 
 
-def test_a_blocked_card_dropped_above_its_blocker_goes_back_with_the_reason(page):
+def test_a_blocked_card_dropped_above_its_blocker_finds_a_lower_position(page):
     a, b = cards_in(page, "a", "b")
     core.link_cards(a, b, "blocks", "ann")
     page.evaluate("load()")
     page.wait_for_function("() => window.__inflight === 0")
     box = page.locator(f'.card[data-id="{a}"]').bounding_box()
     drag(page, b, "todo", y=box["y"] + 1)   # above the blocker's middle
-    page.wait_for_selector("#err.on")
     page.wait_for_function("() => window.__inflight === 0")
-    assert f"could not move #{b}: #{b} is blocked by #{a}" in page.text_content("#err")
-    assert todo_order(page) == [a, b], "drawn back where it was"
+    assert not page.locator("#err.on").count()
+    assert todo_order(page) == [a, b], "the next valid position is under its blocker"
     assert [c["id"] for c in core.list_cards(lane="todo")] == [a, b]
 
 
@@ -3341,7 +3340,7 @@ def test_a_blocker_from_a_later_lane_dropped_with_the_card_it_blocks_goes_above_
     assert not page.locator("#err.on").count()
 
 
-def test_two_refused_cards_each_show_their_own_reason(page):
+def test_two_blocked_cards_find_positions_after_their_own_blockers(page):
     a, b, c, d = cards_in(page, "a", "b", "c", "d")
     core.link_cards(a, b, "blocks", "ann")
     core.link_cards(c, d, "blocks", "ann")
@@ -3351,12 +3350,141 @@ def test_two_refused_cards_each_show_their_own_reason(page):
     ctrl(page, d)
     box = page.locator(f'.card[data-id="{a}"]').bounding_box()
     drag(page, b, "todo", y=box["y"] + 1)   # both above every blocker
+    page.wait_for_function("() => window.__inflight === 0")
+    assert not page.locator("#err.on").count()
+    assert [x["id"] for x in core.list_cards(lane="todo")] == [a, b, c, d]
+
+
+def record_drop_attempts(page, refused=None):
+    page.evaluate("""refused => {
+        const real = window.fetch;
+        window.dropAttempts = [];
+        window.fetch = (url, opts) => {
+            if (opts && opts.method === 'PATCH' && String(url).startsWith('/api/cards/')) {
+                const body = JSON.parse(opts.body);
+                if ('pos' in body) {
+                    dropAttempts.push([Number(url.split('/').pop()), body.pos]);
+                    if (refused && (!refused.id || String(url).endsWith('/' + refused.id)))
+                        return Promise.resolve(new Response(JSON.stringify({error: refused.error}),
+                                                            {status: refused.status}));
+                }
+            }
+            return real(url, opts);
+        };
+    }""", refused)
+
+
+def test_drop_search_scans_down_past_multiple_blockers_and_stops_at_first_valid_slot(page):
+    a, x, b, tail, moving = cards_in(page, "a", "x", "b", "tail", "moving")
+    core.update_card(moving, "ann", lane="plan")
+    for blocker in (a, b):
+        core.link_cards(blocker, moving, "blocks", "ann")
+    page.evaluate("load()")
+    record_drop_attempts(page)
+    box = page.locator(f'.card[data-id="{a}"]').bounding_box()
+    drag(page, moving, "todo", y=box["y"] + 1)
+    page.wait_for_function("() => window.__inflight === 0")
+    assert todo_order(page) == [a, x, b, moving, tail]
+    attempts = page.evaluate("dropAttempts.map(x => x[1])")
+    assert len(attempts) == 4 and attempts == sorted(attempts)
+    assert len(set(attempts)) == len(attempts)
+    assert not page.locator("#err.on").count()
+
+
+@pytest.mark.parametrize("source", ["plan", "todo"])
+def test_a_blocker_dropped_at_the_bottom_wraps_to_the_first_valid_slot(page, source):
+    moving, a, b, tail = cards_in(page, "moving", "a", "b", "tail")
+    core.update_card(moving, "ann", lane=source)
+    if source == "todo":
+        core.update_card(moving, "ann", pos=(core.get_card(a)["pos"] + core.get_card(b)["pos"]) / 2)
+    # Only the slot between a and b is valid: top and bottom must both be refused.
+    core.link_cards(a, moving, "blocks", "ann")
+    core.link_cards(moving, b, "blocks", "ann")
+    page.evaluate("load()")
+    record_drop_attempts(page)
+    drag(page, moving, "todo")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert todo_order(page) == [a, moving, b, tail]
+    attempts = page.evaluate("dropAttempts.map(x => x[1])")
+    assert len(attempts) == 3 and attempts[1] < core.get_card(a)["pos"] < attempts[2]
+    assert not page.locator("#err.on").count()
+
+
+def test_drop_with_no_valid_slot_restores_source_lane_and_reports_reason(page):
+    after, before, moving = cards_in(page, "after", "before", "moving")
+    core.update_card(moving, "ann", lane="plan")
+    # The target's two landmarks demand mutually incompatible insertion positions.
+    core.link_cards(before, moving, "blocks", "ann")
+    core.link_cards(moving, after, "blocks", "ann")
+    page.evaluate("load()")
+    record_drop_attempts(page)
+    drag(page, moving, "todo")
     page.wait_for_selector("#err.on")
     page.wait_for_function("() => window.__inflight === 0")
+    assert core.get_card(moving)["lane"] == "plan"
+    assert page.locator(f'.lane[data-lane="plan"] .card[data-id="{moving}"]').count() == 1
+    assert todo_order(page) == [after, before]
+    assert f"could not move #{moving}:" in page.text_content("#err")
+    attempts = page.evaluate("dropAttempts.map(x => x[1])")
+    assert len(attempts) == 3 and len(set(attempts)) == 3
+
+
+@pytest.mark.parametrize("status,error", [(403, "permission denied"), (400, "invalid pos"),
+                                        (500, "backend failed"),
+                                        (403, "#{id} is blocked by #1 and cannot go ahead of it")])
+def test_drop_does_not_search_other_slots_for_non_order_errors(page, status, error):
+    a, moving = cards_in(page, "a", "moving")
+    record_drop_attempts(page, {"status": status, "error": error.format(id=moving)})
+    drag(page, moving, "develop")
+    page.wait_for_selector("#err.on")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert len(page.evaluate("dropAttempts")) == 1
+    assert todo_order(page) == [a, moving]
+    assert core.get_card(moving)["lane"] == "todo"
+
+
+def test_drop_network_failure_is_not_retried(page):
+    a, moving = cards_in(page, "a", "moving")
+    page.evaluate("""() => {
+        window.dropAttempts = [];
+        const real = window.fetch;
+        window.fetch = (url, opts) => {
+            if (opts && opts.method === 'PATCH') {
+                dropAttempts.push(url); return Promise.reject(new TypeError('network failed'));
+            }
+            return real(url, opts);
+        };
+    }""")
+    drag(page, moving, "develop")
+    page.wait_for_selector("#err.on")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert len(page.evaluate("dropAttempts")) == 1
+    assert todo_order(page) == [a, moving]
+
+
+def test_multicard_drop_search_keeps_blocker_first_and_restores_only_failed_card(page):
+    landmark, a, b, refused = cards_in(page, "landmark", "a", "b", "refused")
+    for cid in (a, b, refused):
+        core.update_card(cid, "ann", lane="plan")
+    core.link_cards(landmark, a, "blocks", "ann")
+    core.link_cards(a, b, "blocks", "ann")
+    page.evaluate("load()")
+    for cid in (b, a, refused):
+        ctrl(page, cid)
+    record_drop_attempts(page, {"id": refused, "status": 403, "error": "permission denied"})
+    box = page.locator(f'.card[data-id="{landmark}"]').bounding_box()
+    drag(page, a, "todo", y=box["y"] + 1)
+    page.wait_for_selector("#err.on")
+    page.wait_for_function("() => window.__inflight === 0")
+    assert todo_order(page) == [landmark, a, b]
+    assert core.get_card(refused)["lane"] == "plan"
+    assert page.locator(f'.lane[data-lane="plan"] .card[data-id="{refused}"]').count() == 1
+    assert picked(page) == []
+    attempts = page.evaluate("dropAttempts")
+    assert sum(cid == refused for cid, _ in attempts) == 1
     msg = page.text_content("#err")
-    assert f"could not move #{b}: #{b} is blocked by #{a}" in msg, msg
-    assert f"could not move #{d}: #{d} is blocked by #{c}" in msg, msg
-    assert [x["id"] for x in core.list_cards(lane="todo")] == [a, b, c, d]
+    assert f"could not move #{refused}: permission denied" in msg
+    assert f"could not move #{a}:" not in msg and f"could not move #{b}:" not in msg
 
 
 def test_esc_in_an_open_sheet_leaves_the_selection_alone(page):

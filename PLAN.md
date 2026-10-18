@@ -195,7 +195,10 @@ rather than the board, which loads one project. The list stays without `links` a
 Order (#449): in one lane a blocked card must not sit ahead of its live blocker, nor a
 blocker behind a card it blocks (lane order is `(pos, id)`). `update_card` refuses a write
 that sets `pos` and breaks it (`_order_check`, a `ValueError`, HTTP 400); the board's
-`move()` puts the card back and shows the message. The check runs on the written row
+`move()` searches the lane's other insertion slots on this explicit order refusal (#702):
+from the requested slot downward to the bottom, then from the top back to that slot,
+accepting the first permitted placement. Other errors (including permission and network
+failures) are not retried at other positions. The check runs on the written row
 inside the write's transaction, so liveness is the one after the move (a blocker dragged
 into verify finished holds nothing, one dragged back out of done blocks again) and a
 refusal rolls the write back. Only cards side by side on one board count: same lane,
@@ -206,7 +209,11 @@ is right. A multi-card drop goes in the board's order (not the picking order) ex
 a picked blocker goes above the picked cards it blocks (one from a later lane, or a pair
 already the wrong way round), one PATCH at a time, and those refused are tried again while
 any other lands, so a blocker dragged down with the card it blocks lands once that card
-has moved. Each card still refused is put back and named with its own reason.
+has moved. If requested placements stop making progress, position search uses the actual
+accepted placements, never pending optimistic ones; a picked blocker entering the lane
+gets its turn before its dependent. The selection is spent as with a normal drop. Each
+card for which no slot succeeds is put back in its original lane and position, and named
+with its final reason (`could not move #<id>: <reason>`); successful cards stay landed.
 
 `update_card` is one function covering move-lane, assign, retitle, edit body and tick
 checklist. It diffs old against new and writes one event per changed field — that is
@@ -628,7 +635,8 @@ sideways inside itself; a new pick is scrolled into view, a reload leaves the st
 the person scrolled it (the board reloads itself on others' writes).
 Dragging inside a column reorders it: `dropBefore` finds the card the pointer is above
 (shown with a `.drop-at` insertion line) and `slots` gives the dropped cards their `pos`
-values between its neighbours.
+values between its neighbours. Dependency-order refusals search other slots downward,
+then wrap to the top (#702), while `core.py` remains the authority for permitted moves.
 
 A blocked card (#35, `blocked_by` not empty) gets the `blocked` class: a red 4 px stripe
 down its left edge (`::before`, as box-shadow is `.drop-at`'s and outline is
