@@ -342,6 +342,7 @@ def test_show_archived_respects_the_project_filter(page):
 # ---------- archive from the board: the done lane's "archive all" ----------
 
 ARCH_ALL = ".lane[data-lane=done] h2 .arch"
+FINISH_ALL = ".lane[data-lane=verify] h2 .finish"
 
 
 def on_board(page, *cards):
@@ -351,6 +352,55 @@ def on_board(page, *cards):
     page.evaluate("load()")
     page.wait_for_selector(f'.card[data-id="{ids[-1]}"]')
     return ids
+
+
+def test_move_all_to_done_completes_visible_verify_cards_only(page):
+    a, b, todo, done = on_board(page, ("one", "verify"), ("two", "verify"),
+                              ("todo", "todo"), ("done", "done"))
+    page.click(FINISH_ALL)
+    page.wait_for_selector(".lane[data-lane=verify] .card", state="detached")
+    assert [core.get_card(i)["lane"] for i in (a, b, todo, done)] == ["done", "done", "todo", "done"]
+    assert all(not core.get_card(i)["archived"] for i in (a, b, todo, done))
+    assert page.locator(FINISH_ALL).count() == 0
+    assert page.text_content(".lane[data-lane=verify] h2 span") == "0"
+
+
+def test_move_all_to_done_respects_project_filter_and_ignores_selection(page):
+    core.create_project("P")
+    core.create_project("Q")
+    a, b, other, todo = on_board(page, ("one", "verify", "P"), ("two", "verify", "P"),
+                               ("other", "verify", "Q"), ("todo", "todo", "P"))
+    page.evaluate("localStorage.setItem('project', 'P'); load()")
+    page.wait_for_selector(f'.card[data-id="{other}"]', state="detached")
+    ctrl(page, a)
+    ctrl(page, todo)
+    page.click(FINISH_ALL)
+    page.wait_for_selector(".lane[data-lane=verify] .card", state="detached")
+    assert [core.get_card(i)["lane"] for i in (a, b, other, todo)] == ["done", "done", "verify", "todo"]
+
+
+def test_move_all_to_done_hides_for_empty_lane_and_archived_view(page):
+    on_board(page, ("todo", "todo"))
+    assert page.locator(FINISH_ALL).count() == 0
+    archived = core.create_card("old", actor="ce", project="Home", lane="verify")["id"]
+    core.update_card(archived, "ce", archived=True)
+    page.check("#showArch")
+    page.wait_for_selector(f'.card[data-id="{archived}"]')
+    assert page.locator(FINISH_ALL).count() == 0
+
+
+def test_move_all_to_done_reports_partial_failure_and_reloads_successes(page):
+    a, b = on_board(page, ("stays", "verify"), ("moves", "verify"))
+    page.evaluate("""id => { const original = window.fetch;
+        window.fetch = (path, opts) => opts && opts.method === "PATCH" && path === "/api/cards/" + id
+            ? Promise.resolve(new Response(JSON.stringify({error: "nope"}), {status: 400}))
+            : original(path, opts); }""", a)
+    page.click(FINISH_ALL)
+    page.wait_for_selector("#err.on")
+    page.wait_for_selector(f'.lane[data-lane=done] .card[data-id="{b}"]')
+    assert f"could not move all to done: #{a}: nope" in page.text_content("#err")
+    assert page.locator(f'.lane[data-lane=verify] .card[data-id="{a}"]').count() == 1
+    assert [core.get_card(i)["lane"] for i in (a, b)] == ["verify", "done"]
 
 
 def test_a_done_card_has_no_archive_button_of_its_own(page):

@@ -283,6 +283,11 @@ again.</p>
     the red bar at the top and reloads the board; drag the card again.</li>
   <li>The <code>done</code> lane has "archive all" for every done card the board shows; one
     card is archived from its sheet.</li>
+  <li>The <code>verify</code> lane has "move all to done" for every verify card the board
+    shows, regardless of selection. Like "archive all", it takes one click, applies only
+    to the selected project (or all projects in All), and hides when the lane is empty
+    or showing archived cards. If a move fails, the red bar explains why and the board
+    reloads to show which cards moved.</li>
 </ul>
 
 <h3 id="signals">Signals</h3>

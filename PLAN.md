@@ -753,6 +753,10 @@ remembered project that is gone — has a grey dot that shows and pulses only wh
 works on anything (`markTab`, run by `loadStatus` and on every `renderProj`). The project pill
 shows only under the "All" tab, and a `done` card has no archive button of its own: the
 lane's "archive all" and the sheet's "archive" cover it.
+The verify header has "move all to done" (#722), matching archive all: one click moves
+every displayed verify card, regardless of selection, scoped to the selected project
+(or all projects). Both header actions hide in empty lanes and the archived view.
+A failed bulk completion shows the reason and reloads, including any successful moves.
 
 **Footer summary (#575).** The footer (`#status`) is one line, `#sum`: "N agents working ·
 #id Project, ..." (N counts distinct agents; "no agent is working on anything" when none), cut
