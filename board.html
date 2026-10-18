@@ -154,6 +154,7 @@
   #panel h3 { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase;
                letter-spacing: .08em; color: var(--dim); }
   #panel .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #panel .editor-people > div { flex: 1 1 12rem; min-width: 0; }
   #panel input[type=text], #panel textarea, #panel select { width: 100%; }
   #panel textarea { min-height: 70px; resize: vertical; }
   /* grows with its text, natively: 10 lines at least, 50 at most, then it scrolls */
@@ -1242,7 +1243,16 @@ function renderPanel() {
     pj.prepend(gone);
   }
   pj.onchange = () => patch({ project: pj.value });
-  p.append(field("project", pj));
+  const asg = document.createElement("select");
+  asg.append(new Option("— nobody —", "", false, !c.assignee));
+  for (const u of users) asg.append(new Option(u, u, false, u === c.assignee));
+  if (c.assignee && !users.includes(c.assignee))
+    asg.append(new Option(c.assignee, c.assignee, false, true));
+  asg.onchange = () => patch({ assignee: asg.value || null });
+
+  const people = Object.assign(document.createElement("div"), { className: "row editor-people" });
+  people.append(field("project", pj), field("assignee", asg));
+  p.append(people);
 
   const desc = Object.assign(document.createElement("textarea"),
     { value: c.description, className: "desc" });
@@ -1300,30 +1310,13 @@ function renderPanel() {
     back.setSelectionRange(...answering.at);
   }
 
-  const row = document.createElement("div");
-  row.className = "row";
-
-  const asg = document.createElement("select");
-  asg.append(new Option("— nobody —", "", false, !c.assignee));
-  for (const u of users) asg.append(new Option(u, u, false, u === c.assignee));
-  if (c.assignee && !users.includes(c.assignee))
-    asg.append(new Option(c.assignee, c.assignee, false, true));
-  asg.onchange = () => patch({ assignee: asg.value || null });
-
-  const fields = [["assignee", asg]];
   // Saved cards move on the board; only creation needs a lane picker (#689).
   if (!c.id) {
     const lane = document.createElement("select");
     for (const v of LANES) lane.append(new Option(v, v, false, v === c.lane));
     lane.onchange = () => patch({ lane: lane.value });
-    fields.push(["lane", lane]);
+    p.append(field("lane", lane));
   }
-  for (const [name, node] of fields) {
-    const w = field(name, node);
-    w.style.flex = "1 1 45%";
-    row.append(w);
-  }
-  p.append(row);
 
   if (!c.id) {
     const labels = Object.assign(document.createElement("input"),

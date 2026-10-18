@@ -31,12 +31,12 @@ MARKERS = [
     ("close", "btn:close"),
     ("origin", "#panel > .sub"),
     ("project", "h3:project"),
+    ("assignee", "h3:assignee"),
     ("description", "h3:description"),
     ("activity", "h3:activity"),
     ("say something", "h3:say something"),
     ("plan", "h3:plan"),
     ("open questions", "h3:open questions"),
-    ("assignee", "h3:assignee"),
     ("checklist", "h3:checklist"),
 ]
 

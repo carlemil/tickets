@@ -1334,15 +1334,65 @@ def sheet_heads(page, cid):
     return each(page, "#panel h3", "ns => ns.map(n => n.textContent)")
 
 
+@pytest.mark.parametrize("draft", [False, True], ids=["saved", "draft"])
+@pytest.mark.parametrize("width", [1280, 360], ids=["wide", "narrow"])
+def test_project_and_assignee_share_the_top_editor_row_and_save(page, draft, width):
+    """#704: both editors pair these fields, wrap when needed and save both values."""
+    project = "Another project with a long descriptive name"
+    assignee = "A person with a long descriptive name"
+    core.create_project(project)
+    core.ensure_user(assignee)
+    cid = None if draft else core.create_card("assignment", "User", project="Home")["id"]
+    page.set_viewport_size({"width": width, "height": 900})
+    page.evaluate("load()")
+    page.wait_for_function("name => users.includes(name)", arg=assignee)
+    if draft:
+        page.click("#add")
+        page.fill("#panel .head input", "assignment")
+    else:
+        sheet_heads(page, cid)
+    fields = "#panel div:has(> h3:text-is('{}')) select"
+    pj, asg = fields.format("project"), fields.format("assignee")
+    boxes = [page.locator(sel).bounding_box() for sel in (pj, asg)]
+    left, right = boxes
+    description = page.locator("#panel textarea.desc").bounding_box()
+    assert max(b["y"] + b["height"] for b in boxes) <= description["y"]
+    if width == 1280:
+        assert abs(left["y"] - right["y"]) < 1
+        assert left["x"] + left["width"] <= right["x"]
+    else:
+        assert right["y"] >= left["y"] + left["height"]
+        panel = page.locator("#panel").bounding_box()
+        for box in boxes:
+            assert box["width"] >= 150
+            assert panel["x"] <= box["x"]
+            assert box["x"] + box["width"] <= panel["x"] + panel["width"]
+    page.select_option(pj, project)
+    if not draft:
+        wait_saved(page, cid, "project", project)
+    page.select_option(asg, assignee)
+    if not draft:
+        wait_saved(page, cid, "assignee", assignee)
+    else:
+        lane = fields.format("lane")
+        page.select_option(lane, "plan")
+        assert core.list_cards() == [], "picker edits still wait for draft creation"
+    close_sheet(page)
+    if draft:
+        cid = created(page)
+    card = core.get_card(cid)
+    assert (card["project"], card["assignee"]) == (project, assignee)
+    assert card["lane"] == ("plan" if draft else "todo")
+
+
 def test_the_comments_sit_right_under_the_description(page):
     """#95: the log with its comments, then the comment box, come straight after the
-    description -- above the plan round, assignee and checklist."""
+    description -- above the plan round and checklist."""
     cid = core.create_card("plain", actor="ce", project="Home")["id"]
     core.comment(cid, "claude-agent", "an agent's note")
     heads = sheet_heads(page, cid)
-    assert heads[:4] == ["project", "description", "activity", "say something"], heads
-    for later in ("assignee", "checklist"):
-        assert heads.index(later) > heads.index("say something"), (later, heads)
+    assert heads[:5] == ["project", "assignee", "description", "activity", "say something"], heads
+    assert heads.index("checklist") > heads.index("say something"), heads
     desc = page.locator("#panel textarea.desc").bounding_box()
     log = page.locator("#panel .log").bounding_box()
     box = page.locator("#panel .say-box").bounding_box()
@@ -1355,8 +1405,8 @@ def test_the_comments_come_before_a_planned_cards_plan(page):
     core.update_card(cid, "claude-agent", plan="## Steps\n1. do it",
                      questions="1. which?", answers="this one")
     heads = sheet_heads(page, cid)
-    assert heads[:4] == ["project", "description", "activity", "say something"], heads
-    assert heads[4:6] == ["plan", "open questions"], heads
+    assert heads[:5] == ["project", "assignee", "description", "activity", "say something"], heads
+    assert heads[5:7] == ["plan", "open questions"], heads
     assert "your answers" not in heads, heads
 
 
@@ -1366,7 +1416,7 @@ def test_a_draft_has_no_comments_under_its_description(page):
     page.click("#add")
     page.wait_for_selector("#panel.on")
     heads = each(page, "#panel h3", "ns => ns.map(n => n.textContent)")
-    assert heads[:3] == ["project", "description", "assignee"], heads
+    assert heads[:4] == ["project", "assignee", "description", "lane"], heads
     assert "activity" not in heads and "say something" not in heads, heads
     assert page.locator("#panel .say-box").count() == 0
     assert page.evaluate("'comments' in open") is False, "no comment queue on the draft"

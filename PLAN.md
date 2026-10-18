@@ -621,10 +621,10 @@ by #689; those controls remain available on new-card drafts.
 ## Board (`board.html`)
 
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
-`drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: project,
-description, then right under it the activity log and comment box (#95; a saved card
-only, a draft has neither, #94), then the plan
-round, assignee and checklist. A saved card's edit sheet omits the lane picker, labels
+`drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: project and
+assignee side by side (#704), description, then right under it the activity log and
+comment box (#95; a saved card only, a draft has neither, #94), then the plan round
+and checklist. A saved card's edit sheet omits the lane picker, labels
 and links (both parent and blocks); edits preserve their stored values (#689). Drag on
 the board to move lanes, or use "move to done" in verify. New-card drafts retain the
 lane, labels and links controls for creation. The board writes as `User`, a fixed
@@ -843,6 +843,10 @@ The top of a card's sheet is one sticky header row that stays put while the shee
 scrolls: the card number, the title (edited in place), "archive", "move to done" (only
 while the card is in `verify`) and "close". A new
 card's row is "new", the title, "cancel", "move to plan", "close" (#153).
+Project and assignee share the first field row above description on both saved cards
+and new-card drafts (#704). Each picker grows to use the row, wrapping below the other
+on narrow screens so neither forces horizontal scrolling. Drafts keep their lane picker
+below the description; each field retains its existing save behavior.
 The card number carries the auto dot, which pulses while an agent works the card.
 The line under it says "created <when> by <author>" (the full date on hover; project
 and lane are fields on the sheet, #65), then, once an agent has taken the
