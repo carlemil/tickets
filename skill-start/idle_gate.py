@@ -32,6 +32,8 @@ def workable(card, base):
         return bool(card["pr"]) and not card["merged"]
     if card["lane"] not in ("plan", "develop", "test"):
         return False
+    if any(label.casefold() == "blocked" for label in card.get("labels", [])):
+        return False  # an explicit manual hold, including stalled agent assignments
     if card["questions"] and not card["answers"]:
         return False  # waiting for a person's answers
     if card["assignee"] not in (None, "", "claude-agent"):

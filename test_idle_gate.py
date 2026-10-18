@@ -91,13 +91,65 @@ def test_cards_a_run_would_skip_do_not_wake_it(server, proj, here):
     assert gate.idle_line(TICK, here, server) is None
 
 
-def test_a_blocked_card_does_not_wake_it_until_its_blocker_is_done(server, proj, here):
-    blocked = card(proj, "develop")
+@pytest.mark.parametrize("lane", ["plan", "develop", "test"])
+def test_a_blocked_card_does_not_wake_it_until_its_blocker_is_done(server, proj, here, lane):
+    blocked = card(proj, lane)
     blocker = card("Home", "todo")  # a blocker may live in another project
     core.link_cards(blocker, blocked, "blocks", "person")
     core.link_cards(blocked, card(proj, "todo"), "blocks", "person")  # it blocks another: no matter
     assert gate.idle_line(TICK, here, server) is not None
     core.update_card(blocker, "person", lane="done")
+    assert gate.idle_line(TICK, here, server) is None
+
+
+@pytest.mark.parametrize("lane", ["plan", "develop", "test"])
+@pytest.mark.parametrize("label", ["blocked", "BLOCKED", "BlOcKeD"])
+def test_a_manual_hold_stays_idle_until_removed(server, proj, here, lane, label):
+    held = card(proj, lane, labels=["important", label], assignee="claude-agent")
+    before = core.get_card(held)
+    assert not gate.workable(dict(before, stalled=True, session="old-session"), server)
+    assert gate.idle_line(TICK, here, server) is not None
+    assert core.get_card(held) == before  # evaluating readiness never changes the card
+    core.update_card(held, "person", labels=["important"])
+    assert gate.idle_line(TICK, here, server) is None
+
+
+@pytest.mark.parametrize("lane", ["plan", "develop", "test"])
+@pytest.mark.parametrize("release_first", ["label", "dependency"])
+def test_both_holds_must_clear(server, proj, here, lane, release_first):
+    held = card(proj, lane, labels=["blocked"])
+    blocker = card("Home", "todo")
+    core.link_cards(blocker, held, "blocks", "person")
+    assert gate.idle_line(TICK, here, server) is not None
+    actions = {
+        "label": lambda: core.update_card(held, "person", labels=[]),
+        "dependency": lambda: core.update_card(blocker, "person", lane="done"),
+    }
+    actions.pop(release_first)()
+    assert gate.idle_line(TICK, here, server) is not None
+    next(iter(actions.values()))()
+    assert gate.idle_line(TICK, here, server) is None
+
+
+@pytest.mark.parametrize("lane", ["plan", "develop", "test"])
+def test_a_ready_card_wakes_the_run_alongside_held_cards(server, proj, here, lane):
+    card(proj, lane, labels=["blocked"])
+    linked = card(proj, lane)
+    core.link_cards(card("Home", "todo"), linked, "blocks", "person")
+    assert gate.idle_line(TICK, here, server) is not None
+    card(proj, lane, labels=["unblocked"])
+    assert gate.idle_line(TICK, here, server) is None
+
+
+@pytest.mark.parametrize("fields", [{"assignee": "person"}, {"questions": "1. Which?"}])
+def test_releasing_manual_hold_preserves_other_readiness_checks(server, proj, here, fields):
+    held = card(proj, "plan", labels=["blocked"], **fields)
+    core.update_card(held, "person", labels=[])
+    assert gate.idle_line(TICK, here, server) is not None
+
+
+def test_manual_hold_does_not_suppress_verify_pr_catch_up(server, proj, here):
+    card(proj, "verify", labels=["blocked"], pr="https://example.test/pr/701")
     assert gate.idle_line(TICK, here, server) is None
 
 
