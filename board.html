@@ -299,7 +299,8 @@ async function api(method, path, body) {
                                                                          : { ...body, actor: USER });
   const r = await fetch(path, opts);
   const data = await r.json();
-  if (!r.ok) throw new Error(data.error || (r.status + " " + r.statusText));
+  if (!r.ok) throw Object.assign(new Error(data.error || (r.status + " " + r.statusText)),
+                               { status: r.status });
   return data;
 }
 
@@ -671,14 +672,33 @@ function dropBefore(col, y) {
 // ponytail: halving a gap runs out of float precision after ~50 drops into the same spot;
 // renumber the lane if it ever shows up.
 function slots(col, y, n) {
-  const rest = staying(col);
-  if (!rest.length) return [...Array(n).keys()];
-  const at = i => cards.find(c => c.id === +rest[i].dataset.id).pos;
+  const nodes = staying(col);
   const before = dropBefore(col, y);
-  const k = before ? rest.indexOf(before) : rest.length;
-  const hi = k < rest.length ? at(k) : at(rest.length - 1) + 1;
-  const lo = k ? at(k - 1) : hi - 1;
+  return slotValues(nodes.map(n => cards.find(c => c.id === +n.dataset.id)),
+                    before ? nodes.indexOf(before) : nodes.length, n);
+}
+function slotValues(rest, k, n) {
+  if (!rest.length) return [...Array(n).keys()];
+  const hi = k < rest.length ? rest[k].pos : rest[rest.length - 1].pos + 1;
+  const lo = k ? rest[k - 1].pos : hi - 1;
   return [...Array(n).keys()].map(i => lo + (hi - lo) * (i + 1) / (n + 1));
+}
+// Only the backend's dependency-order refusal permits searching other positions (#702).
+function orderRefusal(e, id) {
+  return e.status === 400 && new RegExp("^#" + id +
+    " (?:is blocked by #\\d+ and cannot go ahead of it|blocks #\\d+ and cannot go behind it)$").test(e.message);
+}
+function otherSlots(actual, id, lane, requested) {
+  const card = actual.get(id);
+  const rest = [...actual.values()].filter(c => c.id !== id && c.lane === lane &&
+    c.project === card.project && c.archived === card.archived)
+    .sort((a, b) => a.pos - b.pos || a.id - b.id);
+  let start = rest.findIndex(c => c.pos > requested || (c.pos === requested && c.id > id));
+  if (start < 0) start = rest.length;
+  // The requested slot has already failed: continue below it, then wrap to the top.
+  const indices = [...Array(rest.length + 1).keys()];
+  return [...new Set([...indices.slice(start + 1), ...indices.slice(0, start)]
+    .map(k => slotValues(rest, k, 1)[0]))].filter(p => p !== requested);
 }
 // A drag whose dragend never came (the dragged node was swapped out by a render, a drag
 // cancelled outside the window) must not leave its mark: a stuck `.card.dragging` held off
@@ -766,6 +786,7 @@ document.addEventListener("keydown", ev => {
 // so they go one at a time and those refused are tried again while any other lands: a
 // blocker dragged down with the card it blocks fits once that card has gone first.
 async function move(ids, lane, pos) {
+  const actual = new Map(cards.map(c => [c.id, { ...c }]));
   const was = new Map();
   let left = [];
   ids.forEach((id, k) => {
@@ -778,15 +799,49 @@ async function move(ids, lane, pos) {
   if (!left.length) return;
   renderBoard();
   const err = new Map();   // id -> why its last try was refused
+  const stopped = [];     // non-order errors are never retried at another position
   for (let landed = true; left.length && landed;) {
     const failed = [];
+    let accepted = 0;
     for (const [id, p] of left) {
-      try { replace(await api("PATCH", "/api/cards/" + id, { lane, pos: p })); err.delete(id); }
-      catch (e) { failed.push([id, p]); err.set(id, e.message); }
+      // A picked blocker entering this lane must get a chance to find its place
+      // before its dependent lands there: across lanes the backend has no pair to
+      // order yet. Same-lane pairs may still need the dependent to move first.
+      if (left.some(([other]) => other !== id && actual.get(other).lane !== lane &&
+          actual.get(id).blocked_by.includes(other) && !actual.get(id).blocking.includes(other))) {
+        failed.push([id, p]); continue;
+      }
+      try {
+        const saved = await api("PATCH", "/api/cards/" + id, { lane, pos: p });
+        actual.set(id, saved); replace(saved); err.delete(id); accepted++;
+      }
+      catch (e) {
+        (orderRefusal(e, id) ? failed : stopped).push([id, p]); err.set(id, e.message);
+      }
     }
-    landed = failed.length < left.length;
+    landed = accepted > 0;
+    if (!landed && failed.length) {
+      // Recompute after every accepted placement. Pending optimistic cards still have
+      // their actual old positions here; they cannot become fictitious landmarks.
+      for (let k = 0; k < failed.length; k++) {
+        const [id, p] = failed[k];
+        for (const candidate of (err.has(id) ? otherSlots(actual, id, lane, p)
+                                           : [p, ...otherSlots(actual, id, lane, p)])) {
+          try {
+            const saved = await api("PATCH", "/api/cards/" + id, { lane, pos: candidate });
+            actual.set(id, saved); replace(saved); err.delete(id);
+            failed.splice(k--, 1); landed = true; break;
+          } catch (e) {
+            err.set(id, e.message);
+            if (!orderRefusal(e, id)) { stopped.push([id, p]); failed.splice(k--, 1); break; }
+          }
+        }
+      }
+    }
     left = failed;
   }
+  left.push(...stopped);
+  drawAfterDrag();
   if (open && was.has(open.id) && !left.some(([id]) => id === open.id)) openCard(open.id);
   if (!left.length) return;
   for (const [id] of left) {     // put them back where they came from
