@@ -666,6 +666,11 @@ by #689; those controls remain available on new-card drafts.
 
 ## Board (`board.html`)
 
+Each board card shows one small or large size pill (#742): case-insensitive size labels
+take precedence (large wins when both exist), otherwise the plan's leading `Size: small`
+or `Size: large` line supplies the judged size. Unknown sizes have no pill. Size labels
+are not repeated as ordinary labels; other labels and stored card data are unchanged.
+
 Six columns, native HTML5 drag & drop (`dragstart` / `dragover` + `preventDefault` /
 `drop` → `PATCH /api/cards/{id}`). Click a card for a detail panel: project and
 assignee side by side (#704), description, then right under it the activity log and

@@ -92,6 +92,36 @@ def add_card(page, title):
 
 # ---------- normal operations ----------
 
+def test_card_size_badge_uses_labels_then_the_planned_size(page):
+    cases = [
+        (["SMALL", "ui"], "Size: large (judged)", "small"),
+        (["small", "LARGE"], "Size: small (judged)", "large"),
+        ([], "Size: small (judged: 3 steps, 5 files)", "small"),
+        ([], "\nSize: LARGE (judged)\n\n## Context", "large"),
+        (["ui"], "", None),
+        ([], "## Context\nSize: large", None),
+    ]
+    ids = []
+    for labels, plan, expected in cases:
+        cid = core.create_card("size", actor="ce", project="Home", labels=labels)["id"]
+        core.update_card(cid, "claude-agent", plan=plan)
+        ids.append(cid)
+    page.evaluate("load()")
+    page.wait_for_selector(f'.card[data-id="{ids[-1]}"]')
+    for cid, (labels, plan, expected) in zip(ids, cases):
+        card = page.locator(f'.card[data-id="{cid}"]')
+        badge = card.locator(".size")
+        assert badge.count() == (1 if expected else 0)
+        if expected:
+            assert badge.inner_text() == expected
+            assert badge.get_attribute("title") == "card size: " + expected
+        assert card.locator(".label").all_text_contents() == [l for l in labels if l == "ui"]
+        assert core.get_card(cid)["labels"] == labels
+    core.update_card(ids[2], "claude-agent", plan="Size: large (replanned)")
+    page.evaluate("load()")
+    page.wait_for_function("id => document.querySelector(`.card[data-id='${id}'] .size`)?.textContent === 'large'", arg=ids[2])
+
+
 def test_add_a_card_from_the_header(page):
     cid = add_card(page, "typed in the box")
     c = core.get_card(cid)
