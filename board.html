@@ -162,6 +162,13 @@
                          min-height: 10lh; max-height: 50lh; width: calc(100% - 14px); }
   /* the plan is long: a fixed 10 lines that scrolls, not sized by its text */
   #panel textarea.plan { height: 10lh; }
+  #panel .plan-fold > summary { cursor: pointer; display: flex; align-items: baseline; gap: 8px; }
+  #panel .plan-fold > summary h3 { display: inline; }
+  #panel .plan-fold > summary::before { content: "▸"; color: var(--dim); }
+  #panel .plan-fold[open] > summary::before { content: "▾"; }
+  #panel .plan-fold > summary::-webkit-details-marker { display: none; }
+  #panel .plan-fold > summary { list-style: none; }
+  #panel .plan-size { color: var(--dim); font-size: 12px; }
   #panel .project { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
   #panel .project button { align-self: flex-start; }
   .close { float: right; margin-left: 10px; }   /* the gap between neighbouring buttons */
@@ -1311,7 +1318,20 @@ function renderPanel() {
     const box = Object.assign(document.createElement("textarea"),
       { value: c.plan, className: "plan" });
     box.onchange = () => patch({ plan: box.value });
-    p.append(field("plan", box));
+    // #738: collapsed until opened; open or closed stays as you left it, on every card
+    const fold = Object.assign(document.createElement("details"),
+      { className: "plan-fold", open: localStorage.getItem("planOpen") === "1" });
+    const head = document.createElement("summary");
+    const lines = c.plan.trimEnd().split("\n").length;
+    head.append(Object.assign(document.createElement("h3"), { textContent: "plan" }),
+      Object.assign(document.createElement("span"), { className: "plan-size",
+        textContent: lines === 1 ? "1 line" : `${lines} lines` }));
+    fold.append(head, box);
+    fold.ontoggle = () => localStorage.setItem("planOpen", fold.open ? "1" : "");
+    const w = document.createElement("div");
+    w.title = FIELD_TIPS.plan;
+    w.append(fold);
+    p.append(w);
   }
   const back = answering && p.querySelector(`input.answer-line[data-q="${answering.q}"]`);
   if (back) {

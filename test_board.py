@@ -1460,6 +1460,7 @@ def test_questions_come_before_comments_and_plan_stays_below_them(page):
     heads = sheet_heads(page, cid)
     assert heads[:7] == ["project", "assignee", "description", "open questions",
                          "activity", "say something", "plan"], heads
+    open_plan(page)
     selectors = ["textarea.desc", ".choice", ".log", ".say-box", "textarea.plan"]
     ys = [page.locator(f"#panel {s}").bounding_box()["y"] for s in selectors]
     assert ys == sorted(ys), "on screen too: description, questions, activity, comments, plan"
@@ -2986,12 +2987,54 @@ def test_a_board_card_shows_its_checklist_progress(page):
     assert core.get_card(cid)["checklist"] == steps
 
 
+def open_plan(page):
+    """#738: the plan starts collapsed; a click on its header opens it."""
+    if not page.eval_on_selector("#panel .plan-fold", "d => d.open"):
+        page.click("#panel .plan-fold > summary")
+    page.wait_for_selector("#panel textarea.plan", state="visible")
+
+
+def test_the_plan_starts_collapsed_and_stays_as_left(page):
+    """#738: a long plan pushed the editor down; it opens on a click, and open or closed
+    carries over to the next card and survives a re-render and a save."""
+    a = core.create_card("a", actor="ce", project="Home", lane="develop")["id"]
+    b = core.create_card("b", actor="ce", project="Home", lane="develop")["id"]
+    core.update_card(a, "claude-agent", plan="## Steps\n1. one\n2. two\n")
+    core.update_card(b, "claude-agent", plan="only step")
+    page.evaluate(f"openCard({a})")
+    page.wait_for_function(f"() => open && open.id === {a}")
+    assert not page.locator("#panel textarea.plan").is_visible(), "collapsed at first"
+    assert page.text_content("#panel .plan-fold > summary h3") == "plan"
+    assert page.inner_text("#panel .plan-size") == "3 lines"
+    open_plan(page)
+    assert page.evaluate("localStorage.getItem('planOpen')") == "1"
+    page.evaluate("renderPanel()")
+    assert page.locator("#panel textarea.plan").is_visible(), "a re-render keeps it open"
+    close_sheet(page)
+    page.evaluate(f"openCard({b})")
+    page.wait_for_function(f"() => open && open.id === {b}")
+    assert page.locator("#panel textarea.plan").is_visible(), "the next card opens it too"
+    assert page.inner_text("#panel .plan-size") == "1 line"
+    page.click("#panel .plan-fold > summary")
+    page.wait_for_selector("#panel textarea.plan", state="hidden")
+    assert page.evaluate("localStorage.getItem('planOpen')") == "", "closed is remembered too"
+    close_sheet(page)
+    page.evaluate(f"openCard({a})")
+    page.wait_for_function(f"() => open && open.id === {a}")
+    assert not page.locator("#panel textarea.plan").is_visible(), "closed on the next card"
+    open_plan(page)
+    type_into(page, "#panel textarea.plan", "edited")
+    wait_saved(page, a, "plan", "edited")
+    assert page.locator("#panel textarea.plan").is_visible(), "still open after the save"
+
+
 def test_the_plan_box_is_ten_lines_whatever_its_text(page):
     cid = core.create_card("p", actor="ce", project="Home")["id"]
     core.update_card(cid, "claude-agent", plan="one line")
     page.evaluate("load()")
     page.click(f'.card[data-id="{cid}"]')
     page.wait_for_function(f"() => open && open.id === {cid}")
+    open_plan(page)
     box = page.locator("#panel textarea.plan")
     lh = box.evaluate("e => parseFloat(getComputedStyle(e).lineHeight)")
     short = box.evaluate("e => e.clientHeight")
