@@ -173,3 +173,4 @@ below are what keep it safe:
 | #704 | Card editors place assignee beside project above description, wrapping on narrow screens; drafts keep lane controls; annotated manual figure and browser saving/layout coverage follow | done — +4 checks, 3 tests updated |
 | #722 | Verify header adds move all to done for displayed cards, matching archive-all project scope and visibility, with failed-move feedback; design, manual and browser coverage follow | done — +4 checks |
 | #730 | Card editors show open questions above activity and comments, keeping plan below; answer/comment preservation, screen order, design and annotated manual coverage follow | done — +2 checks, 2 tests updated |
+| #731 | Agent-created descriptions and requested rewrites use plain language for the owner, preserve intent and keep implementation details in the existing plan or comments; workflow, design and manual follow | done |

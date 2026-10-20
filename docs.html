@@ -81,7 +81,9 @@ board</a> has the details.</p>
   <li data-field="assignee"><b>assignee</b>: who has the card: you, or an agent while it
     works. A card assigned to a person is never taken by an agent.</li>
   <li data-field="description"><b>description</b>: your request: what you want and why. The
-    agent never writes over it.</li>
+    agent leaves it as you wrote it unless you ask for a rewrite. Rewrites and descriptions
+    for cards the agent creates use plain language, keeping your intent and the expected
+    result clear. Implementation details go in the separate plan or activity comments.</li>
   <li data-field="open questions"><b>open questions</b>: what the agent needs you to decide
     before it builds. Each question has a row led by its own line (any other text the agent
     wrote with them shows as plain text; there is no box to edit them): a question
@@ -535,6 +537,11 @@ clear. Pull-request catch-up for cards already in <code>verify</code> still runs
   <li>Every write passes <code>actor</code>, the caller's name, so the log says who did
     what.</li>
   <li>Plans go in <code>plan</code>, never over the person's <code>description</code>.</li>
+  <li>Write descriptions for the person reading the board: what is wanted, why it matters
+    and the expected result. Rewrite an existing description only when asked, preserving
+    its intent and constraints. Keep file paths, test commands and agent instructions in
+    <code>plan</code> or comments; the existing plan carries those details without a hidden
+    field. This applies to idea and blocker cards too.</li>
   <li><code>update_card</code> and <code>comment</code> answer with the whole card, its
     <code>events</code> log included, which a long plan makes costly to read back. Pass
     <code>slim=True</code> when you do not need the card back: the answer is then only
