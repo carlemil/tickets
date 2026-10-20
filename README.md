@@ -52,6 +52,7 @@ tests.
    macOS/Linux `ln -s <this repo>/<folder> ~/.claude/skills/<name>`):
 
        foreach ($s in @{'tickets-start'='skill-start';
+                        'tickets-plan'='skill-plan';
                         'tickets-open-board'='skill-open-board';
                         'tickets-stop'='skill-stop'}.GetEnumerator()) {
            New-Item -ItemType Junction "$HOME\.claude\skills\$($s.Key)" -Target "$PWD\$($s.Value)"
@@ -68,7 +69,7 @@ tests.
 
 ## Skills
 
-Claude Code works the board through three skills, all run from a session opened in the
+Claude Code works the board through four skills, all run from a session opened in the
 project's folder.
 
 | Skill | What it does |
@@ -77,6 +78,8 @@ project's folder.
 | `/tickets-start 10m` | The same, at another interval (`30m`, `1h`; at least `5m`). |
 | `/tickets-start once` | Sets the repo up where needed, then works the board once. |
 | `/tickets-start 12` | Sets the repo up where needed, then works only card 12, once. |
+| `/tickets-plan` | Plans every card in todo and plan on Opus, one agent per card, and moves each plan with no open questions to develop. Never builds. |
+| `/tickets-plan 640-650` | The same for the named cards only (`12`, `12 15`, ranges). |
 | `/tickets-stop` | Stops the loop. Cards already in progress finish. |
 | `/tickets-open-board` | Opens the board in your browser, starting it first if it is down, and prints the link. |
 

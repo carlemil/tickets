@@ -264,7 +264,7 @@ def test_run_md_pins_the_built_check():
     text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
     for needle in ("**BUILT check (#176):**",
                    "`Files changed:` section, one repo-relative path per line",  # the brief
-                   "BUILT → the BUILT check below first",  # runs before the comment and move
+                   "PASS or FAIL → the BUILT check below first",  # before the comment and move
                    "A brief carrying a `build check: MISMATCH` note (#176)",  # the test stage
                    "diff --name-only --no-renames <base>...card/<id>",
                    "status --porcelain",
@@ -347,7 +347,9 @@ def test_run_md_pins_the_targeted_develop_tests():
                    "`tests: targeted (<files>): <summary>`",
                    "`tests: full suite (<why>): <summary>`"):
         assert needle in develop, needle
-    assert "The test stage's full run stays mandatory (#192)" in text
+    # #736: the build runs only covering tests; the check's one full run comes after it
+    assert "never the full suite" in develop
+    assert "The check's full run stays mandatory (#192)" in text
 
 
 def test_run_md_pins_the_dispatcher_deploy():
@@ -387,42 +389,59 @@ def test_claude_md_test_map_is_complete():
         assert os.path.exists(name), name
 
 
-def test_run_md_pins_the_small_card_path():
+def test_run_md_pins_one_session_per_card():
+    # #736 (reverses #190's split and #234): one agent session per card plans, builds and
+    # checks it; the label picks its model for the whole session; behaviour, not wording.
     text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
-    for needle in ("**Card size (#190):**", "Both labels → `large`",
-                   "Labels match case-insensitively",
-                   "Not a git repo → never the one-agent path",
-                   "at most 5 steps", "When unsure: large", "`Size: small (label)`",
-                   "planning and building", "the labels alone pick the plan model",
-                   "for every large card", "unless a label is `large`"):
+    for needle in ("one card session (#736)", "stage `plan+build`", "stage `build`",
+                   "**Card size (#190):**", "both labels → `large`",
+                   "Labels match case-insensitively", "at most 5 steps", "When unsure: large",
+                   "`Size: small (label)`", "planning and building",
+                   "the labels alone pick the session's model"):
         assert needle in text, needle
-    # #187: the small label picks the plan model before spawning; judged small stays on opus
-    # #218: only `large` (or both labels) plans on opus; small or no label plans on sonnet
-    plan_model = text[text.index("- plan: `model:"):text.index("- develop: `model:")]
-    assert plan_model.startswith('- plan: `model: "sonnet"`'), plan_model
-    assert "labelled `large`" in plan_model and '`model: "opus"`' in plan_model
-    assert "both labels count as `large`" in plan_model
-    assert "`small` or no label → `sonnet`" in plan_model
-    assert "Not a git repo → `opus`" in plan_model
-    for needle in ("the labels alone pick the plan model",
-                   "Labels match case-insensitively. Not a git repo → never the one-agent path",
-                   'develop: `model: "sonnet"`',
-                   'test: `model: "opus"`'):
-        assert needle in text, needle
-    assert "this card changes no model" not in text
-    assert 'The subagent gets `model: "opus"`. Its brief' not in text
+    model = text[text.index("**Model per stage"):text.index("**Card size (#190):**")]
+    assert "card session" in model and "labelled `large`" in model
+    assert '`model: "opus"`' in model and '`model: "sonnet"`, for the whole session' in model
+    assert "both labels count as `large`" in model and "Not a git repo → `opus`" in model
+    assert 'test (a card found in `test`, or a check to redo): `model: "opus"`' in model
+    assert "develop: `model:" not in model  # no separate develop agent any more
     plan = text[text.index("### plan"):text.index("### develop")]
-    assert "`STAGE: BUILT`" in plan and "build in the same context" in plan
-    assert "BUILT check (#176)" in plan and "No develop subagent" in plan
-    assert "builds nothing** unless the card is small" in plan
+    assert "build in the same context" in plan and "`RESULT: PASS`" in plan
+    assert "plan-only brief" in plan and "`STAGE: PLANNED`" in plan
+    assert "start the **develop** stage" not in plan and "No develop subagent" not in plan
+    develop = text[text.index("### develop"):text.index("### test")]
+    for needle in ("checks its own build by the test rules", "`code-review` pass as a separate step",
+                   "tested commit: <sha>", "goes straight to ship",
+                   "equals `git -C <repo> rev-parse card/<id>`", "it gets a fresh test stage",
+                   "FAIL → failure; the card stays in `develop`"):
+        assert needle in develop, needle
+    test = text[text.index("### test"):text.index("PASS → (you) ship")]
+    assert "a card session's check after its build" in test and "skips it" in test
+    # the queue leaves a card another session works (a /tickets-plan run) alone
+    queue = text[text.index("## 2. Build the queue"):text.index("## 3. Work the cards")]
+    assert "in flight elsewhere (#736)" in queue and "`stalled` false" in queue
+    # every brief's first line names stage, card and model, for the token report
+    brief = text[text.index("**The brief is the subagent's whole world**"):
+                 text.index("On a card's way out")]
+    assert "`Tickets stage: <stage> #<id> (<model>)`" in brief and "usage_report.py" in brief
+    # the plan skill: Opus, plan-only, todo and plan lanes, labels large, never builds
+    skill = " ".join(open("skill-plan/SKILL.md", encoding="utf-8").read().split())
+    front = skill.split("---")[1]
+    assert "name: tickets-plan" in front and "disable-model-invocation: true" in front
+    for needle in ('`model: "opus"` for every card', "`todo` and `plan`", "640-650",
+                   "**plan-only brief**", "`STAGE: PLANNED`", "`Tickets stage: plan #<id> (opus)`",
+                   "adds the label `large`", "It never builds", "in flight elsewhere",
+                   "run.md", "subagent_type: \"tickets-stage\""):
+        assert needle in skill, needle
+    start = " ".join(open("skill-start/SKILL.md", encoding="utf-8").read().split())
+    assert "~/.claude/skills/tickets-plan" in start and "skill-plan" in start
     docs = open("docs.html", encoding="utf-8").read()
     assert "<code>small</code>" in docs and "<code>large</code>" in docs
     page = " ".join(docs.split())
-    assert "built by its plan agent" in page
-    assert "only a card labelled <code>large</code> is planned on Opus" in page
-    assert "a card judged small without the label is planned and built on Sonnet" in page
-    assert "built on Opus by its plan agent" not in page
-    assert "the plan is written on Opus" not in page
+    for needle in ("/tickets-plan", "skill-plan", "one agent session", "usage_report.py",
+                   "a card labelled <code>large</code> is built and checked on Opus"):
+        assert needle in page, needle
+    assert "built by its plan agent" not in page
 
 
 def test_run_md_pins_lean_board_calls():
@@ -475,8 +494,8 @@ def test_run_md_pins_slim_stage_board_writes():
     assert 'lane="develop", slim=True)`' in post
     assert "`comment(…, slim=True)` the plan saying the card was moved during the run" in post
     # the develop stage's one board write, the checklist tick
-    tick = text[text.index("Its one board write (the plan stage's post came before)"):
-                text.index("(you) After the trimmed check (a person's move wins): BUILT")]
+    tick = text[text.index("Its one board write while building"):
+                text.index("(you) After the trimmed check (a person's move wins): PASS or FAIL")]
     assert 'update_card(checklist=<the full list>, actor="claude-agent", slim=True)' in tick
     # the dispatcher's MCP fallback writes are slim too; its HTTP writes stay the trimmed ones
     lean = text[text.index("### Lean board calls (#186)"):text.index("### Board writes that fail (#147)")]
@@ -539,7 +558,7 @@ def test_run_md_pins_the_base_checkout_check():
     assert "each base-checkout path left alone (#204" in wrap
     # docs.html only: a test reading the README would make README edits non-docs-only (#163)
     page = " ".join(open("docs.html", encoding="utf-8").read().split())
-    assert "Plan, develop and test agents work only in their card's worktree" in page
+    assert "Card sessions and test agents work only in their card's worktree" in page
     assert "every stage keeps its scratch files in a folder of its own" in page
     assert "exact copy of a card's committed work is put back at once" in page
     assert "anything else is left alone and noted on the card" in page

@@ -1,6 +1,6 @@
 ---
 name: tickets-stage
-description: One stage (plan, develop, test, deploy) of a card on the Tickets board, run by the /tickets-start dispatcher. Carries only the tools a stage needs, so its fixed start costs far less than a general-purpose agent's.
+description: One card's work on the Tickets board (a plan, a build-and-check session, a test or a deploy), run by the /tickets-start or /tickets-plan dispatcher. Carries only the tools a stage needs, so its fixed start costs far less than a general-purpose agent's.
 tools: Bash, PowerShell, Read, Edit, Write, Grep, Glob, Skill, ToolSearch, Monitor, mcp__tickets__comment, mcp__tickets__create_card, mcp__tickets__create_user, mcp__tickets__get_card, mcp__tickets__link_cards, mcp__tickets__list_cards, mcp__tickets__list_projects, mcp__tickets__set_activity, mcp__tickets__unlink_cards, mcp__tickets__update_card
 ---
 You run one stage of one card on the Tickets board. The brief you were given is your whole task: follow it exactly and reply in the form it asks for.

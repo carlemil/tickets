@@ -1,6 +1,6 @@
 ---
 name: tickets-start
-description: Work this folder's Tickets board (http://127.0.0.1:8123) — set the folder up as a Tickets project where anything is missing (backend, MCP server, CLAUDE.md rules, the project row), then take every ready card in plan, develop and test through to verify, unattended, every N minutes (default 15m) for as long as this session stays open. Run by hand as /tickets-start in a session opened in the repo's folder; argument an interval (10m, 1h), `once` for a single run, or a card id (#12 or 12) to work only that card once. /tickets-stop stops the loop.
+description: Work this folder's Tickets board (http://127.0.0.1:8123) — set the folder up as a Tickets project where anything is missing (backend, MCP server, CLAUDE.md rules, the project row), then take every ready card in plan, develop and test through to verify (one agent session per card plans, builds and checks it), unattended, every N minutes (default 15m) for as long as this session stays open. Run by hand as /tickets-start in a session opened in the repo's folder; argument an interval (10m, 1h), `once` for a single run, or a card id (#12 or 12) to work only that card once. /tickets-stop stops the loop.
 disable-model-invocation: true
 ---
 
@@ -57,6 +57,11 @@ or its content differs from the repo's, else leave it. Claude Code reads agent d
 when a session starts, so when this wrote the file, say in the summary that a new session
 is needed before runs use it (until then they fall back to `general-purpose`); unchanged →
 one line "stage agent: up to date".
+
+**The plan skill (#736).** `/tickets-plan` plans cards ahead on Opus, so build sessions
+start from a ready plan. No `~/.claude/skills/tickets-plan` → link it to
+`<tickets repo>/skill-plan` the way this skill is linked (Windows: `New-Item -ItemType
+Junction`); it too reaches only new sessions. Present → one line "plan skill: installed".
 
 ## 2. The board's tools
 
@@ -149,6 +154,6 @@ markdown link on a line of its own — `[Open the board](http://127.0.0.1:8123/)
 two lines — the board is worked every <interval> while this session is open, and
 `/tickets-stop` (or closing the session) stops it. If step 2 added the MCP server, say
 runs work over HTTP until a new session picks the tools up. The next move for the
-person: add a card in `todo` and drag it to `plan`; the next tick takes it (after a
-single run: `/tickets-start` again). `/tickets-open-board` opens the board in the
+person: add a card in `todo` and `/tickets-plan` it (or drag it to `plan`); the next tick
+takes it (after a single run: `/tickets-start` again). `/tickets-open-board` opens the board in the
 browser.

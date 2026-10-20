@@ -427,6 +427,27 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
   only when the base moved since the test stage, #156) —
   the owner's calls, #154 and #155: the strong model thinks and checks, the cheaper one
   writes; the split trades one extra read of the code for a cheaper writer.
+- **One session per card (#736, replaces the split above for card work).** A `plan` card
+  gets one background session (`plan+build`) that plans, posts, and with `QUESTIONS: NONE`
+  builds and then checks its build by the test rules (the sized `code-review` as a separate
+  pass, the card check, one full suite run on its last commit), in one context; a `develop`
+  card gets a `build` session that builds and checks. Model for the whole session: `opus`
+  for a card labelled `large` (or both labels), else `sonnet`; a judged size goes only on
+  the plan's `Size:` line. It replies with `review:`, `tests:`, `tested commit: <sha>`,
+  `Files changed:` and `RESULT: PASS|FAIL` (or the STAGE verdicts for questions, blocked,
+  moved, failed). The dispatcher keeps the BUILT check (#176); PASS moves the card to
+  `test`, and it goes straight to ship when the build check is OK, the worktree is clean and
+  `tested commit` is the `card/<id>` head; otherwise (a mismatch, a stale commit, a card
+  found in `test`) a fresh `opus` test stage runs. FAIL leaves the card in `develop`. Checks
+  run side by side in their worktrees; ship, land and deploy stay one card at a time.
+  While building, a session runs only covering tests (#192), never the full suite. The
+  queue skips a card `claude-agent` holds for another session that is not stalled (a
+  `/tickets-plan` run). `/tickets-plan [ids|ranges]` (`skill-plan/`) plans every ready
+  `todo` and `plan` card (or the named ones) with one `opus` agent per card, read-only in
+  the base checkout, plan-only (`STAGE: PLANNED` moves it to `develop`), labelling an
+  unlabelled card it judges large `large`; it never builds. Every brief's first line is
+  `Tickets stage: <stage> #<id> (<model>)`, which `skill-start/usage_report.py` reads from
+  the agents' transcripts to report tokens and weighted cost per card, stage and model.
 - **Landing by pull request (#6).** A project's `land` is `merge` (the default, above) or
   `pr`: then ship also opens a PR with `gh` and stores its URL in the card's `pr`, the
   local merge is skipped (the deploy never merges either), and the merged dot waits for
@@ -550,6 +571,20 @@ here:
   To revisit: compare the next comparable run's per-stage tokens with the #215 baseline
   (above), remembering #218 moved unlabelled plans to sonnet and #217 may lighten the test
   review.
+- *One session per card (#736).* The owner reversed #234 on 2026-10-20 to cut tokens: one
+  context reads the code once for plan, build and check, and the test stage's fixed start
+  and reread go away. The independent review is kept as far as one session allows:
+  `code-review` runs as its own pass over the committed diff, and the dispatcher's BUILT
+  check plus the `tested commit` match still send any gap to a fresh opus test stage.
+  Opus plans come from `/tickets-plan`, run ahead so open questions are answered before a
+  build session starts (a question stops a session). One session for ten cards was weighed
+  and dropped: a context that grows card by card is re-read on every turn, about three
+  times the tokens of ten sessions, unless the cards read the same code. Baseline from the
+  transcripts (`usage_report.py --since 2026-10-01`, cost units weighted to Sonnet input):
+  202 cards, about 2.8M units per card; plan sonnet ~0.63M, plan opus ~0.88M, develop
+  sonnet ~1.7M, test opus ~1.3M per agent. Review it in a week with
+  `usage_report.py --split 2026-10-20 --cards`; if the cost per card has not fallen, or
+  review fixes now land in verify, go back to the split.
 - *No-chips line (#159).* Two haiku agents, #154 and #155, each made a background-task chip
   by accident; #156, with the line in its brief, did not.
 - *Base checkout check (#204).* In the #193 run two stages left copies of their card's edits
