@@ -368,8 +368,10 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
 
 - **Project:** the one whose `path` is the session's folder. Its `instructions` rank
   below the card and above the repo's `CLAUDE.md`, which ranks above the skill.
-- **Queue:** the project's cards in `plan`, then `develop`, then `test`, board order
-  within a lane. Skipped: questions without answers, a non-empty `blocked_by` (a
+- **Queue:** the project's cards in `test`, then `develop`, then `plan` (#737: finish what
+  is closest to done before starting new work, so a resumed run lands nearly done cards
+  first), board order within a lane; a card waiting for the one test slot does not block a
+  free slot for the next card. Skipped: questions without answers, a non-empty `blocked_by` (a
   blocker not yet finished, #62 and #87), a case-insensitive `blocked` label (manual hold,
   #701), assigned to a person. Recheck both holds before every stage, including stalled
   takeovers and cards waiting between stages; leave held cards' lanes, assignments and

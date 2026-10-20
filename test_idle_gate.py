@@ -672,3 +672,13 @@ def test_run_md_pins_stalled_takeover_and_api_error_release():
     assert "never in a hot loop" in failure
     wrap = text[text.index("## 4. Wrap up"):]
     assert "clear your activity" in wrap and "never removed" in wrap
+
+
+def test_run_md_pins_the_queue_order():
+    # #737: closest to done first, so a resumed run lands nearly done cards before new work
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    queue = text[text.index("## 2. Build the queue"):text.index("## 3. Work the cards")]
+    assert "`test`, then `develop`, then `plan`" in queue
+    assert "Order: `plan`, then" not in queue
+    page = " ".join(open("docs.html", encoding="utf-8").read().split())
+    assert "closest to done first" in page

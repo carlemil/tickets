@@ -385,7 +385,9 @@ when a session starts, so a session opened before the board has none until
 <code>/mcp</code> reconnects) it works over the board's web API instead.
 <code>/tickets-start</code> can start the board when you log in, so that rarely happens. It works every
 ready card of that project in <code>plan</code>, <code>develop</code> and <code>test</code>
-through to <code>verify</code>, and writes what it does onto the board as
+through to <code>verify</code>, closest to done first: cards in <code>test</code>, then
+<code>develop</code>, then <code>plan</code>, so a resumed run finishes nearly done work
+before it starts new work. It writes what it does onto the board as
 <code>claude-agent</code>: the plan, comments, the moves, and a new idea card for any
 follow-up it finds. It works up to 2 cards at
 once by default, but only one in <code>test</code> at a time. A project changes the limit with a
