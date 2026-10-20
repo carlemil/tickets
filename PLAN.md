@@ -714,8 +714,9 @@ toggle yet: add one if real boards get crowded.
 No dark-theme colours: the board has no dark theme yet.
 
 The sheet hides an empty field that only an agent fills at that point and keeps every
-field a person fills in by hand at that point (#96). Plan gets its own box and open questions a title with the answer rows
-under the comment box (under the description on a draft) once they hold text; there is no raw questions text box (#572: it duplicated the rows, so questions can no longer be edited by hand in the panel; agents and the API still write them; text in them that is no numbered question or option, a lead-in or a line under a question, shows read-only as `.qnote`, and blank questions show no title) and no "your answers" box (#436): under the questions title each
+field a person fills in by hand at that point (#96). Open questions get a title with answer rows
+directly under the description, above the activity log and comment box (#730), once they hold text.
+Plan keeps its own box below comments. There is no raw questions text box (#572: it duplicated the rows, so questions can no longer be edited by hand in the panel; agents and the API still write them; text in them that is no numbered question or option, a lead-in or a line under a question, shows read-only as `.qnote`, and blank questions show no title) and no "your answers" box (#436): under the questions title each
 one has a row, radios for a question with options and a small one-line input for one without, and
 either writes its `N. <text>` line into `answers` (built on the latest card, so a second pick keeps
 the first, even while the first's PATCH is in flight; an emptied input drops its line; a save's

@@ -33,10 +33,10 @@ MARKERS = [
     ("project", "h3:project"),
     ("assignee", "h3:assignee"),
     ("description", "h3:description"),
+    ("open questions", "h3:open questions"),
     ("activity", "h3:activity"),
     ("say something", "h3:say something"),
     ("plan", "h3:plan"),
-    ("open questions", "h3:open questions"),
     ("checklist", "h3:checklist"),
 ]
 
