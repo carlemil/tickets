@@ -122,10 +122,11 @@ hand coding tasks to an agent on your machine and review what comes back.</p>
 <pre>uv run uvicorn app:app --host 127.0.0.1 --port 8123 --log-config log-config.json</pre>
     On Windows, <code>powershell -NoProfile -File restart-backend.ps1</code> starts or
     restarts it in the background.</li>
-  <li>Link the three skill folders (<code>skill-start</code>, <code>skill-open-board</code>,
-    <code>skill-stop</code>) into <code>~/.claude/skills</code> as
-    <code>tickets-start</code>, <code>tickets-open-board</code> and
-    <code>tickets-stop</code>, once; the README shows the commands. They are links, so a
+  <li>Link the four skill folders (<code>skill-start</code>, <code>skill-plan</code>,
+    <code>skill-open-board</code>, <code>skill-stop</code>) into <code>~/.claude/skills</code> as
+    <code>tickets-start</code>, <code>tickets-plan</code>, <code>tickets-open-board</code> and
+    <code>tickets-stop</code>, once; the README shows the commands (<code>/tickets-start</code>
+    links <code>tickets-plan</code> itself when it is missing). They are links, so a
     change to a skill reaches every session.</li>
   <li>Open a Claude Code session in the folder of the repo you want worked and run
     <code>/tickets-start</code>. It does the rest, fixing only what is missing: it offers to
@@ -199,11 +200,16 @@ the sheet there says so.</p>
 <p><code>todo → plan → develop → test → verify → done</code></p>
 <dl>
   <dt>todo</dt><dd>Your backlog: not started. Move a card on to plan to start it.</dd>
-  <dt>plan</dt><dd>The agent writes a plan and any open questions. A small card is also built by this agent.</dd>
-  <dt>develop</dt><dd>The agent builds it, following the plan and your answers. It runs only the tests that
-    cover what it changed (none for a docs-only change); the full suite is left to the test
-    lane.</dd>
-  <dt>test</dt><dd>The agent reviews the changes and runs the full test suite, whatever the develop lane ran, fixing what it can. The
+  <dt>plan</dt><dd>The agent writes a plan and any open questions. <code>/tickets-plan</code> plans
+    cards here ahead of time; under <code>/tickets-start</code> the same agent session goes on to
+    build and check the card.</dd>
+  <dt>develop</dt><dd>The card's agent session builds it, following the plan and your answers. While
+    building it runs only the tests that cover what it changed (none for a docs-only change);
+    then it checks its own work by the test lane's rules below.</dd>
+  <dt>test</dt><dd>The card waits here to be merged and deployed, one card at a time. A card
+    the session's check already covers goes straight on; any other card (found here, or with a
+    build that does not match what the session said) gets a fresh agent on Opus. The check
+    reviews the changes and runs the full test suite, whatever the develop lane ran, fixing what it can. The
     review is Claude Code's own <code>/code-review</code> on the card's branch, its depth
     follows the size of the change (low for text only, medium for small code, high otherwise;
     lines of Markdown, plain text and this manual do not count, only code lines set it),
@@ -384,38 +390,45 @@ through to <code>verify</code>, and writes what it does onto the board as
 follow-up it finds. It works up to 2 cards at
 once by default, but only one in <code>test</code> at a time. A project changes the limit with a
 line <code>Cards in flight: N</code> in its instructions. More at once finishes a batch sooner;
-fewer spends fewer tokens and causes fewer merge conflicts to rework. A card in <code>plan</code> gets a
-background agent that writes the plan and posts it with its checklist; unless the plan
-has open questions, it moves the card to <code>develop</code>. For a large card it builds nothing: a new
-agent then builds it straight away, in the same worktree and without giving up its
-place among the cards in flight. A small card is planned and built by that one agent in one
-context, which saves the second read of the code; the plan still goes on the card with its
-checklist. The label <code>small</code> or <code>large</code> on a card forces the path (both labels
-mean large); without a label the agent judges after reading the code (at most 5 steps, about 5
-files, no new module, schema, route or tool, and unsure means large) and says so in the plan's
-first line, <code>Size: …</code>. Add the label before the card goes to <code>plan</code>; to
-change the path later, relabel and move the card back to <code>plan</code>. Before a built card goes to <code>test</code>, the dispatcher checks that
-the branch holds the files the build said it changed: a mismatch is noted on the card and
-handed to the test stage, and an empty build fails. Plan, develop and test agents work only in
+fewer spends fewer tokens and causes fewer merge conflicts to rework. Each card gets
+<b>one agent session</b> that does all its remaining work in one context, so the code is read
+once: a card in <code>plan</code> gets a background agent that writes the plan and posts it
+with its checklist; unless the plan has open questions, it moves the card to
+<code>develop</code> and goes on to build it, then checks its own build: Claude Code's
+<code>/code-review</code> as a separate pass over the committed changes, the check against the
+card, and one full test run. A card already in <code>develop</code> gets a session that
+builds and checks it. A passing card moves to <code>test</code> and, once its turn comes, is
+merged and deployed; a failing one stays in <code>develop</code>.
+The label is your per-card model switch: a card labelled <code>large</code> is built and checked
+on Opus for its whole session (both labels count as large); <code>small</code> or no label
+means Sonnet. Without a label the agent still judges the size after reading the code (at most
+5 steps, about 5 files, no new module, schema, route or tool, and unsure means large) and says
+so in the plan's first line, <code>Size: …</code>, but that never changes a running session's
+model.</p>
+<p><b>Planning ahead.</b> <code>/tickets-plan</code> plans every card in <code>todo</code> and
+<code>plan</code> (or only the ones you name: <code>/tickets-plan 640-650</code>,
+<code>/tickets-plan 12 15</code>) with one Opus agent per card, and builds nothing. A plan with
+no open questions moves its card to <code>develop</code>, ready for <code>/tickets-start</code>;
+a card with open questions waits for your answers (<code>/tickets-plan 12</code> replans it). An
+unlabelled card its planner judges large gets the label <code>large</code>, so it is built on
+Opus. Planning first is how you get Opus plans and answered questions before any build starts,
+so a build session never stops on a question.</p>
+<p>Before a built card goes on, the dispatcher checks that
+the branch holds the files the session said it changed, and that its test run was on the
+branch's last commit: a mismatch is noted on the card and sends it to a fresh test agent, and
+an empty build fails. Card sessions and test agents work only in
 their card's worktree, never in the project's own checkout, and every stage keeps its scratch
 files in a folder of its own. After every
 stage the dispatcher checks that checkout for uncommitted changes: a file that is an exact copy
 of a card's committed work is put back at once (nothing is lost, the card's branch has it), so it
 cannot hold up the merge into the base branch; anything else is left alone and noted on the
-card. Every stage gets a new agent with a clean context: a card already in
-<code>develop</code> too, and every card in <code>test</code>, so the test reviews work
-it did not write. The strong model checks: the review in <code>test</code> runs on Opus.
-The plan is written on Sonnet unless you ask for Opus with a label (below). For a large card
-the cheaper Sonnet writes the
-code from the posted plan, whether the card was just planned or you put it in <code>develop</code>
-yourself; reading the code a second time costs less than building on Opus. A small card is
-built by its plan agent, where that second read would cost more than a separate Sonnet build saves. The one
-exception to planning on Sonnet: only a card labelled <code>large</code> is planned on Opus
-(both labels count as large). The model is picked before the plan agent starts, so only the
-label counts: a card judged small without the label is planned and built on Sonnet, and an
-unlabelled card that turns out large was planned on Sonnet and goes to a Sonnet develop agent.
-The label is your per-card switch: add <code>large</code> for Opus, leave it off (or add
-<code>small</code>) for Sonnet. When
+card. A card found in <code>test</code> (an earlier run's, or one you put there) gets a new
+agent on Opus with a clean context, so that test reviews work it did not write.
+<b>Measuring it.</b> Every agent's brief starts with a line naming its stage, card and model,
+and Claude Code keeps each agent's token counts in its transcripts, so measuring costs
+nothing: <code>uv run python skill-start/usage_report.py --split 2026-10-20 --cards</code> in
+the Tickets repo compares the cost per card before and after a day, per stage and model
+(the dispatcher session's own tokens are not counted). When
 the project's deploy instructions are mechanical (a push, fixed restart commands, a file
 classification), the dispatcher deploys it itself and no agent is spawned; only a deploy that
 needs judgement (a phone install, a script whose output decides the next step) goes to a
@@ -436,8 +449,9 @@ context and its tokens down. The stage agents' board writes (the plan post, a ch
 tick, a comment) pass <code>slim=True</code>, so each answers with only the card's id,
 lane and assignee, not the whole card with its event log. A stage agent reads the
 repo's <code>CLAUDE.md</code> whole but the long plan, manual and status files only in the
-sections its change touches, found by search, so each stage starts on fewer tokens. Tests,
-the deploy and the merge into the base branch go one card after another. The status bar
+sections its change touches, found by search, so each stage starts on fewer tokens. Each
+session's check runs in its card's own worktree, side by side; a test agent, the merge into
+the base branch and the deploy go one card after another. The status bar
 shows the card it started last and how many are in flight. A card that passes its tests
 is pushed as <code>card/&lt;id&gt;</code> and then lands the project's way: merged locally
 into the base branch, or opened as a pull request with <code>gh</code>, whose merge the next
@@ -496,8 +510,10 @@ clear. Pull-request catch-up for cards already in <code>verify</code> still runs
     <code>/tickets-open-board</code> opens the board in your browser any time.</li>
   <li>New Card in <code>todo</code>: a title and a clear description of what you want and
     why.</li>
-  <li>Drag it to <code>plan</code> (or create it with "move to plan" instead of "close"),
-    and the next run of <code>/tickets-start</code> takes it.
+  <li>Run <code>/tickets-plan</code> (or <code>/tickets-plan &lt;id&gt;</code>) to plan it on
+    Opus and answer any open questions, or just drag it to <code>plan</code> (or create it
+    with "move to plan" instead of "close"); the next run of <code>/tickets-start</code>
+    takes it, planned or not.
     Watch the status bar and the comments. The plan's steps become the card's checklist and
     the agent ticks each one as it finishes it, so the checklist (and the
     <code>☑ done/total</code> chip on the board card) is its live task list.</li>
