@@ -458,6 +458,13 @@ function statusDots(c) {
 
 function markWorking(d) { d.classList.toggle("working", working.has(+d.dataset.id)); }
 
+function cardSize(c) {
+  const labels = c.labels.map(l => l.toLowerCase());
+  if (labels.includes("large")) return "large";
+  if (labels.includes("small")) return "small";
+  return /^Size:\s*(small|large)\b/i.exec(c.plan.trimStart())?.[1].toLowerCase() || "";
+}
+
 function cardNode(c) {
   const n = document.createElement("div");
   n.className = "card" + (selected.has(c.id) ? " selected" : "");
@@ -473,7 +480,11 @@ function cardNode(c) {
     { className: "pill who", textContent: c.assignee }));
   meta.prepend(workDot(c), ...statusDots(c));
   if (!proj()) meta.append(projectTag(c.project));   // under a project's tab, every card has it
-  for (const l of c.labels) meta.append(Object.assign(document.createElement("span"),
+  const size = cardSize(c);
+  if (size) meta.append(Object.assign(document.createElement("span"),
+    { className: "pill size", textContent: size, title: "card size: " + size }));
+  for (const l of c.labels.filter(l => !["small", "large"].includes(l.toLowerCase())))
+    meta.append(Object.assign(document.createElement("span"),
     { className: "pill label", textContent: l }));
   if (c.checklist.length) meta.append(Object.assign(document.createElement("span"),
     { className: "pill checks",
