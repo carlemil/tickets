@@ -1272,7 +1272,13 @@ function renderPanel() {
   desc.onchange = () => patch({ description: desc.value });
   p.append(field("description", desc));
 
-  // the comments come right under the description (#95): the log with them, then the box.
+  // #730: show decisions before the activity log and comment box.
+  if (c.questions?.trim()) {
+    const rows = document.createElement("div"), lead = questionsLead(c.questions);
+    if (lead) rows.append(Object.assign(document.createElement("p"), { className: "qnote", textContent: lead }));
+    rows.append(...choices(c));
+    p.append(field("open questions", rows));
+  }
   // A card that does not exist yet has no comments, so a draft shows neither (#94).
   if (c.id) {
     p.append(field("activity", renderLog(c.events)));
@@ -1300,21 +1306,12 @@ function renderPanel() {
     p.append(field("say something", cw));
   }
 
-  // the planning round, each shown only once it holds something (#96): the agent writes
-  // plan (its own box) and questions; a person answers in the rows under the questions
-  // title (#572: no raw questions box, the rows show each question, any other text in it
-  // read-only; agents and the API write them)
+  // The plan keeps its own box below comments, hidden until it holds something (#96).
   if (c.plan) {
     const box = Object.assign(document.createElement("textarea"),
       { value: c.plan, className: "plan" });
     box.onchange = () => patch({ plan: box.value });
     p.append(field("plan", box));
-  }
-  if (c.questions?.trim()) {
-    const rows = document.createElement("div"), lead = questionsLead(c.questions);
-    if (lead) rows.append(Object.assign(document.createElement("p"), { className: "qnote", textContent: lead }));
-    rows.append(...choices(c));
-    p.append(field("open questions", rows));
   }
   const back = answering && p.querySelector(`input.answer-line[data-q="${answering.q}"]`);
   if (back) {

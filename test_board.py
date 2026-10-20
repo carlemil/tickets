@@ -1435,13 +1435,16 @@ def test_project_and_assignee_share_the_top_editor_row_and_save(page, draft, wid
     assert card["lane"] == ("plan" if draft else "todo")
 
 
-def test_the_comments_sit_right_under_the_description(page):
+@pytest.mark.parametrize("questions", ["", " \n  "])
+def test_the_comments_sit_right_under_the_description_without_questions(page, questions):
     """#95: the log with its comments, then the comment box, come straight after the
     description -- above the plan round and checklist."""
     cid = core.create_card("plain", actor="ce", project="Home")["id"]
+    core.update_card(cid, "claude-agent", questions=questions)
     core.comment(cid, "claude-agent", "an agent's note")
     heads = sheet_heads(page, cid)
     assert heads[:5] == ["project", "assignee", "description", "activity", "say something"], heads
+    assert "open questions" not in heads
     assert heads.index("checklist") > heads.index("say something"), heads
     desc = page.locator("#panel textarea.desc").bounding_box()
     log = page.locator("#panel .log").bounding_box()
@@ -1450,14 +1453,36 @@ def test_the_comments_sit_right_under_the_description(page):
     assert page.locator("#panel .log li.comment").count() == 1
 
 
-def test_the_comments_come_before_a_planned_cards_plan(page):
+def test_questions_come_before_comments_and_plan_stays_below_them(page):
     cid = core.create_card("planned", actor="ce", project="Home", lane="plan")["id"]
     core.update_card(cid, "claude-agent", plan="## Steps\n1. do it",
                      questions="1. which?", answers="this one")
     heads = sheet_heads(page, cid)
-    assert heads[:5] == ["project", "assignee", "description", "activity", "say something"], heads
-    assert heads[5:7] == ["plan", "open questions"], heads
+    assert heads[:7] == ["project", "assignee", "description", "open questions",
+                         "activity", "say something", "plan"], heads
+    selectors = ["textarea.desc", ".choice", ".log", ".say-box", "textarea.plan"]
+    ys = [page.locator(f"#panel {s}").bounding_box()["y"] for s in selectors]
+    assert ys == sorted(ys), "on screen too: description, questions, activity, comments, plan"
     assert "your answers" not in heads, heads
+
+
+def test_question_answers_and_unsent_comment_survive_rerenders(page):
+    """#730: questions above comments still save and keep the pending comment."""
+    cid = core.create_card("decisions", actor="ce", project="Home", lane="plan")["id"]
+    core.comment(cid, "ce", "existing comment")
+    core.update_card(cid, "claude-agent", plan="do it",
+                     questions="1. Pick?\n  - a\n  - b\n2. Why?")
+    sheet_heads(page, cid)
+    page.fill("#panel .say-box", "unsent comment")
+    human_click(page, "#panel .choice >> nth=0 >> input >> nth=1")
+    wait_saved(page, cid, "answers", "1. b")
+    type_into(page, "#panel .answer-line", "because")
+    wait_saved(page, cid, "answers", "1. b\n2. because")
+    page.evaluate("renderPanel()")
+    assert page.locator("#panel .choice input:checked").count() == 1
+    assert page.locator("#panel .answer-line").input_value() == "because"
+    assert page.locator("#panel .say-box").input_value() == "unsent comment"
+    assert "existing comment" in page.locator("#panel .log").inner_text()
 
 
 def test_a_draft_has_no_comments_under_its_description(page):

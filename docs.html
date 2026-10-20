@@ -84,6 +84,12 @@ board</a> has the details.</p>
     agent leaves it as you wrote it unless you ask for a rewrite. Rewrites and descriptions
     for cards the agent creates use plain language, keeping your intent and the expected
     result clear. Implementation details go in the separate plan or activity comments.</li>
+  <li data-field="open questions"><b>open questions</b>: what the agent needs you to decide
+    before it builds. Each question has a row led by its own line (any other text the agent
+    wrote with them shows as plain text; there is no box to edit them): a question
+    with options gets radio buttons, the agent's pick marked "recommended"; one without gets
+    a small one-line text input. A click or a typed line is your answer, saved at once; the
+    next run replans with them. There is no separate answers box. Hidden while there are none.</li>
   <li data-field="activity"><b>activity</b>: everything that happened to the card and who did
     it, with the comments. Older lines fold away behind "show N earlier"; an agent's comment
     has a "claude's output" box with its whole run.</li>
@@ -92,12 +98,6 @@ board</a> has the details.</p>
     created.</li>
   <li data-field="plan"><b>plan</b>: the agent's plan, written in <code>plan</code>. Its
     steps become the checklist. Hidden until the agent writes one.</li>
-  <li data-field="open questions"><b>open questions</b>: what the agent needs you to decide
-    before it builds. Each question has a row led by its own line (any other text the agent
-    wrote with them shows as plain text; there is no box to edit them): a question
-    with options gets radio buttons, the agent's pick marked "recommended"; one without gets
-    a small one-line text input. A click or a typed line is your answer, saved at once; the
-    next run replans with them. There is no separate answers box. Hidden while there are none.</li>
   <li data-field="checklist"><b>checklist</b>: steps to tick off. The agent ticks its plan's
     steps as it finishes them, and the board card shows done/total.</li>
 </ol>
@@ -258,8 +258,8 @@ again.</p>
   <li>Click a card to open its sheet. Every field saves as soon as you leave it, so there is
     no save button; "close", or a click on the board around the sheet, closes it. The sheet
     starts with project and assignee side by side (stacked on narrow screens), then the
-    description and, right under it, the activity log with its comments and the box to add one; then the plan, the
-    open questions with a row of answers under each, the checklist and "archive".
+    description, open questions with a row of answers under each, the activity log with its
+    comments and the box to add one, then the plan, the checklist and "archive".
     Existing cards hide the lane picker, labels and links (parent and blocks); editing
     other fields keeps those values. Move lanes by dragging on the board, or use "move to done"
     in verify. New-card drafts still offer lane, labels and links when creating the card.
