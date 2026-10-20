@@ -172,3 +172,4 @@ below are what keep it safe:
 | #701 | Queue and pre-stage readiness checks honor linked blockers and case-insensitive blocked labels, including stalled takeovers; idle gate skips manually held queue cards and preserves verify PR catch-up; PLAN.md and docs.html follow | done — +23 checks |
 | #704 | Card editors place assignee beside project above description, wrapping on narrow screens; drafts keep lane controls; annotated manual figure and browser saving/layout coverage follow | done — +4 checks, 3 tests updated |
 | #722 | Verify header adds move all to done for displayed cards, matching archive-all project scope and visibility, with failed-move feedback; design, manual and browser coverage follow | done — +4 checks |
+| #731 | Agent-created descriptions and requested rewrites use plain language for the owner, preserve intent and keep implementation details in the existing plan or comments; workflow, design and manual follow | done |

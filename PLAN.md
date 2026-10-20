@@ -302,6 +302,15 @@ an agent expected to correct itself.
 
 ## The run (`skill-start/run.md`)
 
+**Descriptions are for the owner (#731).** Agent-created card descriptions and rewrites the
+owner requests use plain language: what is wanted, why it matters and the expected result.
+Preserve the owner's intent and constraints, and leave existing descriptions alone unless
+asked to rewrite them. Implementation steps, file paths, test commands and agent handoff
+instructions belong in the existing `plan` field or stage comments; technical terms appear
+in descriptions only when they help the owner understand or decide the request. This also
+applies to idea and blocker descriptions. No hidden field, schema or API change is needed:
+stage briefs already carry both description and plan verbatim.
+
 **Nothing works a card until a person asks.** Work is started by hand: `/tickets-start` in a
 Claude Code session opened in a project's folder. The board is the picture and the
 record — what is queued, what is being worked, what was done, and ideas for what next —
