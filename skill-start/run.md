@@ -122,8 +122,10 @@ needed. Continue passing both description and plan verbatim in stage briefs.
 ## 2. Build the queue
 
 `list_cards(project=…)` (the trimmed queue call, Lean board calls): the cards in `plan`,
-`develop`, `test` (with a card id: just that card, if in those lanes). Order: `plan`, then
-`develop`, then `test`; within a lane, the board's order. Skip, and name in the summary:
+`develop`, `test` (with a card id: just that card, if in those lanes). Order (#737): closest
+to done first, `test`, then `develop`, then `plan`; within a lane, the board's order. A card
+that has to wait for the test slot does not hold the others back: a free slot goes to the
+next card in that order that can start. Skip, and name in the summary:
 - **waiting for answers:** `questions` filled, `answers` empty;
 - **blocked:** `blocked_by` not empty (the server lists unfinished cards with a `blocks` link
   to this one), or a label equal to `blocked` (case-insensitive). Leave the card untouched
