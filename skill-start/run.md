@@ -108,6 +108,17 @@ Priority, highest first: the card's latest comments, the card (`description`, `p
 The **repo** is the git toplevel of the path; the **base** branch is its current branch
 (`git -C <repo> rev-parse --abbrev-ref HEAD`). Not a git repo → cards are planned but fail in develop/test.
 
+### Writing card descriptions (#731)
+
+Write descriptions for the owner: plain language explaining what is wanted, why it matters
+and what the result should look like. This applies to agent-created ideas and blocker cards
+as well as a rewrite the owner requests. Preserve the owner's intent and constraints; do not
+rewrite an existing description unless asked. Keep implementation steps, file paths, test
+commands and agent handoff instructions in the existing `plan` field or stage comments.
+Include technical terms in a description only when the owner needs them to understand or
+decide the request. The separate plan already carries the agent's detail; no hidden field is
+needed. Continue passing both description and plan verbatim in stage briefs.
+
 ## 2. Build the queue
 
 `list_cards(project=…)` (the trimmed queue call, Lean board calls): the cards in `plan`,
