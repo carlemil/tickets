@@ -770,7 +770,7 @@ re-render keeps the text, focus and caret of the answer input being typed in; an
 matching none of a question's options shows under it as "answered: …"). The checklist shows once it has items;
 empty, it shows only on a new card or a card in todo, since from plan on the agent writes
 it from the plan's steps. The pull request link and session button were already shown
-only when set. "plan" is a fixed 10 lines and scrolls. A question may list its choices as indented `- `
+only when set. "plan" is a fixed 10 lines and scrolls, and starts collapsed under a "plan · N lines" header that opens on a click; open or closed is remembered per browser for every card (#738: a long plan pushed the editor down). A question may list its choices as indented `- `
 bullets under it, one suffixed ` (recommended)` — the AskUserQuestion shape, still plain
 text (#4). A choice written as a top-level line is in general numbered as a question of its
 own and gets no radios, so the plan stage's rule is: choices always indented, and re-read
