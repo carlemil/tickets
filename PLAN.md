@@ -368,6 +368,14 @@ optional card id in words. It uses only the existing MCP tools, as `claude-agent
 
 - **Project:** the one whose `path` is the session's folder. Its `instructions` rank
   below the card and above the repo's `CLAUDE.md`, which ranks above the skill.
+- **Tidy the lanes (#767).** Once per run, before the first stage, the dispatcher moves to
+  `done` a card in `plan`, `develop` or `test` whose `card/<id>` branch holds a `#<id> `
+  commit and is merged into the base (in `test` only after its deploy comment; never a card
+  a person moved back after the branch's last commit, which is rework), with `merged=True`
+  and a comment; and moves to `develop` a `plan` card that already has a plan and no
+  questions, so it gets a `build` session instead of being planned again. Held, a person's
+  and in-flight-elsewhere cards are left alone. Landed work left behind in a lane was built
+  again before; an Opus plan from `/tickets-plan` left in `plan` was replanned.
 - **Queue:** the project's cards in `test`, then `develop`, then `plan` (#737: finish what
   is closest to done before starting new work, so a resumed run lands nearly done cards
   first), board order within a lane; a card waiting for the one test slot does not block a

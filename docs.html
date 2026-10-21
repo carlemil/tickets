@@ -388,7 +388,11 @@ and lets it through when a card is ready, the board is down or the folder has no
 down it starts it, and if the session has no board tools (Claude Code connects them only
 when a session starts, so a session opened before the board has none until
 <code>/mcp</code> reconnects) it works over the board's web API instead.
-<code>/tickets-start</code> can start the board when you log in, so that rarely happens. It works every
+<code>/tickets-start</code> can start the board when you log in, so that rarely happens.
+Each run first tidies the lanes: a card whose work is already merged into the base branch
+goes to <code>done</code> (unless you moved it back for rework), and a card in
+<code>plan</code> that already has a plan and no open questions goes to <code>develop</code>,
+so it is built from that plan rather than planned again. It works every
 ready card of that project in <code>plan</code>, <code>develop</code> and <code>test</code>
 through to <code>verify</code>, closest to done first: cards in <code>test</code>, then
 <code>develop</code>, then <code>plan</code>, so a resumed run finishes nearly done work
