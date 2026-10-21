@@ -152,6 +152,29 @@ piece of work; otherwise never work a card twice in one run: once it fails or wa
 done for this run. A card
 with a live refused-write note (the trimmed refused-write check) gets that same write first, not a new stage.
 
+**Tidy the lanes (#767)**, once per run before the first stage, over the queue's cards that
+are not held (blocked), not a person's and not in flight elsewhere:
+- **Already landed → `done`:** a card in `plan`, `develop` or `test` whose `card/<id>` branch
+  has a commit of its own (`git -C <repo> log -1 --format=%h --grep="^#<id> " card/<id>`
+  prints a sha) and is merged (`git -C <repo> branch --merged <base> --list card/<id>` lists
+  it). Never rework: a card a person moved into its lane after the branch's last commit
+  (a `moved` event by anyone but `claude-agent`, later than `git -C <repo> log -1
+  --format=%cI card/<id>`) stays and is worked. A card in `test` qualifies only with a
+  `deployed:` or `deploy skipped:` comment after its land (else the normal flow resumes it). Its worktree, if any, must go cleanly:
+  `git -C <repo> worktree remove <tree>` (no `--force`; will not go → leave the card, say
+  so). Then `comment("already landed: card/<id> is merged into <base> (<sha>); moved to
+  done")` and `update_card(merged=True, lane="done")`, plus `assignee=""` if it was
+  `claude-agent`. With `land` `pr`: the same when `pr` is set and `gh` says `MERGED`.
+- **Planned already → `develop`:** a card in `plan` with a non-empty `plan` and empty
+  `questions` (`Invoke-RestMethod "http://127.0.0.1:8123/api/cards?project=<name>" |
+  ForEach-Object { $_ } | Where-Object lane -eq 'plan' | Select-Object id,assignee,session,
+  stalled,labels,blocked_by,@{n='planned';e={-not [string]::IsNullOrWhiteSpace($_.plan)}},
+  @{n='questions';e={-not [string]::IsNullOrWhiteSpace($_.questions)}}`) →
+  `comment("planned already, no open questions: moved to develop")` and
+  `update_card(lane="develop")`; it then gets a `build` session, not a `plan+build` one. A
+  card with answered questions stays in `plan`: its session replans with the answers.
+The summary names the cards tidied, one line per lane.
+
 Before working the queue, catch up on pull requests: each `verify` card with `pr` set and
 `merged` false, `gh pr view <pr> --json state -q .state`; `MERGED` → `update_card(merged=True)`.
 Failures here are ignored.
@@ -590,7 +613,7 @@ a run's end mid-way). Then:
 - **Ideas:** things the runs noticed but did not do: follow-ups, tech debt, a missing test, a
   next step the plan deferred. One `todo` card each (skip titles already on the board),
   description ending "(idea from #<id>)". Only real ones; none is fine.
-- **Summary** in the chat: moved to verify (with deploy result), waiting for answers, blocked
+- **Summary** in the chat: tidied (#767: landed → done, planned → develop), moved to verify (with deploy result), waiting for answers, blocked
   (and by what), failed (and why), skipped as assigned, ideas opened, and **refused writes**:
   each once, with the card, the write and the permission rule that would let it through (it is
   retried next tick); any background-task chip a stage made by mistake; one line when the

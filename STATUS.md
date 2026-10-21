@@ -178,3 +178,4 @@ below are what keep it safe:
 | #737 | Runs work cards closest to done first (test, then develop, then plan), and a card waiting for the test slot no longer holds a free slot; design and manual follow | done — +1 check |
 | #738 | The card editor shows the plan collapsed under a header with its line count; a click opens it, and open or closed is remembered for every card; design and manual follow | done — +1 check, 2 tests updated |
 | #742 | Board cards show one known small or large size from labels or the plan, preserving other labels; design, manual and browser coverage follow | done — +1 check |
+| #767 | Each run first tidies the lanes: landed work in plan, develop or test goes to done (never rework), and a planned plan card with no questions goes to develop for a build session; design and manual follow | done — +1 check |

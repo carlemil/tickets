@@ -682,3 +682,18 @@ def test_run_md_pins_the_queue_order():
     assert "Order: `plan`, then" not in queue
     page = " ".join(open("docs.html", encoding="utf-8").read().split())
     assert "closest to done first" in page
+
+def test_run_md_pins_the_lane_tidy():
+    # #767: landed work leaves the queue for done; a planned card with no questions skips replanning
+    text = " ".join(open("skill-start/run.md", encoding="utf-8").read().split())
+    queue = text[text.index("## 2. Build the queue"):text.index("## 3. Work the cards")]
+    tidy = queue[queue.index("**Tidy the lanes (#767)**"):]
+    for needle in ('--grep="^#<id> " card/<id>', "branch --merged <base> --list card/<id>",
+                   "Never rework", "`deployed:` or `deploy skipped:`", "no `--force`",
+                   'update_card(merged=True, lane="done")', "empty `questions`",
+                   'update_card(lane="develop")', "answered questions stays in `plan`",
+                   "not a person's", "not in flight elsewhere"):
+        assert needle in tidy, needle
+    assert "tidied (#767" in text[text.index("## 4. Wrap up"):]
+    page = " ".join(open("docs.html", encoding="utf-8").read().split())
+    assert "Each run first tidies the lanes" in page
