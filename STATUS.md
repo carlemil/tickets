@@ -179,3 +179,4 @@ below are what keep it safe:
 | #738 | The card editor shows the plan collapsed under a header with its line count; a click opens it, and open or closed is remembered for every card; design and manual follow | done — +1 check, 2 tests updated |
 | #742 | Board cards show one known small or large size from labels or the plan, preserving other labels; design, manual and browser coverage follow | done — +1 check |
 | #767 | Each run first tidies the lanes: landed work in plan, develop or test goes to done (never rework), and a planned plan card with no questions goes to develop for a build session; design and manual follow | done — +1 check |
+| #823 | The /tickets-start loop stops itself after 12 hours or at the first tick with nothing in plan, develop or test; the idle gate lets such a tick through so the model can delete the job; design and manual follow | done — +3 checks, 3 tests updated |

@@ -133,9 +133,17 @@ same rules. It lives in this session only: closing it stops the loop.
   deferred): a job whose prompt starts with `Tickets loop tick.` → do not start a second;
   say it is already running, at what cadence.
 - Invoke the Skill tool with skill `loop` and args `<interval> <tick prompt>`, the tick
-  prompt being exactly this, with `<tickets repo>` replaced by the path resolved above:
+  prompt being exactly this, with `<tickets repo>` replaced by the path resolved above
+  and `<until>` by the local time 12 hours from now, read from the clock (PowerShell
+  `(Get-Date).AddHours(12).ToString('yyyy-MM-dd HH:mm')`, elsewhere
+  `date -d '+12 hours' '+%Y-%m-%d %H:%M'`, on macOS `date -v+12H '+%Y-%m-%d %H:%M'`):
 
-> Tickets loop tick. Read ${CLAUDE_SKILL_DIR}/run.md and do one run of it in this
+> Tickets loop tick. The loop ends at <until>. First, if <now> is at or past that, or
+> this folder's project has no card in plan, develop or test: CronDelete every job whose
+> prompt starts with "Tickets loop tick." (load CronList and CronDelete with ToolSearch
+> if they are deferred), answer only "tickets: loop stopped, <12 hours up | board
+> empty> (<now>)" and stop; cards still in flight finish as usual. Otherwise read
+> ${CLAUDE_SKILL_DIR}/run.md and do one run of it in this
 > folder, following it exactly, with session id ${CLAUDE_SESSION_ID} and Tickets repo
 > <tickets repo>. If cards from an earlier tick are still in flight in this session
 > (background subagents not yet reported), do not start a new run: answer only
@@ -147,12 +155,18 @@ same rules. It lives in this session only: closing it stops the loop.
 `/loop` runs the first tick right away; write the summary below before that run's own
 output gets long, or after it if the run is already under way.
 
+**When it stops (#823):** after 12 hours at most, or at the first tick that finds plan,
+develop and test empty (cards only in todo, verify or done do not keep it going; an
+empty board on the first tick stops it at once). The idle gate lets such a tick through
+to the model, since only the model can delete the job.
+
 ## 7. Summary
 
 One line per step: ok / fixed (what) / needs you (what). Then the board as a clickable
 markdown link on a line of its own — `[Open the board](http://127.0.0.1:8123/)`. Loop:
-two lines — the board is worked every <interval> while this session is open, and
-`/tickets-stop` (or closing the session) stops it. If step 2 added the MCP server, say
+two lines — the board is worked every <interval> while this session is open, until
+<until> or until plan, develop and test are empty, and `/tickets-stop` (or closing the
+session) stops it sooner. If step 2 added the MCP server, say
 runs work over HTTP until a new session picks the tools up. The next move for the
 person: add a card in `todo` and `/tickets-plan` it (or drag it to `plan`); the next tick
 takes it (after a single run: `/tickets-start` again). `/tickets-open-board` opens the board in the
