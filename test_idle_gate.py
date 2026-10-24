@@ -41,6 +41,7 @@ def card(proj, lane, **fields):
 
 
 def test_an_empty_queue_answers_the_tick_without_the_model(server, proj, here):
+    card(proj, "develop", labels=["blocked"])  # held: the board is not empty (#823)
     card(proj, "todo")
     card(proj, "verify")
     card(proj, "done")
@@ -63,6 +64,7 @@ def test_the_hook_prints_nothing_for_a_prompt_that_is_not_a_tick():
 
 
 def test_an_idle_tick_prints_the_stop_json(server, proj, here, monkeypatch, capsys):
+    card(proj, "test", labels=["blocked"])
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"prompt": TICK, "cwd": here})))
     gate.main(server)
     out = capsys.readouterr().out
@@ -184,10 +186,52 @@ def test_a_pr_project_blocker_in_verify_without_a_pr_keeps_the_gate_idle(server,
 
 
 def test_an_open_pull_request_lets_the_tick_through(server, proj, here):
+    card(proj, "plan", labels=["blocked"])
     card(proj, "verify", pr="https://example.test/pr/1", merged=True)
     assert gate.idle_line(TICK, here, server) is not None
     card(proj, "verify", pr="https://example.test/pr/2")
     assert gate.idle_line(TICK, here, server) is None
+
+
+@pytest.mark.parametrize("others", [[], ["todo"], ["todo", "verify", "done"]])
+def test_an_empty_board_lets_the_tick_through_to_stop_the_loop(server, proj, here, others):
+    """#823: nothing in plan, develop or test ends the loop, which only the model can do."""
+    for lane in others:
+        card(proj, lane)
+    assert gate.idle_line(TICK, here, server) is None
+    held = card(proj, "develop", labels=["blocked"])
+    assert gate.idle_line(TICK, here, server) is not None
+    core.update_card(held, "person", lane="verify")
+    assert gate.idle_line(TICK, here, server) is None
+
+
+def test_a_tick_past_its_deadline_lets_the_tick_through_to_stop_the_loop(server, proj, here,
+                                                                       monkeypatch):
+    """#823: the tick prompt carries the loop's end; at or past it the model stops the loop."""
+    card(proj, "develop", labels=["blocked"])
+    tick = "Tickets loop tick. The loop ends at 2026-10-24 20:00. First, if"
+    clock = {"now": "2026-10-24 19:59"}
+    monkeypatch.setattr(gate, "clock", lambda: clock["now"])
+    assert gate.idle_line(tick, here, server) == "tickets: nothing to do (2026-10-24 19:59)"
+    clock["now"] = "2026-10-24 20:00"
+    assert gate.idle_line(tick, here, server) is None
+    clock["now"] = "2026-10-25 07:15"  # past midnight still compares later
+    assert gate.idle_line(tick, here, server) is None
+    assert gate.idle_line(TICK, here, server) is not None  # no deadline: never expires
+    clock["now"] = "2026-10-24 19:00"  # a garbled deadline is ignored, never trusted
+    assert gate.idle_line(tick.replace("20:00", "8pm"), here, server) is not None
+
+
+def test_skill_md_pins_the_loop_stop():
+    """#823: the tick prompt stops the loop at its deadline or on an empty board."""
+    text = open("skill-start/SKILL.md", encoding="utf-8").read()
+    start = text.index("> Tickets loop tick.")
+    prompt = text[start:text.index("\n\n", start)]
+    assert "The loop ends at <until>" in prompt
+    assert "CronDelete" in prompt and "plan, develop or test" in prompt
+    assert prompt.index("CronDelete") < prompt.index("run.md")  # checked before a run starts
+    assert "AddHours(12)" in text  # <until> is 12 hours on
+    assert re.search(r"loop ends at \(", open("skill-start/idle_gate.py", encoding="utf-8").read())
 
 
 @pytest.fixture

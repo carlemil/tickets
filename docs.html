@@ -143,7 +143,9 @@ hand coding tasks to an agent on your machine and review what comes back.</p>
 <code>~/.claude/settings.json</code> (<code>skill-start/idle_gate.py</code>): when a loop
 tick finds no card a run would take, it stops the tick before the model wakes and shows
 only the "nothing to do" line (the hook returns <code>continue: false</code> with that line
-as the stop reason), so an idle tick costs no tokens. It needs a system
+as the stop reason), so an idle tick costs no tokens. A tick that ends the loop (its
+12 hours are up, or the board is empty) goes through to the model, which deletes the
+loop's job. It needs a system
 <code>python</code> on PATH; without one
 <code>/tickets-start</code> says so and skips it, and idle ticks still work, just not for free.</p>
 <p>The <b>stage agent</b> (<code>skill-start/agents/tickets-stage.md</code>) is what each
@@ -516,8 +518,12 @@ clear. Pull-request catch-up for cards already in <code>verify</code> still runs
     session in the repo's folder, it starts the board if it is down (and offers to start it
     at every logon), registers the MCP server, installs the idle gate, helps write the
     <code>CLAUDE.md</code> rules and creates the project, fixing only what is missing. Then it works the board
-    every 15 minutes (or <code>/tickets-start 10m</code>) for as long as that session stays
-    open, and ends with a link to the board; <code>/tickets-stop</code> stops it.
+    every 15 minutes (or <code>/tickets-start 10m</code>) while that session stays open,
+    for 12 hours at most, and stops by itself as soon as a tick finds nothing in
+    <code>plan</code>, <code>develop</code> or <code>test</code> (cards only in
+    <code>todo</code>, <code>verify</code> or <code>done</code> do not keep it going). It
+    ends with a link to the board; <code>/tickets-stop</code> stops it sooner, and
+    <code>/tickets-start</code> starts it again.
     <code>/tickets-open-board</code> opens the board in your browser any time.</li>
   <li>New Card in <code>todo</code>: a title and a clear description of what you want and
     why.</li>

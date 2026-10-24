@@ -643,6 +643,16 @@ idle loop shows how long ago it last looked. It starts no second loop if one alr
 no project row. Session-only: it ends with the session (or after the 7 days a session
 loop lives). Its summary ends with a clickable link to the board.
 
+The loop stops itself (#823) after 12 hours, or at the first tick whose project has no
+card in plan, develop or test (todo, verify and done do not count, so an open PR in
+verify does not keep it going). The tick prompt carries the deadline as "The loop ends
+at <until>" (local `yyyy-MM-dd HH:mm`, written once when the loop starts), and its first
+step is the check: CronDelete the `Tickets loop tick.` jobs, answer "tickets: loop
+stopped, …", cards in flight finish as usual. Only the model can delete a cron job, so
+the idle gate lets such a tick through instead of answering it: past the prompt's
+deadline (string compare with its own clock, same format) or on an empty board. A tick
+with no deadline in its prompt (a loop started before #823) never expires at the gate.
+
 **`/tickets-open-board` (`skill-open-board/SKILL.md`)**, linked the same way: starts the
 backend if it is down, opens the board in the system browser and prints the link
 (clickable and as a bare URL). The only one of them Claude may invoke by itself.
