@@ -194,15 +194,86 @@ def test_an_open_pull_request_lets_the_tick_through(server, proj, here):
 
 
 @pytest.mark.parametrize("others", [[], ["todo"], ["todo", "verify", "done"]])
-def test_an_empty_board_lets_the_tick_through_to_stop_the_loop(server, proj, here, others):
-    """#823: nothing in plan, develop or test ends the loop, which only the model can do."""
+def test_an_empty_board_is_an_idle_tick(server, proj, here, others):
+    """#1056: nothing in plan, develop or test is idle like held cards: it counts toward the stop."""
     for lane in others:
         card(proj, lane)
-    assert gate.idle_line(TICK, here, server) is None
+    assert gate.idle_line(TICK, here, server) is not None
     held = card(proj, "develop", labels=["blocked"])
     assert gate.idle_line(TICK, here, server) is not None
     core.update_card(held, "person", lane="verify")
-    assert gate.idle_line(TICK, here, server) is None
+    assert gate.idle_line(TICK, here, server) is not None
+
+
+def test_the_second_idle_tick_in_a_row_goes_to_the_model_to_stop(server, proj, here, tmp_path):
+    """#1056: the gate answers the first idle tick, lets the second through with a stop note."""
+    state = str(tmp_path / "state")
+    card(proj, "develop", labels=["blocked"])
+    first = gate.decide(TICK, here, "s1", server, state)
+    assert first["continue"] is False and first["stopReason"].startswith("tickets: nothing to do")
+    second = gate.decide(TICK, here, "s1", server, state)
+    assert second == gate.stop_output()
+    assert "continue" not in second  # the tick reaches the model
+    assert "stop the loop" in second["hookSpecificOutput"]["additionalContext"]
+    assert second["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    # the count restarts after the stop note
+    assert gate.decide(TICK, here, "s1", server, state)["continue"] is False
+
+
+def test_a_busy_tick_resets_the_idle_count(server, proj, here, tmp_path):
+    state = str(tmp_path / "state")
+    held = card(proj, "develop", labels=["blocked"])
+    assert gate.decide(TICK, here, "s1", server, state)["continue"] is False
+    core.update_card(held, "person", labels=[])
+    assert gate.decide(TICK, here, "s1", server, state) is None  # a run takes it
+    core.update_card(held, "person", labels=["blocked"])
+    assert gate.decide(TICK, here, "s1", server, state)["continue"] is False  # count is 1 again
+    assert gate.decide(TICK, here, "s1", server, state) == gate.stop_output()
+
+
+def test_idle_counts_are_per_session(server, proj, here, tmp_path):
+    state = str(tmp_path / "state")
+    card(proj, "plan", questions="1. which?")
+    assert gate.decide(TICK, here, "a", server, state)["continue"] is False
+    assert gate.decide(TICK, here, "b", server, state)["continue"] is False
+    assert gate.decide(TICK, here, "a", server, state) == gate.stop_output()
+    assert gate.decide(TICK, here, "../b", server, state)["continue"] is False  # no path escape
+    assert sorted(os.listdir(state)) == ["___b", "a", "b"]
+
+
+def test_without_a_session_id_the_gate_never_counts(server, proj, here, tmp_path):
+    state = str(tmp_path / "state")
+    card(proj, "develop", labels=["blocked"])
+    for _ in range(3):
+        assert gate.decide(TICK, here, "", server, state)["continue"] is False
+    assert not os.path.exists(state)
+
+
+def test_a_prompt_that_is_not_a_tick_leaves_the_count_alone(server, proj, here, tmp_path):
+    state = str(tmp_path / "state")
+    card(proj, "develop", labels=["blocked"])
+    assert gate.decide(TICK, here, "s1", server, state)["continue"] is False
+    assert gate.decide("fix the bug", here, "s1", server, state) is None
+    assert gate.decide(TICK, here, "s1", server, state) == gate.stop_output()
+
+
+def test_an_unreadable_count_starts_over(server, proj, here, tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "s1").write_text("garbage")
+    card(proj, "develop", labels=["blocked"])
+    assert gate.decide(TICK, here, "s1", server, str(state))["continue"] is False
+    assert (state / "s1").read_text() == "1"
+
+
+def test_the_hook_reads_the_session_id(server, proj, here, monkeypatch, capsys, tmp_path):
+    state = str(tmp_path / "state")
+    card(proj, "develop", labels=["blocked"])
+    for expected in ({"continue", "stopReason"}, {"hookSpecificOutput"}):
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(
+            {"prompt": TICK, "cwd": here, "session_id": "s9"})))
+        gate.main(server, state)
+        assert json.loads(capsys.readouterr().out).keys() == expected
 
 
 def test_a_tick_past_its_deadline_lets_the_tick_through_to_stop_the_loop(server, proj, here,
@@ -223,13 +294,14 @@ def test_a_tick_past_its_deadline_lets_the_tick_through_to_stop_the_loop(server,
 
 
 def test_skill_md_pins_the_loop_stop():
-    """#823: the tick prompt stops the loop at its deadline or on an empty board."""
+    """#823, #1056: the tick prompt stops the loop at its deadline or on the second idle tick."""
     text = open("skill-start/SKILL.md", encoding="utf-8").read()
     start = text.index("> Tickets loop tick.")
     prompt = text[start:text.index("\n\n", start)]
     assert "The loop ends at <until>" in prompt
-    assert "CronDelete" in prompt and "plan, develop or test" in prompt
+    assert "CronDelete" in prompt and "idle gate" in prompt
     assert prompt.index("CronDelete") < prompt.index("run.md")  # checked before a run starts
+    assert "previous tick" in prompt  # the model counts ticks the gate let through
     assert "AddHours(12)" in text  # <until> is 12 hours on
     assert re.search(r"loop ends at \(", open("skill-start/idle_gate.py", encoding="utf-8").read())
 
